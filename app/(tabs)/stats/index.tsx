@@ -69,6 +69,11 @@ const LeaderboardRow = React.memo(function LeaderboardRow({ entry, index, isCurr
   const rankColor = entry.rank === 1 ? colors.gold : entry.rank === 2 ? colors.silver : entry.rank === 3 ? colors.bronze : colors.textMuted;
   const rankBg = entry.rank === 1 ? colors.goldBg : entry.rank === 2 ? colors.silverBg : entry.rank === 3 ? colors.bronzeBg : colors.bgInput;
   const regionColor = entry.region === "MX" ? colors.mxOrange : entry.region === "SF" ? colors.sfBlue : colors.accent;
+  const source = entry.hoursSource === "actual" ? "ACTUAL" : "REPORTED";
+  const sourceColor = source === "ACTUAL" ? colors.terminalGreen : colors.alertYellow;
+  const actual = Number(entry.actualHours) || 0;
+  const reported = Number(entry.reportedHours) || 0;
+  const showBreakdown = actual > 0 && reported > 0 && Math.abs(actual - reported) >= 0.01;
 
   return (
     <View style={[lbStyles.row, {
@@ -92,6 +97,9 @@ const LeaderboardRow = React.memo(function LeaderboardRow({ entry, index, isCurr
           <View style={[lbStyles.regionTag, { backgroundColor: regionColor + '14' }]}>
             <Text style={[lbStyles.regionText, { color: regionColor }]}>{entry.region}</Text>
           </View>
+          <View style={[lbStyles.sourceTag, { backgroundColor: sourceColor + '16' }]}>
+            <Text style={[lbStyles.sourceText, { color: sourceColor }]}>{source}</Text>
+          </View>
         </View>
         <View style={lbStyles.statsRow}>
           <Text style={[lbStyles.statVal, { color: colors.accent }]}>{entry.hoursLogged.toFixed(2)}h</Text>
@@ -100,6 +108,11 @@ const LeaderboardRow = React.memo(function LeaderboardRow({ entry, index, isCurr
           <Text style={[lbStyles.statSep, { color: colors.border }]}>|</Text>
           <Text style={[lbStyles.statVal, { color: colors.textMuted }]}>{entry.completionRate.toFixed(0)}%</Text>
         </View>
+        {showBreakdown && (
+          <Text style={[lbStyles.metaText, { color: colors.textMuted }]}>
+            Actual {actual.toFixed(2)}h | Reported {reported.toFixed(2)}h
+          </Text>
+        )}
       </View>
       <AnimatedBar value={entry.hoursLogged} maxValue={80} color={rankColor} delay={index * 50 + 200} />
     </View>
@@ -115,9 +128,12 @@ const lbStyles = StyleSheet.create({
   name: { fontSize: 14, fontWeight: "600" as const, flex: 1 },
   regionTag: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
   regionText: { fontSize: 9, fontWeight: "700" as const, letterSpacing: 0.5 },
+  sourceTag: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
+  sourceText: { fontSize: 9, fontWeight: "700" as const, letterSpacing: 0.4 },
   statsRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
   statVal: { fontSize: 11, fontWeight: "500" as const },
   statSep: { fontSize: 10 },
+  metaText: { fontSize: 10, marginBottom: 4 },
 });
 
 const ComparisonCard = React.memo(function ComparisonCard({ mxHours, sfHours, mxCompleted, sfCompleted, colors }: {

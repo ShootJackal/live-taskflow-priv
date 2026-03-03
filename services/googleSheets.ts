@@ -489,15 +489,29 @@ function normalizeRegion(region: string): string {
 
 function sanitizeLeaderboard(raw: LeaderboardEntry[]): LeaderboardEntry[] {
   const entries = raw.map((e) => ({
-    ...e,
-    collectorName: normalizeCollectorName(e.collectorName),
-    hoursLogged: toNumber(e.hoursLogged),
-    tasksCompleted: toNumber(e.tasksCompleted),
-    tasksAssigned: toNumber(e.tasksAssigned),
-    completionRate: toNumber(e.completionRate),
-    region: normalizeRegion(e.region),
-    rank: 0,
-  }));
+    const rawActual = toNumber((e as LeaderboardEntry).actualHours);
+    const rawReported = toNumber((e as LeaderboardEntry).reportedHours);
+    const fallbackHours = toNumber(e.hoursLogged);
+    const actualHours = rawActual > 0 ? rawActual : 0;
+    const reportedHours = rawReported > 0 ? rawReported : (actualHours > 0 ? 0 : fallbackHours);
+    const hoursLogged = actualHours > 0 ? actualHours : reportedHours;
+    const source = (e.hoursSource === "actual" || e.hoursSource === "reported")
+      ? e.hoursSource
+      : (actualHours > 0 ? "actual" : "reported");
+    return {
+      ...e,
+      collectorName: normalizeCollectorName(e.collectorName),
+      hoursLogged,
+      actualHours,
+      reportedHours,
+      hoursSource: source,
+      tasksCompleted: toNumber(e.tasksCompleted),
+      tasksAssigned: toNumber(e.tasksAssigned),
+      completionRate: toNumber(e.completionRate),
+      region: normalizeRegion(e.region),
+      rank: 0,
+    };
+  });
   entries.sort((a, b) => b.hoursLogged - a.hoursLogged);
   entries.forEach((e, i) => { e.rank = i + 1; });
   return entries;

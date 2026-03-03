@@ -152,6 +152,9 @@ export interface LeaderboardEntry {
   rank: number;
   collectorName: string;
   hoursLogged: number;
+  reportedHours?: number;
+  actualHours?: number;
+  hoursSource?: "actual" | "reported";
   tasksCompleted: number;
   tasksAssigned: number;
   completionRate: number;

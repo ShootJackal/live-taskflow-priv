@@ -583,9 +583,20 @@ function handleGetLeaderboard(period) {
 
     if (!map[key]) {
       var reg = taggedRegion[key] || (collectorMeta[key] ? collectorMeta[key].region : 'MX');
-      map[key] = { rank: 0, collectorName: collector, hoursLogged: 0, tasksCompleted: 0, tasksAssigned: 0, completionRate: 0, region: reg };
+      map[key] = {
+        rank: 0,
+        collectorName: collector,
+        hoursLogged: 0,
+        reportedHours: 0,
+        actualHours: 0,
+        hoursSource: 'reported',
+        tasksCompleted: 0,
+        tasksAssigned: 0,
+        completionRate: 0,
+        region: reg
+      };
     }
-    map[key].hoursLogged += hours;
+    map[key].reportedHours += hours;
     map[key].tasksAssigned += 1;
     if (isCompleted) map[key].tasksCompleted += 1;
   }
@@ -600,15 +611,16 @@ function handleGetLeaderboard(period) {
         rank: 0,
         collectorName: displayName,
         hoursLogged: 0,
+        reportedHours: 0,
+        actualHours: 0,
+        hoursSource: 'reported',
         tasksCompleted: 0,
         tasksAssigned: 0,
         completionRate: 0,
         region: regionFromCollector
       };
     }
-    if (actualHoursByCollector[ahKey] > map[ahKey].hoursLogged) {
-      map[ahKey].hoursLogged = actualHoursByCollector[ahKey];
-    }
+    map[ahKey].actualHours = Math.max(safeNum(map[ahKey].actualHours), safeNum(actualHoursByCollector[ahKey]));
   }
 
   // For all‑time view (older clients), keep the fallback that uses collectors.hoursUploaded.
@@ -616,11 +628,20 @@ function handleGetLeaderboard(period) {
     for (var ck in collectorMeta) {
       var meta = collectorMeta[ck];
       if (map[ck]) {
-        if (meta.hoursUploaded > map[ck].hoursLogged) {
-          map[ck].hoursLogged = meta.hoursUploaded;
-        }
+        map[ck].actualHours = Math.max(safeNum(map[ck].actualHours), safeNum(meta.hoursUploaded));
       } else if (meta.hoursUploaded > 0) {
-        map[ck] = { rank: 0, collectorName: meta.name, hoursLogged: meta.hoursUploaded, tasksCompleted: 0, tasksAssigned: 0, completionRate: 0, region: meta.region };
+        map[ck] = {
+          rank: 0,
+          collectorName: meta.name,
+          hoursLogged: 0,
+          reportedHours: 0,
+          actualHours: safeNum(meta.hoursUploaded),
+          hoursSource: 'actual',
+          tasksCompleted: 0,
+          tasksAssigned: 0,
+          completionRate: 0,
+          region: meta.region
+        };
       }
     }
   }
@@ -628,8 +649,19 @@ function handleGetLeaderboard(period) {
   var entries = [];
   for (var k in map) {
     var en = map[k];
+    var actual = safeNum(en.actualHours);
+    var reported = safeNum(en.reportedHours);
+    if (actual > 0) {
+      en.hoursLogged = actual;
+      en.hoursSource = 'actual';
+    } else {
+      en.hoursLogged = reported;
+      en.hoursSource = 'reported';
+    }
     if (en.hoursLogged <= 0 && en.tasksAssigned <= 0) continue;
     en.hoursLogged = Math.round(en.hoursLogged * 100) / 100;
+    en.actualHours = Math.round(actual * 100) / 100;
+    en.reportedHours = Math.round(reported * 100) / 100;
     en.completionRate = en.tasksAssigned > 0 ? Math.round(en.tasksCompleted / en.tasksAssigned * 100) : 0;
     entries.push(en);
   }
