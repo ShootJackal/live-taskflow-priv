@@ -123,13 +123,19 @@ function getTaskActualsData() {
 
 function getScriptTodayDate() {
   var now = new Date();
-  var tz = Session.getScriptTimeZone();
-  var parts = Utilities.formatDate(now, tz, 'yyyy,M,d').split(',');
-  return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  try {
+    var tz = Session.getScriptTimeZone();
+    var parts = Utilities.formatDate(now, tz, 'yyyy,M,d').split(',');
+    return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  } catch (e) {
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }
 }
 
 function getWeekStartDate(refDate) {
-  var dt = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate());
+  var base = (refDate instanceof Date) ? refDate : new Date();
+  if (isNaN(base.getTime())) base = new Date();
+  var dt = new Date(base.getFullYear(), base.getMonth(), base.getDate());
   var day = dt.getDay();
   dt.setDate(dt.getDate() - (day === 0 ? 6 : day - 1)); // Monday at 00:00
   return dt;
