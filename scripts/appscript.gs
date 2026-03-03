@@ -47,6 +47,18 @@ var CACHE_CELL_MAX_CHARS = 49000; // Sheets hard limit is ~50000 chars per cell.
 var SUBMIT_DEDUP_WINDOW_MS = 2 * 60 * 1000;
 var SUBMIT_REQUEST_TTL_SECONDS = 6 * 60 * 60;
 var SUBMIT_FINGERPRINT_TTL_SECONDS = 2 * 60;
+var GET_CACHE_TTL_MS = {
+  collectors: 5 * 60 * 1000,
+  tasks: 5 * 60 * 1000,
+  leaderboard: 45 * 1000,
+  collectorStats: 60 * 1000,
+  todayLog: 20 * 1000,
+  recollections: 60 * 1000,
+  fullLog: 30 * 1000,
+  taskActuals: 60 * 1000,
+  adminDashboard: 60 * 1000,
+  activeRigsCount: 30 * 1000
+};
 
 function assertSheetConfig_() {
   var required = ['COLLECTORS', 'TASK_LIST', 'ASSIGNMENTS', 'RS_TASK_REQ', 'APP_CACHE'];
@@ -58,11 +70,98 @@ function assertSheetConfig_() {
   }
 }
 
+function getDoGetCachePolicy(action, params) {
+  var collector = safeStr(params && params.collector);
+  var normCollector = normalizeCollectorKey(collector);
+  var period = safeStr(params && params.period);
+
+  switch (action) {
+    case 'getCollectors':
+      return { key: 'collectors', ttlMs: GET_CACHE_TTL_MS.collectors };
+    case 'getTasks':
+      return { key: 'tasks', ttlMs: GET_CACHE_TTL_MS.tasks };
+    case 'getLeaderboard': {
+      var lbKey = (period === 'thisWeek' || period === 'lastWeek') ? ('leaderboard_' + period) : 'leaderboard';
+      return { key: lbKey, ttlMs: GET_CACHE_TTL_MS.leaderboard };
+    }
+    case 'getCollectorStats':
+      return normCollector ? { key: 'collectorStats_' + normCollector, ttlMs: GET_CACHE_TTL_MS.collectorStats } : null;
+    case 'getTodayLog':
+      return normCollector ? { key: 'todayLog_' + normCollector, ttlMs: GET_CACHE_TTL_MS.todayLog } : null;
+    case 'getRecollections':
+      return { key: 'recollections', ttlMs: GET_CACHE_TTL_MS.recollections };
+    case 'getFullLog':
+      return {
+        key: normCollector ? ('fullLog_' + normCollector) : 'fullLog_all',
+        ttlMs: GET_CACHE_TTL_MS.fullLog
+      };
+    case 'getTaskActualsSheet':
+      return { key: 'taskActuals', ttlMs: GET_CACHE_TTL_MS.taskActuals };
+    case 'getAdminDashboardData':
+      return { key: 'adminDashboard', ttlMs: GET_CACHE_TTL_MS.adminDashboard };
+    case 'getActiveRigsCount':
+      return { key: 'activeRigsCount', ttlMs: GET_CACHE_TTL_MS.activeRigsCount };
+    default:
+      return null;
+  }
+}
+
+function readCacheValueByKey(key) {
+  if (!key) return null;
+  try {
+    var cacheSheet = getOrCreateCacheSheet();
+    var lastRow = cacheSheet.getLastRow();
+    if (lastRow < 2) return null;
+
+    var keyColumn = cacheSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    var rowNo = -1;
+    for (var i = 0; i < keyColumn.length; i++) {
+      if (safeStr(keyColumn[i][0]) === key) {
+        rowNo = i + 2;
+        break;
+      }
+    }
+    if (rowNo < 0) return null;
+
+    var valueAndTs = cacheSheet.getRange(rowNo, 2, 1, 2).getValues()[0];
+    var rawJson = safeStr(valueAndTs[0]);
+    if (!rawJson) return null;
+    var parsed = JSON.parse(rawJson);
+    if (parsed && parsed.skipped === true && parsed.reason === 'payload_too_large') return null;
+
+    return {
+      value: parsed,
+      updatedAtMs: toTimestampMs(valueAndTs[1])
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+function readFreshCacheValue(key, ttlMs) {
+  var entry = readCacheValueByKey(key);
+  if (!entry) return null;
+  if (safeNum(ttlMs) > 0) {
+    if (!entry.updatedAtMs) return null;
+    if ((new Date()).getTime() - entry.updatedAtMs > ttlMs) return null;
+  }
+  return entry.value;
+}
+
 function doGet(e) {
   try {
     assertSheetConfig_();
     var action = (e.parameter.action || '').trim();
     var period = (e.parameter.period || '').trim();
+
+    var cachePolicy = getDoGetCachePolicy(action, e.parameter || {});
+    if (cachePolicy) {
+      var cachedValue = readFreshCacheValue(cachePolicy.key, cachePolicy.ttlMs);
+      if (cachedValue !== null && cachedValue !== undefined) {
+        return jsonOut({ success: true, data: cachedValue });
+      }
+    }
+
     var result;
     switch (action) {
       case 'getCollectors':         result = handleGetCollectors(); break;
@@ -75,8 +174,8 @@ function doGet(e) {
       case 'getTaskActualsSheet':   result = handleGetTaskActuals(); break;
       case 'getAdminDashboardData': result = handleGetAdminDashboard(); break;
       case 'getActiveRigsCount':    result = handleGetActiveRigsCount(); break;
-      case 'getAppCache':           result = handleGetAppCache(); break;
-      case 'refreshCache':          result = handleRefreshCache(e.parameter.collector || ''); break;
+      case 'getAppCache':           result = handleGetAppCache(e.parameter.keys || ''); break;
+      case 'refreshCache':          result = handleRefreshCache(e.parameter.collector || '', e.parameter.scope || ''); break;
       default:
         return jsonOut({ success: false, error: 'Unknown action: ' + action });
     }
@@ -1128,16 +1227,52 @@ function handleGetActiveRigsCount() {
   return result;
 }
 
-function handleGetAppCache() {
+function parseCacheKeys(keysCsv) {
+  var out = [];
+  var seen = {};
+  var parts = safeStr(keysCsv).split(',');
+  for (var i = 0; i < parts.length; i++) {
+    var key = safeStr(parts[i]);
+    if (!key || seen[key]) continue;
+    seen[key] = true;
+    out.push(key);
+  }
+  return out;
+}
+
+function handleGetAppCache(keysCsv) {
   var cacheSheet;
   try { cacheSheet = getOrCreateCacheSheet(); } catch(e) { return {}; }
-  var data = cacheSheet.getDataRange().getValues();
   var cache = {};
-  for (var i = 1; i < data.length; i++) {
-    var key = safeStr(data[i][0]);
+  var lastRow = cacheSheet.getLastRow();
+  if (lastRow < 2) return cache;
+
+  var keyFilter = parseCacheKeys(keysCsv);
+  if (keyFilter.length > 0) {
+    var keyColumn = cacheSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    var rowByKey = {};
+    for (var i = 0; i < keyColumn.length; i++) {
+      var cacheKey = safeStr(keyColumn[i][0]);
+      if (!cacheKey) continue;
+      rowByKey[cacheKey] = i + 2;
+    }
+    for (var k = 0; k < keyFilter.length; k++) {
+      var requestedKey = keyFilter[k];
+      var rowNo = rowByKey[requestedKey];
+      if (!rowNo) continue;
+      var row = cacheSheet.getRange(rowNo, 1, 1, 3).getValues()[0];
+      try { cache[requestedKey] = { value: JSON.parse(row[1]), updatedAt: safeStr(row[2]) }; }
+      catch(e) { cache[requestedKey] = { value: row[1], updatedAt: safeStr(row[2]) }; }
+    }
+    return cache;
+  }
+
+  var data = cacheSheet.getRange(2, 1, lastRow - 1, 3).getValues();
+  for (var d = 0; d < data.length; d++) {
+    var key = safeStr(data[d][0]);
     if (!key) continue;
-    try { cache[key] = { value: JSON.parse(data[i][1]), updatedAt: safeStr(data[i][2]) }; }
-    catch(e) { cache[key] = { value: data[i][1], updatedAt: safeStr(data[i][2]) }; }
+    try { cache[key] = { value: JSON.parse(data[d][1]), updatedAt: safeStr(data[d][2]) }; }
+    catch(e2) { cache[key] = { value: data[d][1], updatedAt: safeStr(data[d][2]) }; }
   }
   return cache;
 }
@@ -1156,14 +1291,24 @@ function writeCache(key, value) {
   try {
     if (!key) return;
     var cacheSheet = getOrCreateCacheSheet();
-    var data = cacheSheet.getDataRange().getValues();
+    var lastRow = cacheSheet.getLastRow();
     var targetRow = -1;
     var existingJson = '';
-    for (var i = 0; i < data.length; i++) {
-      if (safeStr(data[i][0]) === key) {
-        targetRow = i + 1;
-        existingJson = safeStr(data[i][1]);
-        break;
+    if (lastRow >= 1) {
+      var keyColumn = cacheSheet.getRange(1, 1, lastRow, 1).getValues();
+      for (var i = 0; i < keyColumn.length; i++) {
+        if (safeStr(keyColumn[i][0]) === key) {
+          targetRow = i + 1;
+          existingJson = safeStr(cacheSheet.getRange(targetRow, 2).getValue());
+          break;
+        }
+      }
+    }
+
+    if (targetRow === -1) {
+      targetRow = Math.max(lastRow + 1, 2);
+      if (targetRow > lastRow + 1) {
+        cacheSheet.insertRowsAfter(lastRow, targetRow - (lastRow + 1));
       }
     }
 
@@ -1178,29 +1323,35 @@ function writeCache(key, value) {
         size: nextJson.length,
         key: key
       });
-      if (targetRow === -1) targetRow = Math.max(data.length + 1, 2);
       if (existingJson !== oversizedMarker) {
         cacheSheet.getRange(targetRow, 1, 1, 3).setValues([[key, oversizedMarker, new Date().toISOString()]]);
       }
       return;
     }
 
-    if (targetRow !== -1 && existingJson === nextJson) return;
+    if (existingJson === nextJson) return;
 
-    if (targetRow === -1) targetRow = Math.max(data.length + 1, 2);
     cacheSheet.getRange(targetRow, 1, 1, 3).setValues([[key, nextJson, new Date().toISOString()]]);
   } catch(e) {}
 }
 
-function handleRefreshCache(collectorName) {
+function handleRefreshCache(collectorName, scope) {
+  var scopeKey = safeStr(scope).toLowerCase();
+  var isLight = (scopeKey === 'light');
   var collectors = handleGetCollectors();
   var tasks = handleGetTasks();
   var thisWeek = handleGetLeaderboard('thisWeek');
-  var lastWeek = handleGetLeaderboard('lastWeek');
-  var admin = handleGetAdminDashboard();
-  var taskActuals = handleGetTaskActuals();
   var recollections = handleGetRecollections();
   var activeRigs = handleGetActiveRigsCount();
+
+  var lastWeek = [];
+  var admin = null;
+  var taskActuals = [];
+  if (!isLight) {
+    lastWeek = handleGetLeaderboard('lastWeek');
+    admin = handleGetAdminDashboard();
+    taskActuals = handleGetTaskActuals();
+  }
 
   var collectorCached = false;
   if (collectorName) {
@@ -1215,6 +1366,7 @@ function handleRefreshCache(collectorName) {
 
   return {
     cached: true,
+    scope: isLight ? 'light' : 'full',
     collectors: collectors.length,
     tasks: tasks.length,
     leaderboardThisWeek: thisWeek.length,
@@ -1222,6 +1374,7 @@ function handleRefreshCache(collectorName) {
     taskActuals: taskActuals.length,
     recollections: recollections.length,
     activeRigsToday: activeRigs.activeRigsToday,
+    adminCached: !!admin,
     collectorCached: collectorCached
   };
 }

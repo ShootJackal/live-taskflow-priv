@@ -8,10 +8,14 @@ const MAX_POST_RETRY_ATTEMPTS = 0; // Prevent duplicate writes on flaky networks
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 const RETRYABLE_ERROR_PATTERNS = [/network/i, /timeout/i, /abort/i, /failed to fetch/i];
 const RETRY_DELAY_MS = [500, 1500];
+const APP_CACHE_SNAPSHOT_TTL_MS = 20 * 1000;
+const WARM_SERVER_MIN_INTERVAL_MS = 60 * 1000;
 
 const STORAGE_PREFIX = "tf_cache_";
 
 const memoryCache = new Map<string, { data: unknown; ts: number }>();
+const appCacheSnapshotMemo = new Map<string, { data: Record<string, AppCacheEntry>; ts: number }>();
+const warmServerLastRunByKey = new Map<string, number>();
 
 const CACHE_TTL_MS: Record<string, number> = {
   getCollectors: 5 * 60 * 1000,
@@ -325,9 +329,28 @@ async function apiPost(payload: SubmitPayload): Promise<SubmitResponse> {
   throw new Error("Submit failed after retries");
 }
 
-async function getAppCacheSnapshot(): Promise<Record<string, AppCacheEntry> | null> {
+function normalizeCacheKeyList(keys?: string[]): string[] {
+  if (!keys || keys.length === 0) return [];
+  return Array.from(new Set(keys.map((k) => (k ?? "").trim()).filter(Boolean))).sort();
+}
+
+async function getAppCacheSnapshot(keys?: string[]): Promise<Record<string, AppCacheEntry> | null> {
+  const normalizedKeys = normalizeCacheKeyList(keys);
+  const memoKey = normalizedKeys.length > 0 ? normalizedKeys.join("|") : "*";
+  const memo = appCacheSnapshotMemo.get(memoKey);
+  if (memo && Date.now() - memo.ts <= APP_CACHE_SNAPSHOT_TTL_MS) {
+    return memo.data;
+  }
+
+  const params: Record<string, string> = {};
+  if (normalizedKeys.length > 0) {
+    params.keys = normalizedKeys.join(",");
+  }
+
   try {
-    return await apiGet<Record<string, AppCacheEntry>>("getAppCache", {}, false);
+    const snapshot = await apiGet<Record<string, AppCacheEntry>>("getAppCache", params, false);
+    appCacheSnapshotMemo.set(memoKey, { data: snapshot ?? {}, ts: Date.now() });
+    return snapshot ?? {};
   } catch (err) {
     console.log("[API] getAppCache snapshot failed:", err);
     return null;
@@ -385,8 +408,9 @@ export async function fetchTodayLog(collectorName: string): Promise<LogEntry[]> 
   try {
     return await apiGet<LogEntry[]>("getTodayLog", { collector: collectorName }, false);
   } catch (err) {
-    const cache = await getAppCacheSnapshot();
-    const cached = readFirstCachedValue<LogEntry[]>(cache, [collectorCacheKey("todayLog", collectorName)]);
+    const cacheKeys = [collectorCacheKey("todayLog", collectorName)];
+    const cache = await getAppCacheSnapshot(cacheKeys);
+    const cached = readFirstCachedValue<LogEntry[]>(cache, cacheKeys);
     if (Array.isArray(cached)) return cached;
     throw err;
   }
@@ -396,8 +420,9 @@ export async function fetchCollectorStats(collectorName: string): Promise<Collec
   try {
     return await apiGet<CollectorStats>("getCollectorStats", { collector: collectorName });
   } catch (err) {
-    const cache = await getAppCacheSnapshot();
-    const cached = readFirstCachedValue<CollectorStats>(cache, [collectorCacheKey("collectorStats", collectorName)]);
+    const cacheKeys = [collectorCacheKey("collectorStats", collectorName)];
+    const cache = await getAppCacheSnapshot(cacheKeys);
+    const cached = readFirstCachedValue<CollectorStats>(cache, cacheKeys);
     if (cached && typeof cached === "object") return cached;
     throw err;
   }
@@ -411,8 +436,9 @@ export async function fetchRecollections(): Promise<string[]> {
   try {
     return await apiGet<string[]>("getRecollections");
   } catch (err) {
-    const cache = await getAppCacheSnapshot();
-    const cached = readFirstCachedValue<string[]>(cache, ["recollections"]);
+    const cacheKeys = ["recollections"];
+    const cache = await getAppCacheSnapshot(cacheKeys);
+    const cached = readFirstCachedValue<string[]>(cache, cacheKeys);
     if (Array.isArray(cached)) return cached;
     throw err;
   }
@@ -424,8 +450,8 @@ export async function fetchFullLog(collectorName?: string): Promise<FullLogEntry
   try {
     return await apiGet<FullLogEntry[]>("getFullLog", params);
   } catch (err) {
-    const cache = await getAppCacheSnapshot();
     const cacheKey = collectorName ? collectorCacheKey("fullLog", collectorName) : "fullLog_all";
+    const cache = await getAppCacheSnapshot([cacheKey]);
     const cached = readFirstCachedValue<FullLogEntry[]>(cache, [cacheKey]);
     if (Array.isArray(cached)) return cached;
     throw err;
@@ -436,8 +462,9 @@ export async function fetchTaskActualsData(): Promise<TaskActualRow[]> {
   try {
     return await apiGet<TaskActualRow[]>("getTaskActualsSheet");
   } catch (err) {
-    const cache = await getAppCacheSnapshot();
-    const cached = readFirstCachedValue<TaskActualRow[]>(cache, ["taskActuals"]);
+    const cacheKeys = ["taskActuals"];
+    const cache = await getAppCacheSnapshot(cacheKeys);
+    const cached = readFirstCachedValue<TaskActualRow[]>(cache, cacheKeys);
     if (Array.isArray(cached)) return cached;
     throw err;
   }
@@ -447,8 +474,9 @@ export async function fetchAdminDashboardData(): Promise<AdminDashboardData> {
   try {
     return await apiGet<AdminDashboardData>("getAdminDashboardData");
   } catch (err) {
-    const cache = await getAppCacheSnapshot();
-    const cached = readFirstCachedValue<AdminDashboardData>(cache, ["adminDashboard"]);
+    const cacheKeys = ["adminDashboard"];
+    const cache = await getAppCacheSnapshot(cacheKeys);
+    const cached = readFirstCachedValue<AdminDashboardData>(cache, cacheKeys);
     if (cached && typeof cached === "object") return cached;
     throw err;
   }
@@ -462,21 +490,32 @@ export async function fetchActiveRigsCount(): Promise<ActiveRigsCount> {
   try {
     return await apiGet<ActiveRigsCount>("getActiveRigsCount");
   } catch (err) {
-    const cache = await getAppCacheSnapshot();
-    const cached = readFirstCachedValue<ActiveRigsCount>(cache, ["activeRigsCount"]);
+    const cacheKeys = ["activeRigsCount"];
+    const cache = await getAppCacheSnapshot(cacheKeys);
+    const cached = readFirstCachedValue<ActiveRigsCount>(cache, cacheKeys);
     if (cached && typeof cached === "object" && typeof cached.activeRigsToday === "number") return cached;
     throw err;
   }
 }
 
 export async function warmServerCache(collectorName?: string): Promise<void> {
+  const warmKey = normalizeCollectorName(collectorName ?? "").toLowerCase() || "*";
+  const now = Date.now();
+  const lastRun = warmServerLastRunByKey.get(warmKey) ?? 0;
+  if (now - lastRun < WARM_SERVER_MIN_INTERVAL_MS) {
+    return;
+  }
+  warmServerLastRunByKey.set(warmKey, now);
+
   const params: Record<string, string> = {};
   if (collectorName && collectorName.trim().length > 0) {
     params.collector = collectorName.trim();
   }
+  params.scope = "light";
   try {
     await apiGet("refreshCache", params, false);
   } catch (err) {
+    warmServerLastRunByKey.delete(warmKey);
     console.log("[API] warmServerCache failed:", err);
   }
 }
@@ -535,12 +574,11 @@ export async function fetchLeaderboard(period: "thisWeek" | "lastWeek" = "thisWe
 
   try {
     console.log("[API] Attempting _AppCache fallback for leaderboard");
-    const cache = await apiGet<Record<string, AppCacheEntry>>("getAppCache", {}, false);
+    const periodCacheKeys = period === "lastWeek"
+      ? ["leaderboard_lastWeek", "leaderboardLastWeek", "leaderboard"]
+      : ["leaderboard_thisWeek", "leaderboardThisWeek", "leaderboard"];
+    const cache = await getAppCacheSnapshot(periodCacheKeys);
     if (cache) {
-      const periodCacheKeys = period === "lastWeek"
-        ? ["leaderboard_lastWeek", "leaderboardLastWeek", "leaderboard"]
-        : ["leaderboard_thisWeek", "leaderboardThisWeek", "leaderboard"];
-
       for (const key of periodCacheKeys) {
         const candidate = cache[key];
         if (!candidate) continue;
@@ -575,11 +613,13 @@ export function isApiConfigured(): boolean {
 
 export function clearApiCache(): void {
   memoryCache.clear();
+  appCacheSnapshotMemo.clear();
   console.log("[API] Memory cache cleared");
 }
 
 export async function clearAllCaches(): Promise<void> {
   memoryCache.clear();
+  appCacheSnapshotMemo.clear();
   try {
     await clearStorageApiCache();
     console.log("[API] All caches cleared (memory + storage)");
