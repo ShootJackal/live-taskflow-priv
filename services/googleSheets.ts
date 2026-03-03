@@ -507,17 +507,13 @@ export async function fetchLeaderboard(period: "thisWeek" | "lastWeek" = "thisWe
   console.log("[API] fetchLeaderboard — using server endpoint", period);
 
   try {
-    const serverLeaderboard = await apiGet<LeaderboardEntry[]>("getLeaderboard", { period });
+    // Always hit server for leaderboard to avoid stale storage snapshots masking live MX/SF updates.
+    const serverLeaderboard = await apiGet<LeaderboardEntry[]>("getLeaderboard", { period }, false);
     if (serverLeaderboard && serverLeaderboard.length > 0) {
       console.log("[API] Server leaderboard returned", serverLeaderboard.length, "entries");
-      const entries = sanitizeLeaderboard(serverLeaderboard);
-      const hasHours = entries.some(e => e.hoursLogged > 0);
-      if (hasHours) {
-        console.log("[API] Leaderboard has hours data, using it");
-        return entries;
-      }
-      console.log("[API] Leaderboard returned 0 hours for all — trying _AppCache fallback");
+      return sanitizeLeaderboard(serverLeaderboard);
     }
+    console.log("[API] Server leaderboard empty — trying _AppCache fallback");
   } catch (err) {
     console.log("[API] Server getLeaderboard failed:", err);
   }
