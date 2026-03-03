@@ -43,6 +43,7 @@ var TASKFLOW_SHEETS = {
 // Backward-compat alias for projects that still reference SHEETS in old helper snippets.
 var SHEETS = TASKFLOW_SHEETS;
 var SF_RIG_NUMBERS = { '2': true, '3': true, '4': true, '5': true, '6': true, '9': true, '11': true };
+var CACHE_CELL_MAX_CHARS = 49000; // Sheets hard limit is ~50000 chars per cell.
 
 function assertSheetConfig_() {
   var required = ['COLLECTORS', 'TASK_LIST', 'ASSIGNMENTS', 'RS_TASK_REQ', 'APP_CACHE'];
@@ -1032,6 +1033,7 @@ function getOrCreateCacheSheet() {
 
 function writeCache(key, value) {
   try {
+    if (!key) return;
     var cacheSheet = getOrCreateCacheSheet();
     var data = cacheSheet.getDataRange().getValues();
     var targetRow = -1;
@@ -1045,6 +1047,23 @@ function writeCache(key, value) {
     }
 
     var nextJson = JSON.stringify(value);
+    if (!nextJson) return;
+
+    if (nextJson.length > CACHE_CELL_MAX_CHARS) {
+      // Do not fail request flow because cache payload is too large for one cell.
+      var oversizedMarker = JSON.stringify({
+        skipped: true,
+        reason: 'payload_too_large',
+        size: nextJson.length,
+        key: key
+      });
+      if (targetRow === -1) targetRow = Math.max(data.length + 1, 2);
+      if (existingJson !== oversizedMarker) {
+        cacheSheet.getRange(targetRow, 1, 1, 3).setValues([[key, oversizedMarker, new Date().toISOString()]]);
+      }
+      return;
+    }
+
     if (targetRow !== -1 && existingJson === nextJson) return;
 
     if (targetRow === -1) targetRow = Math.max(data.length + 1, 2);
