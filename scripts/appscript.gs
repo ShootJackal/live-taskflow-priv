@@ -348,9 +348,14 @@ function getCollectorActualRows() {
 }
 
 function buildLiveHoursIndex(actualRows) {
+  if (!actualRows || !actualRows.length) {
+    try { actualRows = getCollectorActualRows(); } catch (e) { actualRows = []; }
+  }
+  if (!actualRows || !actualRows.length) return {};
   var index = {};
   for (var i = 0; i < actualRows.length; i++) {
     var row = actualRows[i];
+    if (!row) continue;
     if (!row.rigId || !row.taskKey) continue;
     var key = row.rigId + '|' + row.taskKey;
     if (!index[key]) index[key] = [];
