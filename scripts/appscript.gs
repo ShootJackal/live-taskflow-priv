@@ -42,6 +42,7 @@ var TASKFLOW_SHEETS = {
 };
 // Backward-compat alias for projects that still reference SHEETS in old helper snippets.
 var SHEETS = TASKFLOW_SHEETS;
+var SF_RIG_NUMBERS = { '2': true, '3': true, '4': true, '5': true, '6': true, '9': true, '11': true };
 
 function assertSheetConfig_() {
   var required = ['COLLECTORS', 'TASK_LIST', 'ASSIGNMENTS', 'RS_TASK_REQ', 'APP_CACHE'];
@@ -174,6 +175,15 @@ function normalizeTaskKey(name) {
   return safeStr(name).toLowerCase().replace(/[_\s]+/g, ' ').trim();
 }
 
+function getRegionFromRigId(rigId) {
+  var clean = safeStr(rigId).toLowerCase();
+  if (!clean) return 'MX';
+  if (clean.indexOf('ego-sf') >= 0 || clean.indexOf('-sf') >= 0 || clean.indexOf('sf') === 0) return 'SF';
+  var match = clean.match(/(\d+)(?!.*\d)/); // last numeric suffix in rig id
+  if (match && SF_RIG_NUMBERS[match[1]]) return 'SF';
+  return 'MX';
+}
+
 function getCollectorRows() {
   var data = getSheetData(TASKFLOW_SHEETS.COLLECTORS);
   if (!data || data.length === 0) return [];
@@ -275,7 +285,7 @@ function getCollectorActualRows() {
     }
   }
 
-  var idxDate = 0;
+  var idxDate = -1;
   var idxRig = 1;
   var idxTask = (sheetName === TASKFLOW_SHEETS.CA_PLUS) ? 2 : 4;
   var idxHours = (sheetName === TASKFLOW_SHEETS.CA_PLUS) ? 3 : 5;
@@ -287,7 +297,7 @@ function getCollectorActualRows() {
     var fallbackHoursIdx = -1;
     for (var c = 0; c < headerLower.length; c++) {
       var col = headerLower[c].replace(/\s+/g, ' ').trim();
-      if (idxDate === 0 && (col === 'date' || col.indexOf('date') >= 0)) idxDate = c;
+      if (idxDate === -1 && (col === 'date' || col.indexOf('date') >= 0)) idxDate = c;
       if (col.indexOf('rig') >= 0 || col === 'rigid' || col === 'rig_id') idxRig = c;
       if (col.indexOf('task') >= 0 && col.indexOf('id') < 0) idxTask = c;
       if (col.indexOf('collector') >= 0) idxCollector = c;
@@ -307,6 +317,7 @@ function getCollectorActualRows() {
       idxHours = 5; // Known CA_PLUS default: "Hours Uploaded"
     }
   }
+  if (idxDate < 0) idxDate = 0;
 
   var start = hasHeader ? 1 : 0;
   var out = [];
@@ -502,8 +513,7 @@ function handleGetLeaderboard(period) {
     var cRig = safeStr(collectorsData[i].rigId).toLowerCase();
     var cHours = safeNum(collectorsData[i].hoursUploaded);
     if (cName) {
-      var region = 'MX';
-      if (cRig && (cRig.indexOf('sf') >= 0 || cRig.indexOf('ego-sf') >= 0)) region = 'SF';
+      var region = getRegionFromRigId(cRig);
       collectorMeta[normalizeCollectorKey(cName)] = { name: cName, hoursUploaded: cHours, rig: cRig, region: region };
       if (cRig) {
         rigToName[cRig] = cName;
@@ -529,7 +539,7 @@ function handleGetLeaderboard(period) {
     if (cleanSite === 'SF' || cleanSite === 'MX') {
       taggedRegion[tKey] = cleanSite;
     } else if (tRig) {
-      taggedRegion[tKey] = (tRig.indexOf('sf') >= 0) ? 'SF' : 'MX';
+      taggedRegion[tKey] = getRegionFromRigId(tRig);
     }
 
     if (useWeekly) {
