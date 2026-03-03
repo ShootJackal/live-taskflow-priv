@@ -1,0 +1,21 @@
+# AGENTS.md
+
+## Cursor Cloud specific instructions
+
+### Project overview
+
+TaskFlow is a React Native/Expo (SDK 54) mobile task management app that also runs on the web. It communicates with a Google Sheets backend via Google Apps Script. See `README.md` for full details.
+
+### Running the app
+
+- **Web dev server:** `npm run start-web`
+- **Lint:** `npm run lint` (runs `expo lint` / ESLint)
+- **Type check:** `npx tsc --noEmit` (2 pre-existing TS errors in `app/(tabs)/tools/index.tsx` — these are in the existing codebase)
+
+### Non-obvious caveats
+
+- The default `package.json` scripts now use Expo CLI directly (`npm run start`, `npm run start-web`). If needed, Rork tunnel scripts are still available as `npm run start:rork` and `npm run start-web:rork`.
+- The app expects `EXPO_PUBLIC_GOOGLE_SCRIPT_URL` env var for backend connectivity. Without it, the app loads and renders UI but shows placeholder/mock data. This is acceptable for local development and testing.
+- `npm install` is the default dependency install command.
+- No Docker, no database, no CI/CD, no setup scripts, no pre-commit hooks in this repo.
+- The web export/build can be tested with `npx expo export --platform web`.
