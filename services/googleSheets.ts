@@ -488,7 +488,7 @@ function normalizeRegion(region: string): string {
 }
 
 function sanitizeLeaderboard(raw: LeaderboardEntry[]): LeaderboardEntry[] {
-  const entries = raw.map((e) => ({
+  const entries = raw.map((e) => {
     const rawActual = toNumber((e as LeaderboardEntry).actualHours);
     const rawReported = toNumber((e as LeaderboardEntry).reportedHours);
     const fallbackHours = toNumber(e.hoursLogged);
