@@ -4,6 +4,7 @@ import { Collector, Task, LogEntry, SubmitPayload, SubmitResponse, CollectorStat
 const DEFAULT_SCRIPT_URL = "";
 const REQUEST_TIMEOUT_MS = 25000;
 const MAX_RETRY_ATTEMPTS = 2;
+const MAX_POST_RETRY_ATTEMPTS = 0; // Prevent duplicate writes on flaky networks.
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 const RETRYABLE_ERROR_PATTERNS = [/network/i, /timeout/i, /abort/i, /failed to fetch/i];
 const RETRY_DELAY_MS = [500, 1500];
@@ -274,7 +275,7 @@ async function apiPost(payload: SubmitPayload): Promise<SubmitResponse> {
 
   console.log("[API] POST submit:", JSON.stringify(payload));
 
-  for (let attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt += 1) {
+  for (let attempt = 0; attempt <= MAX_POST_RETRY_ATTEMPTS; attempt += 1) {
     const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
     try {
       const response = await fetch(scriptUrl, {
@@ -290,7 +291,7 @@ async function apiPost(payload: SubmitPayload): Promise<SubmitResponse> {
       if (!response.ok) {
         const text = await response.text();
         const retryable = RETRYABLE_STATUS_CODES.has(response.status);
-        if (retryable && attempt < MAX_RETRY_ATTEMPTS) {
+        if (retryable && attempt < MAX_POST_RETRY_ATTEMPTS) {
           await sleep(RETRY_DELAY_MS[attempt] ?? 1500);
           continue;
         }
@@ -313,12 +314,12 @@ async function apiPost(payload: SubmitPayload): Promise<SubmitResponse> {
     } catch (error) {
       timeout.cancel();
       const message = error instanceof Error ? error.message : "Network error";
-      const canRetry = attempt < MAX_RETRY_ATTEMPTS && shouldRetryError(error);
+      const canRetry = attempt < MAX_POST_RETRY_ATTEMPTS && shouldRetryError(error);
       if (canRetry) {
         await sleep(RETRY_DELAY_MS[attempt] ?? 1500);
         continue;
       }
-      throw new Error(`Submit failed: ${message}`);
+      throw new Error(`Submit failed: ${message}. Refresh log before retrying to avoid duplicate writes.`);
     }
   }
   throw new Error("Submit failed after retries");

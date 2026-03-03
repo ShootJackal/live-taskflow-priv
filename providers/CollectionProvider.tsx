@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import createContextHook from "@nkzw/create-context-hook";
@@ -60,6 +60,7 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   const [notes, setNotes] = useState<string>("");
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const submitInFlightRef = useRef(false);
 
   const configured = isApiConfigured();
 
@@ -267,6 +268,42 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     },
   });
 
+  const createRequestId = useCallback(
+    (actionType: ActionType, taskName: string, hours: number) => {
+      const collectorKey = normalizeCollectorName(selectedCollectorName || "unknown")
+        .toLowerCase()
+        .replace(/\s+/g, "_");
+      const taskKey = normalizeCollectorName(taskName || "unknown")
+        .toLowerCase()
+        .replace(/\s+/g, "_");
+      const roundedHours = Math.round((Number(hours) || 0) * 100) / 100;
+      return [
+        Date.now(),
+        collectorKey,
+        taskKey,
+        actionType.toLowerCase(),
+        roundedHours.toFixed(2),
+        Math.random().toString(36).slice(2, 8),
+      ].join("_");
+    },
+    [selectedCollectorName]
+  );
+
+  const submitOnce = useCallback(
+    async (payload: SubmitPayload) => {
+      if (submitInFlightRef.current) {
+        throw new Error("Submit already in progress");
+      }
+      submitInFlightRef.current = true;
+      try {
+        return await submitMutation.mutateAsync(payload);
+      } finally {
+        submitInFlightRef.current = false;
+      }
+    },
+    [submitMutation]
+  );
+
   const assignTask = useCallback(async () => {
     if (!selectedCollectorName || !selectedTaskName) {
       throw new Error("Select collector and task first");
@@ -275,14 +312,15 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     if (!hours || hours <= 0) {
       throw new Error("Enter hours to log before assigning");
     }
-    await submitMutation.mutateAsync({
+    await submitOnce({
       collector: selectedCollectorName,
       task: selectedTaskName,
       hours,
       actionType: "ASSIGN",
       notes,
+      requestId: createRequestId("ASSIGN", selectedTaskName, hours),
     });
-  }, [selectedCollectorName, selectedTaskName, hoursToLog, notes, submitMutation]);
+  }, [selectedCollectorName, selectedTaskName, hoursToLog, notes, createRequestId, submitOnce]);
 
   const completeTask = useCallback(
     async (taskName: string) => {
@@ -291,29 +329,31 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
       if (!hours || hours <= 0) {
         throw new Error("Enter hours to log before completing");
       }
-      await submitMutation.mutateAsync({
+      await submitOnce({
         collector: selectedCollectorName,
         task: taskName,
         hours,
         actionType: "COMPLETE",
         notes,
+        requestId: createRequestId("COMPLETE", taskName, hours),
       });
     },
-    [selectedCollectorName, hoursToLog, notes, submitMutation]
+    [selectedCollectorName, hoursToLog, notes, createRequestId, submitOnce]
   );
 
   const cancelTask = useCallback(
     async (taskName: string) => {
       if (!selectedCollectorName) throw new Error("No collector selected");
-      await submitMutation.mutateAsync({
+      await submitOnce({
         collector: selectedCollectorName,
         task: taskName,
         hours: 0,
         actionType: "CANCEL",
         notes,
+        requestId: createRequestId("CANCEL", taskName, 0),
       });
     },
-    [selectedCollectorName, notes, submitMutation]
+    [selectedCollectorName, notes, createRequestId, submitOnce]
   );
 
   const addNote = useCallback(
@@ -321,15 +361,16 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
       if (!selectedCollectorName || !notes.trim()) {
         throw new Error("Select collector and enter notes");
       }
-      await submitMutation.mutateAsync({
+      await submitOnce({
         collector: selectedCollectorName,
         task: taskName,
         hours: 0,
         actionType: "NOTE_ONLY",
         notes: notes.trim(),
+        requestId: createRequestId("NOTE_ONLY", taskName, 0),
       });
     },
-    [selectedCollectorName, notes, submitMutation]
+    [selectedCollectorName, notes, createRequestId, submitOnce]
   );
 
   const refreshData = useCallback(() => {

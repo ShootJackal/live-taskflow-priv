@@ -44,6 +44,9 @@ var TASKFLOW_SHEETS = {
 var SHEETS = TASKFLOW_SHEETS;
 var SF_RIG_NUMBERS = { '2': true, '3': true, '4': true, '5': true, '6': true, '9': true, '11': true };
 var CACHE_CELL_MAX_CHARS = 49000; // Sheets hard limit is ~50000 chars per cell.
+var SUBMIT_DEDUP_WINDOW_MS = 2 * 60 * 1000;
+var SUBMIT_REQUEST_TTL_SECONDS = 6 * 60 * 60;
+var SUBMIT_FINGERPRINT_TTL_SECONDS = 2 * 60;
 
 function assertSheetConfig_() {
   var required = ['COLLECTORS', 'TASK_LIST', 'ASSIGNMENTS', 'RS_TASK_REQ', 'APP_CACHE'];
@@ -1148,32 +1151,151 @@ function refreshPostSubmitCaches(collectorName) {
   } catch (e) {}
 }
 
-function handleSubmit(body) {
-  var collector = safeStr(body.collector);
-  var task = safeStr(body.task);
-  var hours = safeNum(body.hours);
-  var actionType = safeStr(body.actionType);
-  var notes = safeStr(body.notes);
-  if (!collector) throw new Error('Missing collector');
-  if (!task) throw new Error('Missing task');
-  if (!actionType) throw new Error('Missing actionType');
+function toTimestampMs(cell) {
+  if (cell instanceof Date) return cell.getTime();
+  if (cell == null || cell === '') return 0;
+  var d;
+  if (typeof cell === 'number') {
+    if (cell > 10000000000) {
+      d = new Date(cell);
+    } else {
+      d = new Date((cell - 25569) * 86400 * 1000);
+    }
+  } else {
+    d = new Date(cell);
+  }
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
 
+function roundedHours(v) {
+  return Math.round(safeNum(v) * 100) / 100;
+}
+
+function buildSubmitFingerprint(collector, task, actionType, hours, notes) {
+  var noteKey = safeStr(notes).replace(/\s+/g, ' ').toLowerCase();
+  if (noteKey.length > 80) noteKey = noteKey.substring(0, 80);
+  return [
+    normalizeCollectorKey(collector),
+    normalizeTaskKey(task),
+    safeStr(actionType).toUpperCase(),
+    roundedHours(hours).toFixed(2),
+    noteKey
+  ].join('|');
+}
+
+function getSubmitCacheInfo(requestId, fingerprint) {
+  if (requestId) {
+    return { key: 'submit:req:' + requestId, ttl: SUBMIT_REQUEST_TTL_SECONDS };
+  }
+  return { key: 'submit:fp:' + fingerprint, ttl: SUBMIT_FINGERPRINT_TTL_SECONDS };
+}
+
+function readCachedSubmitResult(cacheKey) {
+  try {
+    var cached = CacheService.getScriptCache().get(cacheKey);
+    if (!cached) return null;
+    var parsed = JSON.parse(cached);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function writeCachedSubmitResult(cacheInfo, result) {
+  try {
+    CacheService.getScriptCache().put(cacheInfo.key, JSON.stringify(result), cacheInfo.ttl);
+  } catch (e) {}
+}
+
+function findRecentOpenAssignment(data, normCol, normTask, plannedHours, nowMs) {
+  var targetPlanned = roundedHours(plannedHours);
+  for (var i = data.length - 1; i >= 1; i--) {
+    var row = data[i];
+    var rCol = normalizeCollectorKey(row[3]);
+    var rTask = normalizeTaskKey(row[2]);
+    if (rCol !== normCol || rTask !== normTask) continue;
+
+    var rStatus = safeStr(row[6]).toLowerCase();
+    if (rStatus !== 'in progress' && rStatus !== 'partial' && rStatus !== 'assigned') continue;
+
+    var rowTs = toTimestampMs(row[4]); // AssignedDate
+    if (!rowTs) continue;
+    if ((nowMs - rowTs) > SUBMIT_DEDUP_WINDOW_MS) break;
+
+    var rowPlanned = roundedHours(row[5]);
+    if (targetPlanned > 0 && rowPlanned !== targetPlanned) continue;
+
+    return {
+      assignmentId: safeStr(row[0]),
+      status: safeStr(row[6]) || 'In Progress',
+      planned: safeNum(row[5]),
+      logged: safeNum(row[7]),
+      remaining: safeNum(row[8])
+    };
+  }
+  return null;
+}
+
+function findRecentCompletedAssignment(data, normCol, normTask, hours, nowMs) {
+  var targetHours = roundedHours(hours);
+  for (var i = data.length - 1; i >= 1; i--) {
+    var row = data[i];
+    var rCol = normalizeCollectorKey(row[3]);
+    var rTask = normalizeTaskKey(row[2]);
+    if (rCol !== normCol || rTask !== normTask) continue;
+
+    var rStatus = safeStr(row[6]).toLowerCase();
+    if (rStatus !== 'completed' && rStatus !== 'complete') continue;
+
+    var rowTs = Math.max(toTimestampMs(row[9]), toTimestampMs(row[4])); // CompletedDate or AssignedDate
+    if (!rowTs) continue;
+    if ((nowMs - rowTs) > SUBMIT_DEDUP_WINDOW_MS) break;
+
+    var rowLogged = roundedHours(row[7]);
+    var rowPlanned = roundedHours(row[5]);
+    if (targetHours > 0 && rowLogged !== targetHours && rowPlanned !== targetHours) continue;
+
+    return {
+      assignmentId: safeStr(row[0]),
+      status: 'Completed',
+      planned: safeNum(row[5]),
+      logged: safeNum(row[7]),
+      remaining: safeNum(row[8])
+    };
+  }
+  return null;
+}
+
+function handleSubmitCore(collector, task, hours, actionType, notes, normCol, normTask) {
   var sheet = getSheet(TASKFLOW_SHEETS.ASSIGNMENTS);
   var data = sheet.getDataRange().getValues();
+  var now = new Date();
+  var nowMs = now.getTime();
 
   if (actionType === 'ASSIGN') {
+    var dupAssign = findRecentOpenAssignment(data, normCol, normTask, hours, nowMs);
+    if (dupAssign) {
+      return {
+        success: true,
+        duplicate: true,
+        message: 'Assign already logged recently',
+        assignmentId: dupAssign.assignmentId,
+        planned: dupAssign.planned,
+        hours: dupAssign.logged,
+        remaining: dupAssign.remaining,
+        status: dupAssign.status
+      };
+    }
+
     var aId = 'A-' + Date.now();
-    sheet.appendRow([aId, '', task, collector, new Date(), hours, 'In Progress', 0, hours, '', notes, getWeekStart(new Date())]);
+    sheet.appendRow([aId, '', task, collector, now, hours, 'In Progress', 0, hours, '', notes, getWeekStart(now)]);
     refreshPostSubmitCaches(collector);
     return { success: true, message: 'Assigned: ' + task, assignmentId: aId, planned: hours, hours: 0, remaining: hours, status: 'In Progress' };
   }
 
-  var normCol = collector.toLowerCase().replace(/\s+/g, ' ');
-  var normTask = task.toLowerCase().replace(/[_\s]+/g, ' ');
-
   for (var i = data.length - 1; i >= 1; i--) {
-    var rCol = safeStr(data[i][3]).toLowerCase().replace(/\s+/g, ' ');
-    var rTask = safeStr(data[i][2]).toLowerCase().replace(/[_\s]+/g, ' ');
+    var rCol = normalizeCollectorKey(data[i][3]);
+    var rTask = normalizeTaskKey(data[i][2]);
     var rStatus = safeStr(data[i][6]).toLowerCase();
     if (rCol !== normCol || rTask !== normTask) continue;
     if (rStatus !== 'in progress' && rStatus !== 'partial') continue;
@@ -1211,13 +1333,74 @@ function handleSubmit(body) {
   }
 
   if (actionType === 'COMPLETE') {
+    var dupComplete = findRecentCompletedAssignment(data, normCol, normTask, hours, nowMs);
+    if (dupComplete) {
+      return {
+        success: true,
+        duplicate: true,
+        message: 'Complete already logged recently',
+        assignmentId: dupComplete.assignmentId,
+        hours: dupComplete.logged || hours,
+        planned: dupComplete.planned || hours,
+        remaining: dupComplete.remaining,
+        status: dupComplete.status
+      };
+    }
+
     var fId = 'A-' + Date.now();
-    sheet.appendRow([fId, '', task, collector, new Date(), hours, 'Completed', hours, 0, new Date(), notes, getWeekStart(new Date())]);
+    sheet.appendRow([fId, '', task, collector, now, hours, 'Completed', hours, 0, now, notes, getWeekStart(now)]);
     refreshPostSubmitCaches(collector);
     return { success: true, message: 'Completed (new): ' + task, assignmentId: fId, hours: hours, planned: hours, remaining: 0, status: 'Completed' };
   }
 
   return { success: false, message: 'No open assignment found for: ' + task };
+}
+
+function handleSubmit(body) {
+  var collector = safeStr(body.collector);
+  var task = safeStr(body.task);
+  var hours = safeNum(body.hours);
+  var actionType = safeStr(body.actionType);
+  var notes = safeStr(body.notes);
+  var requestId = safeStr(body.requestId);
+  if (!collector) throw new Error('Missing collector');
+  if (!task) throw new Error('Missing task');
+  if (!actionType) throw new Error('Missing actionType');
+
+  var normCol = normalizeCollectorKey(collector);
+  var normTask = normalizeTaskKey(task);
+  var fingerprint = buildSubmitFingerprint(collector, task, actionType, hours, notes);
+  var cacheInfo = getSubmitCacheInfo(requestId, fingerprint);
+  var cached = readCachedSubmitResult(cacheInfo.key);
+  if (cached) {
+    cached.duplicate = true;
+    cached.message = cached.message || 'Duplicate submit ignored';
+    return cached;
+  }
+
+  var lock = LockService.getScriptLock();
+  var lockAcquired = false;
+  try {
+    try {
+      lock.waitLock(5000);
+      lockAcquired = true;
+    } catch (e) {}
+
+    cached = readCachedSubmitResult(cacheInfo.key);
+    if (cached) {
+      cached.duplicate = true;
+      cached.message = cached.message || 'Duplicate submit ignored';
+      return cached;
+    }
+
+    var result = handleSubmitCore(collector, task, hours, actionType, notes, normCol, normTask);
+    writeCachedSubmitResult(cacheInfo, result);
+    return result;
+  } finally {
+    if (lockAcquired) {
+      try { lock.releaseLock(); } catch (e2) {}
+    }
+  }
 }
 
 function getWeekStart(d) {
