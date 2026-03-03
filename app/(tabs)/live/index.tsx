@@ -20,9 +20,19 @@ import { fetchTodayLog, fetchCollectorStats, fetchRecollections, fetchActiveRigs
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const FONT_MONO = DesignTokens.fontMono;
+const SF_RIG_NUMBERS = new Set(["2", "3", "4", "5", "6", "9", "11"]);
 
 function normalizeCollectorName(name: string): string {
   return name.replace(/\s*\(.*?\)\s*$/g, "").trim();
+}
+
+function getRigRegion(rig: unknown): "SF" | "MX" {
+  const key = String(rig ?? "").trim().toUpperCase();
+  if (!key) return "MX";
+  if (key.includes("EGO-SF") || key.includes("-SF") || key.startsWith("SF")) return "SF";
+  const match = key.match(/(\d+)(?!.*\d)/);
+  if (match && SF_RIG_NUMBERS.has(String(Number(match[1])))) return "SF";
+  return "MX";
 }
 
 interface TerminalLine {
@@ -409,7 +419,7 @@ export default function LiveScreen() {
     let mx = 0;
     let sf = 0;
     for (const collector of collectors) {
-      const hasSFRig = collector.rigs.some((rig) => String(rig || "").toUpperCase().includes("SF"));
+      const hasSFRig = (collector.rigs ?? []).some((rig) => getRigRegion(rig) === "SF");
       if (hasSFRig) sf += 1;
       else mx += 1;
     }
@@ -420,10 +430,9 @@ export default function LiveScreen() {
     let mxRigs = 0;
     let sfRigs = 0;
     for (const collector of collectors) {
-      for (const rig of collector.rigs) {
-        const key = String(rig || "").toUpperCase();
-        if (!key) continue;
-        if (key.includes("SF")) sfRigs += 1;
+      for (const rig of (collector.rigs ?? [])) {
+        if (!rig) continue;
+        if (getRigRegion(rig) === "SF") sfRigs += 1;
         else mxRigs += 1;
       }
     }
