@@ -641,7 +641,16 @@ function handleGetLeaderboard(period) {
 }
 
 function handleGetCollectorStats(collectorName) {
-  if (!collectorName) throw new Error('Missing collector');
+  if (!collectorName) {
+    return {
+      collectorName: '',
+      totalAssigned: 0, totalCompleted: 0, totalCanceled: 0,
+      totalLoggedHours: 0, totalPlannedHours: 0,
+      weeklyLoggedHours: 0, weeklyCompleted: 0,
+      activeTasks: 0, completionRate: 0, avgHoursPerTask: 0,
+      topTasks: []
+    };
+  }
   var normName = normalizeCollectorKey(collectorName);
 
   var collectorsData = getCollectorRows();
