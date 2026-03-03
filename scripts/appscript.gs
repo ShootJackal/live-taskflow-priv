@@ -29,7 +29,7 @@
  *   _AppCache:      A=key B=jsonValue C=updatedAt
  */
 
-var SHEETS = {
+var TASKFLOW_SHEETS = {
   COLLECTORS: 'Collectors',
   TASK_LIST: 'TASK_LIST',
   CA_PLUS: 'CA_PLUS',
@@ -86,6 +86,9 @@ function jsonOut(obj) {
 function getSS() { return SpreadsheetApp.getActiveSpreadsheet(); }
 
 function getSheet(name) {
+  if (!name) {
+    throw new Error('Sheet key resolved to undefined. Check for duplicate global vars in Apps Script files (especially SHEETS) and redeploy the latest code.');
+  }
   var sheet = getSS().getSheetByName(name);
   if (!sheet) throw new Error('Sheet not found: ' + name);
   return sheet;
@@ -152,7 +155,7 @@ function normalizeTaskKey(name) {
 
 function getCollectorRigMap() {
   var map = {};
-  var data = getSheetData(SHEETS.COLLECTORS);
+  var data = getSheetData(TASKFLOW_SHEETS.COLLECTORS);
   for (var i = 1; i < data.length; i++) {
     var cName = normalizeCollectorKey(data[i][0]);
     var rig = safeStr(data[i][1]).toLowerCase();
@@ -167,7 +170,7 @@ function getCollectorRigMap() {
  */
 function getCollectorActualRows() {
   var ss = getSS();
-  var sourceSheet = ss.getSheetByName(SHEETS.CA_PLUS) || ss.getSheetByName(SHEETS.CA_TAGGED);
+  var sourceSheet = ss.getSheetByName(TASKFLOW_SHEETS.CA_PLUS) || ss.getSheetByName(TASKFLOW_SHEETS.CA_TAGGED);
   if (!sourceSheet) return [];
 
   var rows = sourceSheet.getDataRange().getValues();
@@ -188,10 +191,10 @@ function getCollectorActualRows() {
 
   var idxDate = 0;
   var idxRig = 1;
-  var idxTask = (sheetName === SHEETS.CA_PLUS) ? 2 : 4;
-  var idxHours = (sheetName === SHEETS.CA_PLUS) ? 3 : 5;
-  var idxCollector = (sheetName === SHEETS.CA_PLUS) ? 4 : 3;
-  var idxSite = (sheetName === SHEETS.CA_PLUS) ? -1 : 2;
+  var idxTask = (sheetName === TASKFLOW_SHEETS.CA_PLUS) ? 2 : 4;
+  var idxHours = (sheetName === TASKFLOW_SHEETS.CA_PLUS) ? 3 : 5;
+  var idxCollector = (sheetName === TASKFLOW_SHEETS.CA_PLUS) ? 4 : 3;
+  var idxSite = (sheetName === TASKFLOW_SHEETS.CA_PLUS) ? -1 : 2;
 
   if (hasHeader) {
     for (var c = 0; c < headerLower.length; c++) {
@@ -337,7 +340,7 @@ function getTaskActualRows() {
 }
 
 function handleGetCollectors() {
-  var data = getSheetData(SHEETS.COLLECTORS);
+  var data = getSheetData(TASKFLOW_SHEETS.COLLECTORS);
   var results = [];
   for (var i = 1; i < data.length; i++) {
     var name = safeStr(data[i][0]);
@@ -358,7 +361,7 @@ function handleGetCollectors() {
 }
 
 function handleGetTasks() {
-  var data = getSheetData(SHEETS.TASK_LIST);
+  var data = getSheetData(TASKFLOW_SHEETS.TASK_LIST);
   var results = [];
   for (var i = 1; i < data.length; i++) {
     var name = safeStr(data[i][0]).replace(/^[\u2705]\s*/, '').trim();
@@ -391,7 +394,7 @@ function getWeekRange(period) {
 function handleGetLeaderboard(period) {
   var useWeekly = (period === 'thisWeek' || period === 'lastWeek');
   var weekRange = useWeekly ? getWeekRange(period) : null;
-  var collectorsData = getSheetData(SHEETS.COLLECTORS);
+  var collectorsData = getSheetData(TASKFLOW_SHEETS.COLLECTORS);
   var rigToName = {};
   var rigToRegion = {};
   var collectorMeta = {};
@@ -439,7 +442,7 @@ function handleGetLeaderboard(period) {
   }
 
   var assignData;
-  try { assignData = getSheetData(SHEETS.ASSIGNMENTS); } catch(e) { assignData = []; }
+  try { assignData = getSheetData(TASKFLOW_SHEETS.ASSIGNMENTS); } catch(e) { assignData = []; }
 
   var map = {};
   for (var a = 1; a < assignData.length; a++) {
@@ -522,7 +525,7 @@ function handleGetCollectorStats(collectorName) {
   if (!collectorName) throw new Error('Missing collector');
   var normName = normalizeCollectorKey(collectorName);
 
-  var collectorsData = getSheetData(SHEETS.COLLECTORS);
+  var collectorsData = getSheetData(TASKFLOW_SHEETS.COLLECTORS);
   var myRig = '', myHoursUploaded = 0;
   for (var c = 1; c < collectorsData.length; c++) {
     if (normalizeCollectorKey(collectorsData[c][0]) === normName) {
@@ -533,7 +536,7 @@ function handleGetCollectorStats(collectorName) {
   }
 
   var assignData;
-  try { assignData = getSheetData(SHEETS.ASSIGNMENTS); } catch(e) { assignData = []; }
+  try { assignData = getSheetData(TASKFLOW_SHEETS.ASSIGNMENTS); } catch(e) { assignData = []; }
 
   var totalAssigned = 0, totalCompleted = 0, totalCanceled = 0;
   var totalLoggedHours = 0, totalPlannedHours = 0;
@@ -607,7 +610,7 @@ function handleGetTodayLog(collectorName) {
   if (!collectorName) return [];
   var normName = normalizeCollectorKey(collectorName);
   var assignData;
-  try { assignData = getSheetData(SHEETS.ASSIGNMENTS); } catch(e) { return []; }
+  try { assignData = getSheetData(TASKFLOW_SHEETS.ASSIGNMENTS); } catch(e) { return []; }
   var collectorRigMap = getCollectorRigMap();
   var liveHoursIndex = buildLiveHoursIndex(getCollectorActualRows());
   var taskActualLookup = buildTaskActualLookup();
@@ -676,7 +679,7 @@ function handleGetRecollections() {
 
 function handleGetFullLog(collectorFilter) {
   var data;
-  try { data = getSheetData(SHEETS.ASSIGNMENTS); } catch(e) { return []; }
+  try { data = getSheetData(TASKFLOW_SHEETS.ASSIGNMENTS); } catch(e) { return []; }
   var normFilter = collectorFilter ? normalizeCollectorKey(collectorFilter) : '';
   var collectorRigMap = getCollectorRigMap();
   var liveHoursIndex = buildLiveHoursIndex(getCollectorActualRows());
@@ -731,7 +734,7 @@ function handleGetTaskActuals() {
   // Build collector data from CA_PLUS (preferred) or CA_TAGGED (fallback)
   var actualRows = getCollectorActualRows();
   var rigToCollectorName = {};
-  var collectorsData = getSheetData(SHEETS.COLLECTORS);
+  var collectorsData = getSheetData(TASKFLOW_SHEETS.COLLECTORS);
   for (var c = 1; c < collectorsData.length; c++) {
     var rig = safeStr(collectorsData[c][1]).toLowerCase();
     var name = safeStr(collectorsData[c][0]);
@@ -816,7 +819,7 @@ function handleGetAdminDashboard() {
     }
   }
 
-  var collectorsData = getSheetData(SHEETS.COLLECTORS);
+  var collectorsData = getSheetData(TASKFLOW_SHEETS.COLLECTORS);
   var totalCollectors = 0, totalHoursUploaded = 0;
   var collectorSummary = [];
   for (var c = 1; c < collectorsData.length; c++) {
@@ -832,7 +835,7 @@ function handleGetAdminDashboard() {
   }
 
   var reqData;
-  try { reqData = getSheetData(SHEETS.RS_TASK_REQ); } catch(e) { reqData = []; }
+  try { reqData = getSheetData(TASKFLOW_SHEETS.RS_TASK_REQ); } catch(e) { reqData = []; }
   var taskReqs = [];
   for (var r = 1; r < reqData.length; r++) {
     var rn = safeStr(reqData[r][0]);
@@ -891,9 +894,9 @@ function handleGetAppCache() {
 
 function getOrCreateCacheSheet() {
   var ss = getSS();
-  var sheet = ss.getSheetByName(SHEETS.APP_CACHE);
+  var sheet = ss.getSheetByName(TASKFLOW_SHEETS.APP_CACHE);
   if (!sheet) {
-    sheet = ss.insertSheet(SHEETS.APP_CACHE);
+    sheet = ss.insertSheet(TASKFLOW_SHEETS.APP_CACHE);
     sheet.getRange(1, 1, 1, 3).setValues([['key', 'jsonValue', 'updatedAt']]);
   }
   return sheet;
@@ -976,7 +979,7 @@ function handleSubmit(body) {
   if (!task) throw new Error('Missing task');
   if (!actionType) throw new Error('Missing actionType');
 
-  var sheet = getSheet(SHEETS.ASSIGNMENTS);
+  var sheet = getSheet(TASKFLOW_SHEETS.ASSIGNMENTS);
   var data = sheet.getDataRange().getValues();
 
   if (actionType === 'ASSIGN') {
