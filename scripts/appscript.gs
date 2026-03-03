@@ -119,6 +119,14 @@ function getWeekStartDate(refDate) {
 
 function safeStr(v) { return String(v == null ? '' : v).trim(); }
 function safeNum(v) { var n = Number(v); return isFinite(n) ? n : 0; }
+function safeHours(v) {
+  if (v instanceof Date) return 0;
+  var n = Number(v);
+  if (!isFinite(n)) return 0;
+  // Guard against accidental date serials/timestamps being treated as hours.
+  if (Math.abs(n) > 10000) return 0;
+  return n;
+}
 
 /** Normalize cell value to a Date (for comparison). Returns null if invalid. */
 function toDateSafe(cell) {
@@ -247,19 +255,85 @@ function getLiveHoursForAssignment(liveIndex, rigId, taskName, sinceDate) {
 
 function buildTaskActualLookup() {
   var map = {};
-  var rows;
-  try { rows = getTaskActualsData(); } catch(e) { rows = []; }
-  for (var i = 1; i < rows.length; i++) {
-    var taskName = safeStr(rows[i][1]);
+  var rows = getTaskActualRows();
+  for (var i = 0; i < rows.length; i++) {
+    var taskName = rows[i].taskName;
     if (!taskName) continue;
     var key = normalizeTaskKey(taskName);
     map[key] = {
-      collectedHours: Math.round(safeNum(rows[i][2]) * 100) / 100,
-      goodHours: Math.round(safeNum(rows[i][3]) * 100) / 100,
-      remainingHours: Math.round(safeNum(rows[i][5]) * 100) / 100
+      collectedHours: Math.round(safeHours(rows[i].collectedHours) * 100) / 100,
+      goodHours: Math.round(safeHours(rows[i].goodHours) * 100) / 100,
+      remainingHours: Math.round(safeHours(rows[i].remainingHours) * 100) / 100
     };
   }
   return map;
+}
+
+function getTaskActualRows() {
+  var data;
+  try { data = getTaskActualsData(); } catch(e) { data = []; }
+  if (!data || data.length === 0) return [];
+
+  var header = data[0] || [];
+  var headerLower = [];
+  for (var h = 0; h < header.length; h++) headerLower.push(safeStr(header[h]).toLowerCase());
+  var hasHeader = false;
+  for (var hh = 0; hh < headerLower.length; hh++) {
+    var hv = headerLower[hh];
+    if (
+      hv.indexOf('task') >= 0 ||
+      hv.indexOf('collected') >= 0 ||
+      hv.indexOf('good') >= 0 ||
+      hv.indexOf('remaining') >= 0 ||
+      hv.indexOf('status') >= 0 ||
+      hv.indexOf('redash') >= 0
+    ) {
+      hasHeader = true;
+      break;
+    }
+  }
+
+  var idx = {
+    taskId: 0,
+    taskName: 1,
+    collectedHours: 2,
+    goodHours: 3,
+    status: 4,
+    remainingHours: 5,
+    lastRedash: 10
+  };
+
+  if (hasHeader) {
+    for (var c = 0; c < headerLower.length; c++) {
+      var col = headerLower[c].replace(/\s+/g, '');
+      if (col === 'taskid' || col === 'task_id' || col === 'id') idx.taskId = c;
+      if (col === 'task' || col === 'taskname' || (col.indexOf('task') >= 0 && col.indexOf('name') >= 0)) idx.taskName = c;
+      if (col.indexOf('collected') >= 0) idx.collectedHours = c;
+      if (col.indexOf('good') >= 0 && col.indexOf('hour') >= 0 || col === 'goodhrs' || col === 'good') idx.goodHours = c;
+      if (col.indexOf('status') >= 0) idx.status = c;
+      if (col.indexOf('remaining') >= 0) idx.remainingHours = c;
+      if (col.indexOf('redash') >= 0 || col.indexOf('lastupdate') >= 0 || col.indexOf('timestamp') >= 0) idx.lastRedash = c;
+    }
+  }
+
+  var start = hasHeader ? 1 : 0;
+  var rows = [];
+  for (var i = start; i < data.length; i++) {
+    var row = data[i];
+    if (!row) continue;
+    var taskName = safeStr(row[idx.taskName]);
+    if (!taskName) continue;
+    rows.push({
+      taskId: safeStr(row[idx.taskId]),
+      taskName: taskName,
+      collectedHours: Math.round(safeHours(row[idx.collectedHours]) * 100) / 100,
+      goodHours: Math.round(safeHours(row[idx.goodHours]) * 100) / 100,
+      status: safeStr(row[idx.status]),
+      remainingHours: Math.round(safeHours(row[idx.remainingHours]) * 100) / 100,
+      lastRedash: safeStr(row[idx.lastRedash])
+    });
+  }
+  return rows;
 }
 
 function handleGetCollectors() {
@@ -586,13 +660,12 @@ function handleGetTodayLog(collectorName) {
 }
 
 function handleGetRecollections() {
-  var data;
-  try { data = getTaskActualsData(); } catch(e) { return []; }
+  var data = getTaskActualRows();
   var results = [];
-  for (var i = 1; i < data.length; i++) {
-    var st = safeStr(data[i][4]).toLowerCase();
-    var tn = safeStr(data[i][1]);
-    var rem = safeNum(data[i][5]);
+  for (var i = 0; i < data.length; i++) {
+    var st = safeStr(data[i].status).toLowerCase();
+    var tn = safeStr(data[i].taskName);
+    var rem = safeHours(data[i].remainingHours);
     if (tn && (st === 'recollect' || st === 'needs recollection' || rem < 0)) {
       results.push(tn + (rem !== 0 ? ' (' + (Math.round(rem * 100) / 100).toFixed(2) + 'h)' : ''));
     }
@@ -653,8 +726,7 @@ function handleGetFullLog(collectorFilter) {
 }
 
 function handleGetTaskActuals() {
-  var data;
-  try { data = getTaskActualsData(); } catch(e) { return []; }
+  var data = getTaskActualRows();
 
   // Build collector data from CA_PLUS (preferred) or CA_TAGGED (fallback)
   var actualRows = getCollectorActualRows();
@@ -685,8 +757,8 @@ function handleGetTaskActuals() {
   }
 
   var results = [];
-  for (var i = 1; i < data.length; i++) {
-    var tn = safeStr(data[i][1]);
+  for (var i = 0; i < data.length; i++) {
+    var tn = safeStr(data[i].taskName);
     if (!tn) continue;
     var tnKey = normalizeTaskKey(tn);
     var tcData = taskCollectorMap[tnKey];
@@ -707,10 +779,12 @@ function handleGetTaskActuals() {
     }
 
     results.push({
-      taskId: safeStr(data[i][0]), taskName: tn,
-      collectedHours: Math.round(safeNum(data[i][2]) * 100) / 100, goodHours: Math.round(safeNum(data[i][3]) * 100) / 100,
-      status: safeStr(data[i][4]), remainingHours: Math.round(safeNum(data[i][5]) * 100) / 100,
-      lastRedash: safeStr(data[i][10]),
+      taskId: safeStr(data[i].taskId), taskName: tn,
+      collectedHours: Math.round(safeHours(data[i].collectedHours) * 100) / 100,
+      goodHours: Math.round(safeHours(data[i].goodHours) * 100) / 100,
+      status: safeStr(data[i].status),
+      remainingHours: Math.round(safeHours(data[i].remainingHours) * 100) / 100,
+      lastRedash: safeStr(data[i].lastRedash),
       assignedCollector: topCollector,
       collectorHours: Math.round(topHours * 100) / 100,
       collectorCount: collectorCount
@@ -721,13 +795,12 @@ function handleGetTaskActuals() {
 }
 
 function handleGetAdminDashboard() {
-  var taskData;
-  try { taskData = getTaskActualsData(); } catch(e) { taskData = []; }
+  var taskData = getTaskActualRows();
   var totalTasks = 0, completedTasks = 0, inProgressTasks = 0, recollectTasks = 0;
   var recollections = [];
-  for (var i = 1; i < taskData.length; i++) {
-    var st = safeStr(taskData[i][4]).toLowerCase();
-    var tn = safeStr(taskData[i][1]);
+  for (var i = 0; i < taskData.length; i++) {
+    var st = safeStr(taskData[i].status).toLowerCase();
+    var tn = safeStr(taskData[i].taskName);
     if (!tn) continue;
     totalTasks++;
     if (st === 'done' || st === 'completed' || st === 'complete') {

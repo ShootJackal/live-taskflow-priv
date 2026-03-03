@@ -20,7 +20,10 @@ import {
 import type { TaskActualRow } from "@/types";
 
 function formatTwoDecimals(value: number): string {
-  return Number(value || 0).toFixed(2);
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n)) return "0.00";
+  if (Math.abs(n) > 10000) return "0.00";
+  return n.toFixed(2);
 }
 
 function formatCount(value: number): string {
@@ -241,9 +244,12 @@ function TaskActualsView({ configured }: { configured: boolean }) {
   const hourTotals = useMemo(() => {
     return tasks.reduce(
       (acc, task) => {
-        acc.collected += Number(task.collectedHours) || 0;
-        acc.good += Number(task.goodHours) || 0;
-        acc.remaining += Number(task.remainingHours) || 0;
+        const collected = Number(task.collectedHours) || 0;
+        const good = Number(task.goodHours) || 0;
+        const remaining = Number(task.remainingHours) || 0;
+        acc.collected += Math.abs(collected) > 10000 ? 0 : collected;
+        acc.good += Math.abs(good) > 10000 ? 0 : good;
+        acc.remaining += Math.abs(remaining) > 10000 ? 0 : remaining;
         return acc;
       },
       { collected: 0, good: 0, remaining: 0 }
@@ -315,9 +321,12 @@ function TaskActualsView({ configured }: { configured: boolean }) {
 
 function TaskRow({ task, colors, showRecollectTime }: { task: TaskActualRow; colors: any; showRecollectTime?: boolean }) {
   const isRecollect = task.status.toUpperCase() === "RECOLLECT";
-  const remaining = Math.round((Number(task.remainingHours) || 0) * 100) / 100;
+  const remainingRaw = Number(task.remainingHours) || 0;
+  const remaining = Math.abs(remainingRaw) > 10000 ? 0 : Math.round(remainingRaw * 100) / 100;
   const recollectNeeded = isRecollect && remaining > 0 ? remaining : 0;
-  const goodGap = isRecollect ? Math.round(Math.max((Number(task.collectedHours) || 0) - (Number(task.goodHours) || 0), 0) * 100) / 100 : 0;
+  const collected = Math.abs(Number(task.collectedHours) || 0) > 10000 ? 0 : (Number(task.collectedHours) || 0);
+  const good = Math.abs(Number(task.goodHours) || 0) > 10000 ? 0 : (Number(task.goodHours) || 0);
+  const goodGap = isRecollect ? Math.round(Math.max(collected - good, 0) * 100) / 100 : 0;
 
   return (
     <View style={[viewStyles.taskCard, { backgroundColor: colors.bgCard, borderColor: colors.border, shadowColor: colors.shadow }]}>
