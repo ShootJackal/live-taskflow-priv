@@ -567,16 +567,38 @@ function handleGetLeaderboard(period) {
   var assignData;
   try { assignData = getSheetData(TASKFLOW_SHEETS.ASSIGNMENTS); } catch(e) { assignData = []; }
 
-  var map = {};
+  var latestAssignments = {};
   for (var a = 1; a < assignData.length; a++) {
     var aRow = assignData[a];
     var collector = safeStr(aRow[3]);
     if (!collector) continue;
-    var key = normalizeCollectorKey(collector);
+    var collectorKey = normalizeCollectorKey(collector);
+    var taskKey = normalizeTaskKey(aRow[2]);
+    var dedupeKey = collectorKey + '|' + (taskKey || safeStr(aRow[0]));
+    var eventTs = Math.max(toTimestampMs(aRow[9]), toTimestampMs(aRow[4]));
+    var existingLatest = latestAssignments[dedupeKey];
+    if (!existingLatest || eventTs > existingLatest._ts || (eventTs === existingLatest._ts && a < existingLatest._rowOrder)) {
+      latestAssignments[dedupeKey] = {
+        row: aRow,
+        collector: collector,
+        collectorKey: collectorKey,
+        eventDate: toDateSafe(aRow[9]) || toDateSafe(aRow[4]),
+        _ts: eventTs,
+        _rowOrder: a
+      };
+    }
+  }
 
-    // For weekly views, only include assignments whose AssignedDate falls in the requested week.
+  var map = {};
+  for (var lk in latestAssignments) {
+    var latest = latestAssignments[lk];
+    var aRow = latest.row;
+    var collector = latest.collector;
+    var key = latest.collectorKey;
+
+    // For weekly views, include latest task state only if latest action is in the requested week.
     if (useWeekly) {
-      var d = toDateSafe(aRow[4]);
+      var d = latest.eventDate;
       if (!d || d < weekRange.start || d > weekRange.end) continue;
     }
 
@@ -708,10 +730,21 @@ function handleGetCollectorStats(collectorName) {
   var topTasks = [];
   var weekStart = getWeekStartDate(getScriptTodayDate());
 
+  var latestByTask = {};
   for (var a = 1; a < assignData.length; a++) {
     var row = assignData[a];
     var aCol = normalizeCollectorKey(row[3]);
     if (aCol !== normName) continue;
+    var taskKey = normalizeTaskKey(row[2]) || safeStr(row[0]);
+    var eventTs = Math.max(toTimestampMs(row[9]), toTimestampMs(row[4]));
+    var existing = latestByTask[taskKey];
+    if (!existing || eventTs > existing._ts || (eventTs === existing._ts && a < existing._rowOrder)) {
+      latestByTask[taskKey] = { row: row, _ts: eventTs, _rowOrder: a };
+    }
+  }
+
+  for (var tk in latestByTask) {
+    var row = latestByTask[tk].row;
     totalAssigned++;
     var st = safeStr(row[6]).toLowerCase();
     var logged = safeNum(row[7]);
@@ -720,8 +753,8 @@ function handleGetCollectorStats(collectorName) {
     totalPlannedHours += planned;
     if (st === 'completed' || st === 'complete') totalCompleted++;
     else if (st === 'canceled' || st === 'cancelled') totalCanceled++;
-    var assignDate = toDateSafe(row[4]);
-    if (assignDate && assignDate >= weekStart) {
+    var eventDate = toDateSafe(row[9]) || toDateSafe(row[4]);
+    if (eventDate && eventDate >= weekStart) {
       weeklyLoggedHours += logged;
       if (st === 'completed' || st === 'complete') weeklyCompleted++;
     }
@@ -780,19 +813,23 @@ function handleGetTodayLog(collectorName) {
   var taskActualLookup = buildTaskActualLookup();
   var today = getScriptTodayDate();
   var todayStr = Utilities.formatDate(today, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  var results = [];
+  var latestByTask = {};
   for (var i = 1; i < assignData.length; i++) {
     var row = assignData[i];
     var aCol = normalizeCollectorKey(row[3]);
     if (aCol !== normName) continue;
     var assignDate = toDateSafe(row[4]);
+    var completeDate = toDateSafe(row[9]);
     var dateStr = assignDate ? Utilities.formatDate(assignDate, Session.getScriptTimeZone(), 'yyyy-MM-dd') : safeStr(row[4]);
+    var completedStr = completeDate ? Utilities.formatDate(completeDate, Session.getScriptTimeZone(), 'yyyy-MM-dd') : safeStr(row[9]);
     var status = safeStr(row[6]);
-    var isActive = status.toLowerCase() === 'in progress' || status.toLowerCase() === 'partial';
+    var statusLower = status.toLowerCase();
+    var isActive = statusLower === 'in progress' || statusLower === 'partial' || statusLower === 'assigned';
     var plannedHours = safeNum(row[5]);
     var loggedHours = safeNum(row[7]);
     var remainingHours = safeNum(row[8]);
-    var taskKey = normalizeTaskKey(row[2]);
+    var taskName = safeStr(row[2]);
+    var taskKey = normalizeTaskKey(taskName);
     var taskActual = taskActualLookup[taskKey] || null;
     var taskCollected = taskActual ? safeNum(taskActual.collectedHours) : 0;
     var taskGood = taskActual ? safeNum(taskActual.goodHours) : 0;
@@ -809,18 +846,45 @@ function handleGetTodayLog(collectorName) {
       }
     }
 
-    if (dateStr === todayStr || isActive) {
-      results.push({
-        assignmentId: safeStr(row[0]), taskId: safeStr(row[1]), taskName: safeStr(row[2]),
-        status: status, loggedHours: Math.round(loggedHours * 100) / 100, plannedHours: Math.round(plannedHours * 100) / 100,
-        remainingHours: Math.round(remainingHours * 100) / 100, notes: safeStr(row[10]),
+    var include = (dateStr === todayStr || completedStr === todayStr || isActive);
+    if (!include) continue;
+
+    var eventTs = Math.max(toTimestampMs(row[9]), toTimestampMs(row[4]));
+    var dedupeKey = taskKey || ('task:' + safeStr(row[0]));
+    var existing = latestByTask[dedupeKey];
+    if (!existing || eventTs > existing._ts || (eventTs === existing._ts && i < existing._rowOrder)) {
+      latestByTask[dedupeKey] = {
+        assignmentId: safeStr(row[0]),
+        taskId: safeStr(row[1]),
+        taskName: taskName,
+        status: status,
+        loggedHours: Math.round(loggedHours * 100) / 100,
+        plannedHours: Math.round(plannedHours * 100) / 100,
+        remainingHours: Math.round(remainingHours * 100) / 100,
+        notes: safeStr(row[10]),
         taskCollectedHours: Math.round(taskCollected * 100) / 100,
         taskGoodHours: Math.round(taskGood * 100) / 100,
         taskRemainingHours: Math.round(taskRemaining * 100) / 100,
         taskProgressPct: taskProgressPct,
-        assignedDate: dateStr, completedDate: safeStr(row[9])
-      });
+        assignedDate: dateStr,
+        completedDate: completedStr,
+        _ts: eventTs,
+        _rowOrder: i
+      };
     }
+  }
+  var results = [];
+  for (var key in latestByTask) {
+    var item = latestByTask[key];
+    results.push(item);
+  }
+  results.sort(function(a, b) {
+    if (b._ts !== a._ts) return b._ts - a._ts;
+    return a._rowOrder - b._rowOrder;
+  });
+  for (var r = 0; r < results.length; r++) {
+    delete results[r]._ts;
+    delete results[r]._rowOrder;
   }
   writeCache('todayLog_' + normName, results);
   return results;
@@ -848,7 +912,7 @@ function handleGetFullLog(collectorFilter) {
   var collectorRigMap = getCollectorRigMap();
   var liveHoursIndex = buildLiveHoursIndex(getCollectorActualRows());
   var taskActualLookup = buildTaskActualLookup();
-  var results = [];
+  var latestByKey = {};
   for (var i = 1; i < data.length; i++) {
     var collector = safeStr(data[i][3]);
     var collectorKey = normalizeCollectorKey(collector);
@@ -877,16 +941,38 @@ function handleGetFullLog(collectorFilter) {
       }
     }
 
-    results.push({
-      collector: collector, taskName: safeStr(data[i][2]), status: status,
-      loggedHours: Math.round(loggedHours * 100) / 100, plannedHours: Math.round(plannedHours * 100) / 100,
-      remainingHours: Math.round(remainingHours * 100) / 100,
-      taskCollectedHours: Math.round(taskCollected * 100) / 100,
-      taskGoodHours: Math.round(taskGood * 100) / 100,
-      taskRemainingHours: Math.round(taskRemaining * 100) / 100,
-      taskProgressPct: taskProgressPct,
-      assignedDate: safeStr(data[i][4])
-    });
+    var eventTs = Math.max(toTimestampMs(data[i][9]), toTimestampMs(data[i][4]));
+    var dedupeKey = collectorKey + '|' + (taskKey || safeStr(data[i][0]));
+    var existing = latestByKey[dedupeKey];
+    if (!existing || eventTs > existing._ts || (eventTs === existing._ts && i < existing._rowOrder)) {
+      latestByKey[dedupeKey] = {
+        collector: collector,
+        taskName: safeStr(data[i][2]),
+        status: status,
+        loggedHours: Math.round(loggedHours * 100) / 100,
+        plannedHours: Math.round(plannedHours * 100) / 100,
+        remainingHours: Math.round(remainingHours * 100) / 100,
+        taskCollectedHours: Math.round(taskCollected * 100) / 100,
+        taskGoodHours: Math.round(taskGood * 100) / 100,
+        taskRemainingHours: Math.round(taskRemaining * 100) / 100,
+        taskProgressPct: taskProgressPct,
+        assignedDate: safeStr(data[i][4]),
+        _ts: eventTs,
+        _rowOrder: i
+      };
+    }
+  }
+  var results = [];
+  for (var key in latestByKey) {
+    results.push(latestByKey[key]);
+  }
+  results.sort(function(a, b) {
+    if (b._ts !== a._ts) return b._ts - a._ts;
+    return a._rowOrder - b._rowOrder;
+  });
+  for (var r = 0; r < results.length; r++) {
+    delete results[r]._ts;
+    delete results[r]._rowOrder;
   }
   writeCache(normFilter ? ('fullLog_' + normFilter) : 'fullLog_all', results);
   return results;
@@ -1207,9 +1293,49 @@ function writeCachedSubmitResult(cacheInfo, result) {
   } catch (e) {}
 }
 
+function insertAssignmentLogRow(sheet, rowValues) {
+  sheet.insertRowBefore(2);
+  sheet.getRange(2, 1, 1, rowValues.length).setValues([rowValues]);
+}
+
+function getLatestAssignmentState(data, normCol, normTask) {
+  var best = null;
+  var bestTs = -1;
+  var bestOrder = Number.MAX_VALUE;
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    var rowCollector = normalizeCollectorKey(row[3]);
+    var rowTask = normalizeTaskKey(row[2]);
+    if (rowCollector !== normCol || rowTask !== normTask) continue;
+    var rowTs = Math.max(toTimestampMs(row[9]), toTimestampMs(row[4]));
+    if (rowTs > bestTs || (rowTs === bestTs && i < bestOrder)) {
+      bestTs = rowTs;
+      bestOrder = i;
+      best = {
+        assignmentId: safeStr(row[0]),
+        taskId: safeStr(row[1]),
+        taskName: safeStr(row[2]),
+        collector: safeStr(row[3]),
+        assignedDate: row[4],
+        planned: safeNum(row[5]),
+        status: safeStr(row[6]),
+        logged: safeNum(row[7]),
+        remaining: safeNum(row[8]),
+        completedDate: row[9],
+        notes: safeStr(row[10]),
+        weekStart: safeStr(row[11])
+      };
+    }
+  }
+  return best;
+}
+
 function findRecentOpenAssignment(data, normCol, normTask, plannedHours, nowMs) {
   var targetPlanned = roundedHours(plannedHours);
-  for (var i = data.length - 1; i >= 1; i--) {
+  var best = null;
+  var bestTs = -1;
+  var bestOrder = Number.MAX_VALUE;
+  for (var i = 1; i < data.length; i++) {
     var row = data[i];
     var rCol = normalizeCollectorKey(row[3]);
     var rTask = normalizeTaskKey(row[2]);
@@ -1218,27 +1344,33 @@ function findRecentOpenAssignment(data, normCol, normTask, plannedHours, nowMs) 
     var rStatus = safeStr(row[6]).toLowerCase();
     if (rStatus !== 'in progress' && rStatus !== 'partial' && rStatus !== 'assigned') continue;
 
-    var rowTs = toTimestampMs(row[4]); // AssignedDate
-    if (!rowTs) continue;
-    if ((nowMs - rowTs) > SUBMIT_DEDUP_WINDOW_MS) break;
+    var rowTs = Math.max(toTimestampMs(row[9]), toTimestampMs(row[4]));
+    if (!rowTs || (nowMs - rowTs) > SUBMIT_DEDUP_WINDOW_MS) continue;
 
     var rowPlanned = roundedHours(row[5]);
     if (targetPlanned > 0 && rowPlanned !== targetPlanned) continue;
 
-    return {
-      assignmentId: safeStr(row[0]),
-      status: safeStr(row[6]) || 'In Progress',
-      planned: safeNum(row[5]),
-      logged: safeNum(row[7]),
-      remaining: safeNum(row[8])
-    };
+    if (rowTs > bestTs || (rowTs === bestTs && i < bestOrder)) {
+      bestTs = rowTs;
+      bestOrder = i;
+      best = {
+        assignmentId: safeStr(row[0]),
+        status: safeStr(row[6]) || 'In Progress',
+        planned: safeNum(row[5]),
+        logged: safeNum(row[7]),
+        remaining: safeNum(row[8])
+      };
+    }
   }
-  return null;
+  return best;
 }
 
 function findRecentCompletedAssignment(data, normCol, normTask, hours, nowMs) {
   var targetHours = roundedHours(hours);
-  for (var i = data.length - 1; i >= 1; i--) {
+  var best = null;
+  var bestTs = -1;
+  var bestOrder = Number.MAX_VALUE;
+  for (var i = 1; i < data.length; i++) {
     var row = data[i];
     var rCol = normalizeCollectorKey(row[3]);
     var rTask = normalizeTaskKey(row[2]);
@@ -1247,23 +1379,26 @@ function findRecentCompletedAssignment(data, normCol, normTask, hours, nowMs) {
     var rStatus = safeStr(row[6]).toLowerCase();
     if (rStatus !== 'completed' && rStatus !== 'complete') continue;
 
-    var rowTs = Math.max(toTimestampMs(row[9]), toTimestampMs(row[4])); // CompletedDate or AssignedDate
-    if (!rowTs) continue;
-    if ((nowMs - rowTs) > SUBMIT_DEDUP_WINDOW_MS) break;
+    var rowTs = Math.max(toTimestampMs(row[9]), toTimestampMs(row[4]));
+    if (!rowTs || (nowMs - rowTs) > SUBMIT_DEDUP_WINDOW_MS) continue;
 
     var rowLogged = roundedHours(row[7]);
     var rowPlanned = roundedHours(row[5]);
     if (targetHours > 0 && rowLogged !== targetHours && rowPlanned !== targetHours) continue;
 
-    return {
-      assignmentId: safeStr(row[0]),
-      status: 'Completed',
-      planned: safeNum(row[5]),
-      logged: safeNum(row[7]),
-      remaining: safeNum(row[8])
-    };
+    if (rowTs > bestTs || (rowTs === bestTs && i < bestOrder)) {
+      bestTs = rowTs;
+      bestOrder = i;
+      best = {
+        assignmentId: safeStr(row[0]),
+        status: 'Completed',
+        planned: safeNum(row[5]),
+        logged: safeNum(row[7]),
+        remaining: safeNum(row[8])
+      };
+    }
   }
-  return null;
+  return best;
 }
 
 function handleSubmitCore(collector, task, hours, actionType, notes, normCol, normTask) {
@@ -1271,6 +1406,10 @@ function handleSubmitCore(collector, task, hours, actionType, notes, normCol, no
   var data = sheet.getDataRange().getValues();
   var now = new Date();
   var nowMs = now.getTime();
+  var latest = getLatestAssignmentState(data, normCol, normTask);
+  var latestTaskId = latest ? safeStr(latest.taskId) : '';
+  var latestAssignedDate = latest ? latest.assignedDate : now;
+  var latestWeekStart = latest ? safeStr(latest.weekStart) : getWeekStart(now);
 
   if (actionType === 'ASSIGN') {
     var dupAssign = findRecentOpenAssignment(data, normCol, normTask, hours, nowMs);
@@ -1287,49 +1426,11 @@ function handleSubmitCore(collector, task, hours, actionType, notes, normCol, no
       };
     }
 
+    var plannedAssign = Math.max(0, safeNum(hours));
     var aId = 'A-' + Date.now();
-    sheet.appendRow([aId, '', task, collector, now, hours, 'In Progress', 0, hours, '', notes, getWeekStart(now)]);
+    insertAssignmentLogRow(sheet, [aId, latestTaskId, task, collector, now, plannedAssign, 'In Progress', 0, plannedAssign, '', notes, getWeekStart(now)]);
     refreshPostSubmitCaches(collector);
-    return { success: true, message: 'Assigned: ' + task, assignmentId: aId, planned: hours, hours: 0, remaining: hours, status: 'In Progress' };
-  }
-
-  for (var i = data.length - 1; i >= 1; i--) {
-    var rCol = normalizeCollectorKey(data[i][3]);
-    var rTask = normalizeTaskKey(data[i][2]);
-    var rStatus = safeStr(data[i][6]).toLowerCase();
-    if (rCol !== normCol || rTask !== normTask) continue;
-    if (rStatus !== 'in progress' && rStatus !== 'partial') continue;
-
-    var ri = i + 1;
-    var ts = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
-
-    if (actionType === 'COMPLETE') {
-      var prev = safeNum(data[i][7]);
-      var newL = prev + hours;
-      var pln = safeNum(data[i][5]);
-      var rem = Math.max(0, pln - newL);
-      sheet.getRange(ri, 7).setValue('Completed');
-      sheet.getRange(ri, 8).setValue(newL > 0 ? newL : hours);
-      sheet.getRange(ri, 9).setValue(rem);
-      sheet.getRange(ri, 10).setValue(new Date());
-      if (notes) { var pn = safeStr(data[i][10]); sheet.getRange(ri, 11).setValue(pn + (pn ? '\n' : '') + '--- ' + ts + ' ---\n' + notes); }
-      refreshPostSubmitCaches(collector);
-      return { success: true, message: 'Completed: ' + task, hours: newL || hours, planned: pln, remaining: rem, status: 'Completed' };
-    }
-    if (actionType === 'CANCEL') {
-      sheet.getRange(ri, 7).setValue('Canceled');
-      sheet.getRange(ri, 10).setValue(new Date());
-      if (notes) { var cn = safeStr(data[i][10]); sheet.getRange(ri, 11).setValue(cn + (cn ? '\n' : '') + '--- ' + ts + ' --- CANCELED\n' + notes); }
-      refreshPostSubmitCaches(collector);
-      return { success: true, message: 'Canceled: ' + task, status: 'Canceled' };
-    }
-    if (actionType === 'NOTE_ONLY' && notes) {
-      var en = safeStr(data[i][10]);
-      sheet.getRange(ri, 11).setValue(en + (en ? '\n' : '') + '--- ' + ts + ' ---\n' + notes);
-      refreshPostSubmitCaches(collector);
-      return { success: true, message: 'Note saved', status: safeStr(data[i][6]) };
-    }
-    break;
+    return { success: true, message: 'Assigned: ' + task, assignmentId: aId, planned: plannedAssign, hours: 0, remaining: plannedAssign, status: 'In Progress' };
   }
 
   if (actionType === 'COMPLETE') {
@@ -1347,13 +1448,34 @@ function handleSubmitCore(collector, task, hours, actionType, notes, normCol, no
       };
     }
 
+    var prevLogged = latest ? safeNum(latest.logged) : 0;
+    var prevPlanned = latest ? safeNum(latest.planned) : 0;
+    var plannedComplete = prevPlanned > 0 ? prevPlanned : Math.max(0, safeNum(hours));
+    var newLogged = prevLogged + Math.max(0, safeNum(hours));
+    var remComplete = Math.max(0, plannedComplete - newLogged);
     var fId = 'A-' + Date.now();
-    sheet.appendRow([fId, '', task, collector, now, hours, 'Completed', hours, 0, now, notes, getWeekStart(now)]);
+    insertAssignmentLogRow(sheet, [fId, latestTaskId, task, collector, latestAssignedDate, plannedComplete, 'Completed', newLogged, remComplete, now, notes, latestWeekStart || getWeekStart(now)]);
     refreshPostSubmitCaches(collector);
-    return { success: true, message: 'Completed (new): ' + task, assignmentId: fId, hours: hours, planned: hours, remaining: 0, status: 'Completed' };
+    return { success: true, message: 'Completed: ' + task, assignmentId: fId, hours: newLogged, planned: plannedComplete, remaining: remComplete, status: 'Completed' };
   }
 
-  return { success: false, message: 'No open assignment found for: ' + task };
+  if (actionType === 'CANCEL') {
+    var cancelId = 'A-' + Date.now();
+    insertAssignmentLogRow(sheet, [cancelId, latestTaskId, task, collector, latestAssignedDate, latest ? safeNum(latest.planned) : 0, 'Canceled', latest ? safeNum(latest.logged) : 0, latest ? safeNum(latest.remaining) : 0, now, notes, latestWeekStart || getWeekStart(now)]);
+    refreshPostSubmitCaches(collector);
+    return { success: true, message: 'Canceled: ' + task, assignmentId: cancelId, status: 'Canceled' };
+  }
+
+  if (actionType === 'NOTE_ONLY') {
+    if (!notes) return { success: false, message: 'No note text provided' };
+    var noteStatus = latest ? safeStr(latest.status) : 'In Progress';
+    var noteId = 'A-' + Date.now();
+    insertAssignmentLogRow(sheet, [noteId, latestTaskId, task, collector, latestAssignedDate, latest ? safeNum(latest.planned) : 0, noteStatus || 'In Progress', latest ? safeNum(latest.logged) : 0, latest ? safeNum(latest.remaining) : 0, latest ? latest.completedDate : '', notes, latestWeekStart || getWeekStart(now)]);
+    refreshPostSubmitCaches(collector);
+    return { success: true, message: 'Note saved', assignmentId: noteId, status: noteStatus || 'In Progress' };
+  }
+
+  return { success: false, message: 'Unsupported actionType: ' + actionType };
 }
 
 function handleSubmit(body) {
