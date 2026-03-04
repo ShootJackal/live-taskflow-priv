@@ -9,6 +9,7 @@ import { ThemeProvider, useTheme } from "@/providers/ThemeProvider";
 import { LocaleProvider } from "@/providers/LocaleProvider";
 import { UiPrefsProvider, useUiPrefs } from "@/providers/UiPrefsProvider";
 import { CollectionProvider } from "@/providers/CollectionProvider";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import { useFonts, Lexend_300Light, Lexend_400Regular, Lexend_500Medium, Lexend_600SemiBold, Lexend_700Bold, Lexend_800ExtraBold } from "@expo-google-fonts/lexend";
 import { Image } from "expo-image";
 
@@ -298,17 +299,19 @@ function RootLayoutNav() {
   const { hideStatusBar } = useUiPrefs();
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <CollectionProvider>
-        <StatusBar
-          style={isDark ? "light" : "dark"}
-          hidden={hideStatusBar}
-          translucent
-          backgroundColor="transparent"
-        />
-        <Stack screenOptions={{ headerBackTitle: "Back" }}>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        </Stack>
-      </CollectionProvider>
+      <ErrorBoundary fallbackMessage="TaskFlow ran into a problem. Tap below to reload.">
+        <CollectionProvider>
+          <StatusBar
+            style={isDark ? "light" : "dark"}
+            hidden={hideStatusBar}
+            translucent
+            backgroundColor="transparent"
+          />
+          <Stack screenOptions={{ headerBackTitle: "Back" }}>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          </Stack>
+        </CollectionProvider>
+      </ErrorBoundary>
     </GestureHandlerRootView>
   );
 }

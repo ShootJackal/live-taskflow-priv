@@ -3,6 +3,7 @@ import {
   View,
   Text,
   ScrollView,
+  FlatList,
   StyleSheet,
   TextInput,
   Alert,
@@ -30,6 +31,7 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { useLocale } from "@/providers/LocaleProvider";
 import { DesignTokens } from "@/constants/colors";
 import ScreenContainer from "@/components/ScreenContainer";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import SelectPicker from "@/components/SelectPicker";
 import ActionButton from "@/components/ActionButton";
 import MarqueeText from "@/components/MarqueeText";
@@ -263,6 +265,7 @@ export default function DashboardScreen() {
   }), [colors]);
 
   return (
+    <ErrorBoundary fallbackMessage="Something went wrong loading the Collect screen.">
     <ScreenContainer>
       <KeyboardAvoidingView
         style={styles.flex}
@@ -413,6 +416,7 @@ export default function DashboardScreen() {
                 placeholder="Enter hours (e.g. 1.5)"
                 placeholderTextColor={colors.textMuted}
                 keyboardType="decimal-pad"
+                returnKeyType="done"
                 testID="hours-input"
               />
               {!hoursToLog.trim() && (
@@ -549,6 +553,7 @@ export default function DashboardScreen() {
         </Animated.View>
       </KeyboardAvoidingView>
     </ScreenContainer>
+    </ErrorBoundary>
   );
 }
 
