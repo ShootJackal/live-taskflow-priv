@@ -155,7 +155,11 @@ function isValidScriptUrl(url: string): boolean {
   return /\/exec$/i.test(url);
 }
 
+let _resolvedUrls: { legacy: string; core: string; analytics: string } | null = null;
+
 function resolveScriptUrls(): { legacy: string; core: string; analytics: string } {
+  if (_resolvedUrls) return _resolvedUrls;
+
   const legacyEnvRaw = normalizeScriptUrl(process.env.EXPO_PUBLIC_GOOGLE_SCRIPT_URL ?? "");
   const coreEnvRaw = normalizeScriptUrl(process.env.EXPO_PUBLIC_GAS_CORE_URL ?? "");
   const analyticsEnvRaw = normalizeScriptUrl(process.env.EXPO_PUBLIC_GAS_ANALYTICS_URL ?? "");
@@ -174,7 +178,8 @@ function resolveScriptUrls(): { legacy: string; core: string; analytics: string 
     ? analyticsEnvRaw
     : (isValidScriptUrl(analyticsFallbackRaw) ? analyticsFallbackRaw : "");
 
-  return { legacy, core, analytics };
+  _resolvedUrls = { legacy, core, analytics };
+  return _resolvedUrls;
 }
 
 function getScriptUrlForRole(role: ScriptRole): string {

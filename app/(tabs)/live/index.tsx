@@ -361,6 +361,7 @@ export default function LiveScreen() {
   const [showGuide, setShowGuide] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
   const lineIndexRef = useRef(0);
+  const hasBootedRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const livePulse = useRef(new Animated.Value(0)).current;
   const brandWave = useRef(new Animated.Value(0)).current;
@@ -626,6 +627,13 @@ export default function LiveScreen() {
 
   useEffect(() => {
     setIsOnline(configured);
+
+    if (hasBootedRef.current) {
+      setLiveLines(allLines);
+      setIsFeeding(false);
+      return;
+    }
+
     setLiveLines([]);
     setIsFeeding(true);
     lineIndexRef.current = 0;
@@ -635,6 +643,7 @@ export default function LiveScreen() {
       if (lineIndexRef.current >= allLines.length) {
         if (intervalRef.current) clearInterval(intervalRef.current);
         setIsFeeding(false);
+        hasBootedRef.current = true;
         return;
       }
       const next = allLines[lineIndexRef.current];
@@ -676,6 +685,7 @@ export default function LiveScreen() {
 
   const handleResync = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    hasBootedRef.current = false;
     statsQuery.refetch();
     leaderboardQuery.refetch();
     todayLogQuery.refetch();
