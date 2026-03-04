@@ -202,6 +202,7 @@ export default function StatsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [lbTab, setLbTab] = useState<LeaderboardTab>("combined");
   const [lbPeriod, setLbPeriod] = useState<LeaderboardPeriod>("thisWeek");
+  const [lbVisibleCount, setLbVisibleCount] = useState(10);
   const syncPulse = useRef(new Animated.Value(0)).current;
 
   const normalizedName = useMemo(() => normalizeCollectorName(selectedCollectorName), [selectedCollectorName]);
@@ -307,6 +308,10 @@ export default function StatsScreen() {
   const periodLabel = lbPeriod === "thisWeek" ? "THIS WEEK" : "LAST WEEK";
 
   const currentLbEntries = lbTab === "sf" ? sfEntries : lbTab === "mx" ? mxEntries : leaderboard;
+  const visibleLbEntries = useMemo(
+    () => currentLbEntries.slice(0, lbVisibleCount),
+    [currentLbEntries, lbVisibleCount]
+  );
 
   const isInitialLoad = leaderboardQuery.isLoading && !leaderboardQuery.data;
   const hasLeaderboardError = leaderboardQuery.isError && !leaderboardQuery.data && !leaderboardQuery.isLoading;
@@ -323,6 +328,17 @@ export default function StatsScreen() {
     pulse.start();
     return () => pulse.stop();
   }, [syncPulse]);
+
+  useEffect(() => {
+    setLbVisibleCount(10);
+  }, [lbTab, lbPeriod]);
+
+  useEffect(() => {
+    setLbVisibleCount((prev) => {
+      const cap = Math.max(currentLbEntries.length, 10);
+      return Math.min(prev, cap);
+    });
+  }, [currentLbEntries.length]);
 
   if (!selectedCollector) {
     return (
@@ -483,7 +499,7 @@ export default function StatsScreen() {
             </Text>
             <Medal size={14} color={colors.gold} />
           </View>
-          {currentLbEntries.slice(0, 20).map((entry, idx) => (
+          {visibleLbEntries.map((entry, idx) => (
             <LeaderboardRow
               key={`lb_${lbPeriod}_${lbTab}_${idx}`}
               entry={entry}
@@ -492,6 +508,21 @@ export default function StatsScreen() {
               colors={colors}
             />
           ))}
+          {currentLbEntries.length > 10 && (
+            <TouchableOpacity
+              style={[styles.lbMoreBtn, { borderColor: colors.border, backgroundColor: colors.bgInput }]}
+              onPress={() => {
+                setLbVisibleCount((prev) =>
+                  prev >= currentLbEntries.length ? 10 : Math.min(currentLbEntries.length, prev + 10)
+                );
+              }}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.lbMoreText, { color: colors.accent }]}>
+                {lbVisibleCount >= currentLbEntries.length ? "Show Less" : "Load More"}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       ) : (
         <View style={[styles.lbEmpty, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
@@ -678,6 +709,15 @@ const styles = StyleSheet.create({
   inlineSyncDot: { width: 7, height: 7, borderRadius: 4 },
   lbEmptyText: { fontSize: 13 },
   lbEmptyRetry: { fontSize: 12, marginTop: 6, fontWeight: "600" as const },
+  lbMoreBtn: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderRadius: DesignTokens.radius.md,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  lbMoreText: { fontSize: 12, fontWeight: "600" as const, letterSpacing: 0.2 },
   recentCard: { borderRadius: DesignTokens.radius.xl, padding: DesignTokens.spacing.lg, marginBottom: 14, borderWidth: 1 },
   recentTitle: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1.2, marginBottom: 10 },
   recentRow: { flexDirection: "row", alignItems: "center", paddingVertical: DesignTokens.spacing.sm, borderBottomWidth: 1, gap: DesignTokens.spacing.sm },

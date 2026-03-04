@@ -27,10 +27,12 @@ import {
 } from "lucide-react-native";
 import { useCollection } from "@/providers/CollectionProvider";
 import { useTheme } from "@/providers/ThemeProvider";
+import { useLocale } from "@/providers/LocaleProvider";
 import { DesignTokens } from "@/constants/colors";
 import ScreenContainer from "@/components/ScreenContainer";
 import SelectPicker from "@/components/SelectPicker";
 import ActionButton from "@/components/ActionButton";
+import MarqueeText from "@/components/MarqueeText";
 import type { LogEntry } from "@/types";
 
 const LogEntryRow = React.memo(function LogEntryRow({ entry, statusColor, colors, isLast }: {
@@ -50,15 +52,18 @@ const LogEntryRow = React.memo(function LogEntryRow({ entry, statusColor, colors
   const taskRemaining = Number(entry.taskRemainingHours ?? 0);
   const taskTotal = Math.max(taskCollected + taskRemaining, 0);
   const taskProgressPct = Math.max(0, Math.min(100, Math.round(Number(entry.taskProgressPct ?? (taskTotal > 0 ? (taskCollected / taskTotal) * 100 : 0)))));
+  const hasMissing = Math.round((Number(entry.remainingHours) || 0) * 100) / 100 > 0;
 
   return (
     <View style={[logStyles.row, !isLast && { borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
       <View style={logStyles.rowLeft}>
         <View style={[logStyles.statusStripe, { backgroundColor: statusColor }]} />
         <View style={logStyles.rowContent}>
-          <Text style={[logStyles.taskName, { color: colors.textPrimary }]} numberOfLines={1}>
-            {entry.taskName}
-          </Text>
+          <MarqueeText
+            text={entry.taskName}
+            style={[logStyles.taskName, { color: colors.textPrimary }]}
+            speedMs={4300}
+          />
           <View style={logStyles.metaRow}>
             <View style={[logStyles.statusBadge, { backgroundColor: statusColor + '14' }]}>
               <Text style={[logStyles.statusText, { color: statusColor }]}>
@@ -68,7 +73,7 @@ const LogEntryRow = React.memo(function LogEntryRow({ entry, statusColor, colors
             <Text style={[logStyles.hours, { color: colors.textMuted }]}>
               {Number(entry.loggedHours).toFixed(2)}h / {Number(entry.plannedHours).toFixed(2)}h
             </Text>
-            {Math.round((Number(entry.remainingHours) || 0) * 100) / 100 > 0 && (
+            {hasMissing && (
               <Text style={[logStyles.remaining, { color: colors.statusPending }]}>
                 {Number(entry.remainingHours).toFixed(2)}h left
               </Text>
@@ -82,15 +87,14 @@ const LogEntryRow = React.memo(function LogEntryRow({ entry, statusColor, colors
           {hasTaskProgress && (
             <View style={[logStyles.taskSnapshot, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
               <View style={logStyles.taskSnapshotTop}>
-                <Text style={[logStyles.taskStat, { color: colors.accent }]}>
-                  Collected {taskCollected.toFixed(2)}h
-                </Text>
                 <Text style={[logStyles.taskStat, { color: colors.complete }]}>
                   Good {taskGood.toFixed(2)}h
                 </Text>
-                <Text style={[logStyles.taskStat, { color: taskRemaining > 0 ? colors.statusPending : colors.textMuted }]}>
-                  Missing {taskRemaining.toFixed(2)}h
-                </Text>
+                {taskRemaining > 0 && (
+                  <Text style={[logStyles.taskStat, { color: colors.statusPending }]}>
+                    Missing {taskRemaining.toFixed(2)}h
+                  </Text>
+                )}
                 <Text style={[logStyles.taskPct, { color: colors.textSecondary }]}>{taskProgressPct}%</Text>
               </View>
               {taskTotal > 0 && (
@@ -107,19 +111,19 @@ const LogEntryRow = React.memo(function LogEntryRow({ entry, statusColor, colors
 });
 
 const logStyles = StyleSheet.create({
-  row: { paddingVertical: 10 },
+  row: { paddingVertical: 7 },
   rowLeft: { flexDirection: "row", gap: 10 },
   statusStripe: { width: 3, borderRadius: 2, minHeight: 30 },
   rowContent: { flex: 1 },
-  taskName: { fontSize: 13, fontWeight: "600" as const, marginBottom: 4 },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  taskName: { fontSize: 13, fontWeight: "600" as const, marginBottom: 2 },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   statusBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   statusText: { fontSize: 10, fontWeight: "600" as const },
   hours: { fontSize: 11 },
   remaining: { fontSize: 11, fontWeight: "500" as const },
   progressTrack: { height: 3, borderRadius: 2, marginTop: 6, overflow: "hidden" },
   progressFill: { height: 3, borderRadius: 2 },
-  taskSnapshot: { marginTop: 8, borderRadius: 7, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 6 },
+  taskSnapshot: { marginTop: 6, borderRadius: 7, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 4 },
   taskSnapshotTop: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
   taskStat: { fontSize: 10, fontWeight: "500" as const },
   taskPct: { marginLeft: "auto", fontSize: 10, fontWeight: "700" as const },
@@ -129,6 +133,7 @@ const logStyles = StyleSheet.create({
 
 export default function DashboardScreen() {
   const { colors } = useTheme();
+  const { t } = useLocale();
   const {
     configured,
     collectors,
@@ -160,6 +165,7 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [taskSearch, setTaskSearch] = useState("");
   const [showTaskSearch, setShowTaskSearch] = useState(false);
+  const [logVisibleCount, setLogVisibleCount] = useState(5);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
   const searchAnim = useRef(new Animated.Value(0)).current;
@@ -254,6 +260,18 @@ export default function DashboardScreen() {
     const totalPlanned = todayLog.reduce((s, e) => s + e.plannedHours, 0);
     return { completed, totalLogged, totalPlanned, total: todayLog.length };
   }, [todayLog]);
+  const visibleLog = useMemo(() => todayLog.slice(0, logVisibleCount), [todayLog, logVisibleCount]);
+
+  useEffect(() => {
+    setLogVisibleCount(5);
+  }, [selectedCollectorName]);
+
+  useEffect(() => {
+    setLogVisibleCount((prev) => {
+      const cap = Math.max(todayLog.length, 5);
+      return Math.min(prev, cap);
+    });
+  }, [todayLog.length]);
 
   const getStatusColor = useCallback((status: string) => {
     if (status === "Completed") return colors.statusActive;
@@ -289,7 +307,7 @@ export default function DashboardScreen() {
                 <Text style={[styles.headerTagText, { color: colors.accent }]}>COLLECT HUB</Text>
               </View>
               <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>
-                Collect
+                {t("collect", "Collect")}
               </Text>
               <Text style={[styles.brandSub, { color: colors.textSecondary, fontFamily: "Lexend_400Regular" }]}>
                 {selectedCollector ? `${selectedCollector.name.split(" ")[0]}'s Workspace` : "Task Management"}
@@ -507,7 +525,7 @@ export default function DashboardScreen() {
               <View style={styles.logHeader}>
                 <View style={styles.logHeaderLeft}>
                   <Clock size={12} color={colors.textMuted} />
-                  <Text style={[styles.logTitle, { color: colors.textMuted }]}>{"Today's Activity"}</Text>
+                  <Text style={[styles.logTitle, { color: colors.textMuted }]}>{t("todays_activity", "Today's Activity")}</Text>
                 </View>
                 <View style={styles.logStats}>
                   <Text style={[styles.logStatText, { color: colors.complete }]}>
@@ -520,15 +538,28 @@ export default function DashboardScreen() {
                 </View>
               </View>
               {isLoadingLog && <ActivityIndicator size="small" color={colors.accent} style={{ marginBottom: 6 }} />}
-              {todayLog.slice(0, 12).map((entry, idx) => (
+              {visibleLog.map((entry, idx) => (
                 <LogEntryRow
                   key={entry.assignmentId || `log_${idx}`}
                   entry={entry}
                   statusColor={getStatusColor(entry.status)}
                   colors={colors}
-                  isLast={idx === Math.min(todayLog.length - 1, 11)}
+                  isLast={idx === visibleLog.length - 1}
                 />
               ))}
+              {todayLog.length > 5 && (
+                <TouchableOpacity
+                  style={[styles.logMoreBtn, { borderColor: colors.border, backgroundColor: colors.bgInput }]}
+                  onPress={() => {
+                    setLogVisibleCount((prev) => (prev >= todayLog.length ? 5 : Math.min(todayLog.length, prev + 5)));
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Text style={[styles.logMoreText, { color: colors.accent }]}>
+                    {logVisibleCount >= todayLog.length ? t("show_less", "Show Less") : t("load_more", "Load More")}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
 
@@ -628,5 +659,14 @@ const styles = StyleSheet.create({
   logStats: { flexDirection: "row", alignItems: "center", gap: 6 },
   logStatText: { fontSize: 11, fontWeight: "600" as const },
   logStatDivider: { fontSize: 10 },
+  logMoreBtn: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderRadius: DesignTokens.radius.sm,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logMoreText: { fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.4 },
   spacer: { height: DesignTokens.spacing.xl },
 });

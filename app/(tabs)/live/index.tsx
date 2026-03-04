@@ -12,6 +12,7 @@ import {
 import { RefreshCw, Sun, Moon, Snowflake, Glasses, BookOpen, X, User, Clock3 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "@/providers/ThemeProvider";
+import { useLocale } from "@/providers/LocaleProvider";
 import { useCollection } from "@/providers/CollectionProvider";
 import { DesignTokens } from "@/constants/colors";
 import ScreenContainer from "@/components/ScreenContainer";
@@ -352,6 +353,7 @@ const GuideModal = React.memo(function GuideModal({ visible, onClose }: { visibl
 
 export default function LiveScreen() {
   const { colors, isDark, resolvedMode, toggleTheme } = useTheme();
+  const { t } = useLocale();
   const { configured, collectors, todayLog, selectedCollectorName } = useCollection();
 
   const [liveLines, setLiveLines] = useState<TerminalLine[]>([]);
@@ -362,6 +364,7 @@ export default function LiveScreen() {
   const lineIndexRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const livePulse = useRef(new Animated.Value(0)).current;
+  const brandFloat = useRef(new Animated.Value(0)).current;
 
   const statsQuery = useQuery({
     queryKey: ["liveStats", selectedCollectorName],
@@ -648,6 +651,17 @@ export default function LiveScreen() {
     return () => pulse.stop();
   }, [livePulse]);
 
+  useEffect(() => {
+    const floating = Animated.loop(
+      Animated.sequence([
+        Animated.timing(brandFloat, { toValue: 1, duration: 1700, useNativeDriver: true }),
+        Animated.timing(brandFloat, { toValue: 0, duration: 1700, useNativeDriver: true }),
+      ])
+    );
+    floating.start();
+    return () => floating.stop();
+  }, [brandFloat]);
+
   const handleResync = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     statsQuery.refetch();
@@ -693,12 +707,25 @@ export default function LiveScreen() {
       <View style={[liveStyles.topBar, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
         <View style={liveStyles.topBarLeft}>
           <View style={[liveStyles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
-            <Text style={[liveStyles.headerTagText, { color: colors.accent }]}>LIVE MONITOR</Text>
+            <Text style={[liveStyles.headerTagText, { color: colors.accent }]}>{`${t("live", "Live").toUpperCase()} MONITOR`}</Text>
           </View>
           <View style={liveStyles.brandRow}>
-            <Text style={[liveStyles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>
-              TaskFlow
-            </Text>
+            <Animated.View
+              style={{
+                transform: [{ translateY: brandFloat.interpolate({ inputRange: [0, 1], outputRange: [0, -2] }) }],
+              }}
+            >
+              <Text
+                style={[liveStyles.brandText, {
+                  color: colors.accent,
+                  fontFamily: "Lexend_700Bold",
+                  textShadowColor: colors.accent + "33",
+                  textShadowRadius: 8,
+                }]}
+              >
+                TASKFLOW
+              </Text>
+            </Animated.View>
             <View style={[liveStyles.liveBadge, {
               backgroundColor: isOnline ? livePillColor + '14' : colors.cancel + '14',
               borderColor: isOnline ? livePillColor + '40' : colors.cancel + '40',
@@ -718,9 +745,21 @@ export default function LiveScreen() {
             </View>
           </View>
           <View style={liveStyles.metaRow}>
-            <Text style={[liveStyles.rigCountText, { color: colors.textMuted, fontFamily: "Lexend_500Medium" }]}>
-              {totalRigCount} rigs active
-            </Text>
+            <View style={[liveStyles.rigCountChip, {
+              borderColor: isOnline ? livePillColor + "40" : colors.border,
+              backgroundColor: isOnline ? livePillColor + "10" : colors.bgInput,
+            }]}>
+              <Animated.View
+                style={[liveStyles.rigCountDot, {
+                  backgroundColor: isOnline ? livePillColor : colors.statusPending,
+                  opacity: livePulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] }),
+                  transform: [{ scale: livePulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.22] }) }],
+                }]}
+              />
+              <Text style={[liveStyles.rigCountText, { color: colors.textSecondary, fontFamily: "Lexend_500Medium" }]}>
+                {totalRigCount} rigs active
+              </Text>
+            </View>
             <View style={[liveStyles.clockPill, {
               backgroundColor: isSyncing ? colors.statusPending + "14" : colors.bgCard,
               borderColor: isSyncing ? colors.statusPending + "3A" : colors.border,
@@ -758,7 +797,9 @@ export default function LiveScreen() {
         </View>
       </View>
 
-      <NewsTicker segments={tickerSegments} />
+      <View style={liveStyles.tickerWrap}>
+        <NewsTicker segments={tickerSegments} />
+      </View>
 
       <ScrollView style={liveStyles.terminalScroll} contentContainerStyle={liveStyles.terminalContent} showsVerticalScrollIndicator={false}>
         <CmdTerminal
@@ -779,9 +820,10 @@ const tickerStyles = StyleSheet.create({
   container: {
     flexDirection: "row",
     alignItems: "center",
-    height: 34,
+    height: 36,
     overflow: "hidden",
     borderBottomWidth: 1,
+    borderRadius: 12,
   },
   pillWrap: { paddingHorizontal: 10 },
   pill: {
@@ -864,6 +906,10 @@ const guideStyles = StyleSheet.create({
 });
 
 const liveStyles = StyleSheet.create({
+  tickerWrap: {
+    paddingHorizontal: DesignTokens.spacing.md,
+    paddingTop: 8,
+  },
   topBar: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -907,6 +953,16 @@ const liveStyles = StyleSheet.create({
   liveDot: { width: 6, height: 6, borderRadius: 3 },
   liveLabel: { fontSize: 9, fontWeight: "800" as const, letterSpacing: 1.2 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
+  rigCountChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 9,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  rigCountDot: { width: 6, height: 6, borderRadius: 4 },
   rigCountText: { fontSize: 10, letterSpacing: 0.5 },
   clockPill: {
     flexDirection: "row",

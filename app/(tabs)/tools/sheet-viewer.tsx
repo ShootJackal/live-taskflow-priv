@@ -11,6 +11,7 @@ import { useLocalSearchParams, Stack } from "expo-router";
 import { RefreshCw, AlertCircle, Clock, RotateCcw } from "lucide-react-native";
 import { useTheme } from "@/providers/ThemeProvider";
 import { useCollection } from "@/providers/CollectionProvider";
+import MarqueeText from "@/components/MarqueeText";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchFullLog,
@@ -166,9 +167,11 @@ function AssignmentLogView({ collectorName, configured }: { collectorName: strin
           style={[viewStyles.entryCard, { backgroundColor: colors.bgCard, borderColor: colors.border, shadowColor: colors.shadow }]}
         >
           <View style={viewStyles.entryTop}>
-            <Text style={[viewStyles.taskName, { color: colors.textPrimary }]} numberOfLines={2}>
-              {entry.taskName}
-            </Text>
+            <MarqueeText
+              text={entry.taskName}
+              style={[viewStyles.taskName, { color: colors.textPrimary }]}
+              speedMs={4600}
+            />
             <StatusBadge status={entry.status} colors={colors} />
           </View>
           <View style={viewStyles.entryMeta}>
@@ -331,7 +334,11 @@ function TaskRow({ task, colors, showRecollectTime }: { task: TaskActualRow; col
   return (
     <View style={[viewStyles.taskCard, { backgroundColor: colors.bgCard, borderColor: colors.border, shadowColor: colors.shadow }]}>
       <View style={viewStyles.taskTop}>
-        <Text style={[viewStyles.taskName, { color: colors.textPrimary }]} numberOfLines={2}>{task.taskName}</Text>
+        <MarqueeText
+          text={task.taskName}
+          style={[viewStyles.taskName, { color: colors.textPrimary }]}
+          speedMs={4400}
+        />
         <StatusBadge status={task.status} colors={colors} />
       </View>
       {task.assignedCollector ? (

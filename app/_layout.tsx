@@ -6,6 +6,7 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { View, Text, StyleSheet, Animated, Platform, Dimensions, TouchableOpacity } from "react-native";
 import { ThemeProvider, useTheme } from "@/providers/ThemeProvider";
+import { LocaleProvider } from "@/providers/LocaleProvider";
 import { CollectionProvider } from "@/providers/CollectionProvider";
 import { useFonts, Lexend_300Light, Lexend_400Regular, Lexend_500Medium, Lexend_600SemiBold, Lexend_700Bold, Lexend_800ExtraBold } from "@expo-google-fonts/lexend";
 
@@ -252,9 +253,11 @@ export default function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <AppWithBoot />
-      </ThemeProvider>
+      <LocaleProvider>
+        <ThemeProvider>
+          <AppWithBoot />
+        </ThemeProvider>
+      </LocaleProvider>
     </QueryClientProvider>
   );
 }

@@ -12,15 +12,12 @@ import {
   Modal,
   TextInput,
   Alert,
+  Switch,
 } from "react-native";
 import {
   MessageSquare,
   Clock,
   AlertTriangle,
-  Moon,
-  Sun,
-  Snowflake,
-  Glasses,
   Palette,
   User,
   Cpu,
@@ -38,15 +35,18 @@ import {
   Target,
   FileText,
   ChevronDown,
+  ChevronRight,
   ClipboardList,
   Lock,
   LogOut,
   Users,
   Star,
+  X,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { useTheme, THEME_META, type ThemeMode } from "@/providers/ThemeProvider";
+import { useLocale, type LocaleCode } from "@/providers/LocaleProvider";
 import { useCollection } from "@/providers/CollectionProvider";
 import { DesignTokens } from "@/constants/colors";
 import ScreenContainer from "@/components/ScreenContainer";
@@ -63,6 +63,13 @@ const OPEN_TASK_STATUSES = new Set(["IN_PROGRESS", "INPROGRESS", "ACTIVE", "IP",
 
 function normalizeTaskStatus(status: string): string {
   return String(status ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+}
+
+function buildRigSortValue(rig: string): [number, string] {
+  const clean = String(rig ?? "").trim();
+  const match = clean.match(/(\d+)(?!.*\d)/);
+  const numberPart = match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+  return [Number.isFinite(numberPart) ? numberPart : Number.MAX_SAFE_INTEGER, clean.toLowerCase()];
 }
 
 /** IDs must match sheet-viewer: log = Assignment Log (Collector Task Assignments Log), taskActuals = Task Actuals (Task Actuals | Redashpull). */
@@ -355,6 +362,97 @@ function AdminPasswordModal({ visible, onClose, onAuthenticate }: {
   );
 }
 
+function DisplaySettingsModal({
+  visible,
+  onClose,
+  resolvedMode,
+  onSelectTheme,
+  locale,
+  onSelectLocale,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  resolvedMode: Exclude<ThemeMode, "system">;
+  onSelectTheme: (theme: Exclude<ThemeMode, "system">) => void;
+  locale: LocaleCode;
+  onSelectLocale: (next: LocaleCode) => void;
+}) {
+  const { colors } = useTheme();
+  const { t } = useLocale();
+
+  const themeEntries = Object.entries(THEME_META) as [Exclude<ThemeMode, "system">, typeof THEME_META["light"]][];
+  const languageEntries: { code: LocaleCode; label: string }[] = [
+    { code: "en", label: "English" },
+    { code: "es", label: "Español" },
+    { code: "ru", label: "Русский" },
+  ];
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={displayModalStyles.overlay}>
+        <View style={[displayModalStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+          <View style={displayModalStyles.header}>
+            <Text style={[displayModalStyles.title, { color: colors.textPrimary }]}>{t("display_settings", "Display Settings")}</Text>
+            <TouchableOpacity style={[displayModalStyles.closeBtn, { borderColor: colors.border }]} onPress={onClose} activeOpacity={0.75}>
+              <X size={14} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={[displayModalStyles.sectionLabel, { color: colors.textMuted }]}>{t("theme", "Theme")}</Text>
+          <View style={[displayModalStyles.listCard, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
+            {themeEntries.map(([key, meta], idx) => (
+              <View key={key}>
+                {idx > 0 && <View style={[displayModalStyles.divider, { backgroundColor: colors.border }]} />}
+                <TouchableOpacity
+                  style={displayModalStyles.row}
+                  onPress={() => onSelectTheme(key)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={[displayModalStyles.rowLabel, { color: colors.textPrimary }]}>{meta.label}</Text>
+                  <Switch
+                    value={resolvedMode === key}
+                    onValueChange={(next) => {
+                      if (next) onSelectTheme(key);
+                    }}
+                    trackColor={{ false: colors.border, true: colors.accent + "66" }}
+                    thumbColor={resolvedMode === key ? colors.accent : colors.white}
+                    ios_backgroundColor={colors.border}
+                  />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+
+          <Text style={[displayModalStyles.sectionLabel, { color: colors.textMuted, marginTop: 14 }]}>{t("language", "Language")}</Text>
+          <View style={[displayModalStyles.listCard, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
+            {languageEntries.map((entry, idx) => (
+              <View key={entry.code}>
+                {idx > 0 && <View style={[displayModalStyles.divider, { backgroundColor: colors.border }]} />}
+                <TouchableOpacity
+                  style={displayModalStyles.row}
+                  onPress={() => onSelectLocale(entry.code)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={[displayModalStyles.rowLabel, { color: colors.textPrimary }]}>{entry.label}</Text>
+                  <Switch
+                    value={locale === entry.code}
+                    onValueChange={(next) => {
+                      if (next) onSelectLocale(entry.code);
+                    }}
+                    trackColor={{ false: colors.border, true: colors.accent + "66" }}
+                    thumbColor={locale === entry.code ? colors.accent : colors.white}
+                    ios_backgroundColor={colors.border}
+                  />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const adminModalStyles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", alignItems: "center", padding: DesignTokens.spacing.xxl },
   card: { width: "100%", maxWidth: 340, borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.xxl },
@@ -369,6 +467,26 @@ const adminModalStyles = StyleSheet.create({
   cancelText: { fontSize: 14, fontWeight: "500" as const },
   submitBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center" },
   submitText: { fontSize: 14, fontWeight: "700" as const },
+});
+
+const displayModalStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.42)", justifyContent: "center", alignItems: "center", padding: 18 },
+  card: { width: "100%", maxWidth: 380, borderRadius: 20, borderWidth: 1, padding: 14 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  title: { fontSize: 17, fontWeight: "700" as const },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sectionLabel: { fontSize: 10, letterSpacing: 1, fontWeight: "700" as const, marginBottom: 8, marginTop: 6, textTransform: "uppercase" },
+  listCard: { borderRadius: 14, borderWidth: 1, overflow: "hidden" },
+  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, paddingVertical: 10 },
+  rowLabel: { fontSize: 14, fontWeight: "600" as const },
+  divider: { height: 1 },
 });
 
 function AdminOverview({ colors, isAdmin }: { colors: ReturnType<typeof useTheme>["colors"]; isAdmin: boolean }) {
@@ -856,22 +974,17 @@ function QuickCard({ title, subtitle, icon, iconBg, onPress, testID, colors }: {
   );
 }
 
-const THEME_ICON_MAP: Record<string, React.ComponentType<any>> = {
-  sun: Sun,
-  moon: Moon,
-  snowflake: Snowflake,
-  glasses: Glasses,
-};
-
 export default function ToolsScreen() {
   const { colors, resolvedMode, setThemeMode } = useTheme();
+  const { t, locale, setLocale } = useLocale();
   const {
-    collectors, selectedCollectorName, selectedCollector, selectedRig,
+    collectors, selectedCollectorName, selectedRig,
     selectCollector, setSelectedRig, configured, isAdmin, authenticateAdmin, logoutAdmin,
   } = useCollection();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [showAdminModal, setShowAdminModal] = useState(false);
+  const [showDisplayModal, setShowDisplayModal] = useState(false);
   const adminModalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -894,9 +1007,23 @@ export default function ToolsScreen() {
   }, [collectors]);
 
   const rigOptions = useMemo(() => {
-    if (!selectedCollector || !selectedCollector.rigs.length) return [];
-    return selectedCollector.rigs.map(r => ({ value: r, label: r }));
-  }, [selectedCollector]);
+    const rigSet = new Set<string>();
+    for (const collector of collectors) {
+      for (const rig of collector.rigs ?? []) {
+        const clean = String(rig ?? "").trim();
+        if (clean) rigSet.add(clean);
+      }
+    }
+    if (selectedRig) rigSet.add(selectedRig);
+    return Array.from(rigSet)
+      .sort((a, b) => {
+        const [aNum, aText] = buildRigSortValue(a);
+        const [bNum, bText] = buildRigSortValue(b);
+        if (aNum !== bNum) return aNum - bNum;
+        return aText.localeCompare(bText, undefined, { numeric: true, sensitivity: "base" });
+      })
+      .map((rig) => ({ value: rig, label: rig }));
+  }, [collectors, selectedRig]);
 
   const handleSelectCollector = useCallback((name: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -932,23 +1059,36 @@ export default function ToolsScreen() {
     setSelectedRig(rig);
   }, [setSelectedRig]);
 
-  const openSlack = useCallback(() => {
-    const slackDeepLink = "slack://open";
-    const slackWeb = "https://slack.com/";
-    if (Platform.OS === "web") { Linking.openURL(slackWeb); }
-    else { Linking.canOpenURL(slackDeepLink).then(s => Linking.openURL(s ? slackDeepLink : slackWeb)).catch(() => Linking.openURL(slackWeb)); }
+  const openPreferredLink = useCallback(async (appUrl: string, webUrl: string) => {
+    try {
+      if (Platform.OS === "web") {
+        await Linking.openURL(webUrl);
+        return;
+      }
+      const canOpenApp = await Linking.canOpenURL(appUrl);
+      await Linking.openURL(canOpenApp ? appUrl : webUrl);
+    } catch {
+      try {
+        await Linking.openURL(webUrl);
+      } catch {}
+    }
   }, []);
+
+  const openSlack = useCallback(() => {
+    void openPreferredLink("slack://open", "https://slack.com/");
+  }, [openPreferredLink]);
 
   const openHubstaff = useCallback(() => {
-    const hubstaffDeepLink = "hubstaff://";
-    const hubstaffWeb = "https://app.hubstaff.com/";
-    if (Platform.OS === "web") { Linking.openURL(hubstaffWeb); }
-    else { Linking.canOpenURL(hubstaffDeepLink).then(s => Linking.openURL(s ? hubstaffDeepLink : hubstaffWeb)).catch(() => Linking.openURL(hubstaffWeb)); }
-  }, []);
+    void openPreferredLink("hubstaff://", "https://app.hubstaff.com/");
+  }, [openPreferredLink]);
+
+  const openSheets = useCallback(() => {
+    void openPreferredLink("googlesheets://", "https://docs.google.com/spreadsheets/");
+  }, [openPreferredLink]);
 
   const openAirtableRigIssue = useCallback(() => {
-    Linking.openURL("https://airtable.com/appvGgqeLbTxT4ld4/paghR1Qfi3cwZQtWZ/form");
-  }, []);
+    void openPreferredLink("airtable://", "https://airtable.com/appvGgqeLbTxT4ld4/paghR1Qfi3cwZQtWZ/form");
+  }, [openPreferredLink]);
 
   const openSheetPage = useCallback((sheetId: string, label: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -959,6 +1099,11 @@ export default function ToolsScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setThemeMode(theme);
   }, [setThemeMode]);
+
+  const handleSelectLocale = useCallback((nextLocale: LocaleCode) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void setLocale(nextLocale);
+  }, [setLocale]);
 
   const handleClearCache = useCallback(async () => {
     Alert.alert("Clear Cache", "Clear all locally cached data? The app will re-fetch from the server.", [
@@ -986,8 +1131,8 @@ export default function ToolsScreen() {
             <View style={[styles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
               <Text style={[styles.headerTagText, { color: colors.accent }]}>SETTINGS</Text>
             </View>
-            <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>Tools</Text>
-            <Text style={[styles.brandSub, { color: colors.textSecondary, fontFamily: "Lexend_400Regular" }]}>Settings & Utilities</Text>
+            <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>{t("tools", "Tools")}</Text>
+            <Text style={[styles.brandSub, { color: colors.textSecondary, fontFamily: "Lexend_400Regular" }]}>{t("settings", "Settings & Utilities")}</Text>
           </View>
           <View style={styles.pageHeaderRight}>
             {isAdmin && (
@@ -999,7 +1144,7 @@ export default function ToolsScreen() {
           </View>
         </View>
 
-        <SectionHeader label="My Profile" icon={<User size={11} color={colors.textMuted} />} />
+        <SectionHeader label={t("my_profile", "My Profile")} icon={<User size={11} color={colors.textMuted} />} />
 
         <View style={cardStyle}>
           <View style={styles.settingRow}>
@@ -1032,6 +1177,9 @@ export default function ToolsScreen() {
                   ) : (
                     <Text style={[styles.noRigText, { color: colors.textMuted }]}>No rigs assigned</Text>
                   )}
+                  <Text style={[styles.settingHint, { color: colors.textMuted }]}>
+                    {rigOptions.length} available rigs
+                  </Text>
                 </View>
               </View>
             </>
@@ -1064,46 +1212,32 @@ export default function ToolsScreen() {
         </View>
 
         <View style={styles.sectionGap} />
-        <SectionHeader label="Appearance" icon={<Palette size={11} color={colors.textMuted} />} />
-        <View style={[...cardStyle, styles.themeCard]} testID="theme-toggle">
-          <View style={styles.themeGrid}>
-            {(Object.entries(THEME_META) as [Exclude<ThemeMode, "system">, typeof THEME_META["light"]][]).map(([key, meta]) => {
-              const isActive = resolvedMode === key;
-              const IconComp = THEME_ICON_MAP[meta.icon] ?? Sun;
-              return (
-                <TouchableOpacity
-                  key={key}
-                  style={[styles.themeOption, {
-                    backgroundColor: isActive ? colors.accentSoft : colors.bgInput,
-                    borderColor: isActive ? colors.accent + '50' : colors.border,
-                  }]}
-                  onPress={() => handleSelectTheme(key)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.themeIconWrap, {
-                    backgroundColor: isActive ? colors.accent + '18' : colors.bgElevated,
-                  }]}>
-                    <IconComp size={16} color={isActive ? colors.accent : colors.textMuted} />
-                  </View>
-                  <Text style={[styles.themeOptionLabel, {
-                    color: isActive ? colors.accent : colors.textSecondary,
-                    fontWeight: isActive ? "700" as const : "500" as const,
-                  }]}>{meta.label}</Text>
-                  {isActive && (
-                    <View style={[styles.themeActiveDot, { backgroundColor: colors.accent }]} />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
+        <SectionHeader label={t("appearance_language", "Appearance & Language")} icon={<Palette size={11} color={colors.textMuted} />} />
+        <TouchableOpacity
+          style={[...cardStyle, styles.displaySettingsRow]}
+          onPress={() => setShowDisplayModal(true)}
+          activeOpacity={0.75}
+          testID="theme-toggle"
+        >
+          <View style={[styles.settingIconWrap, { backgroundColor: colors.accentSoft }]}>
+            <Palette size={16} color={colors.accent} />
           </View>
-        </View>
+          <View style={styles.settingContent}>
+            <Text style={[styles.settingLabel, { color: colors.textMuted }]}>{t("display_settings", "Display Settings")}</Text>
+            <Text style={[styles.settingSubLabel, { color: colors.textSecondary }]}>
+              {THEME_META[resolvedMode].label} · {locale.toUpperCase()}
+            </Text>
+          </View>
+          <ChevronRight size={16} color={colors.textMuted} />
+        </TouchableOpacity>
 
         <View style={styles.sectionGap} />
-        <SectionHeader label="Quick Actions" icon={<Zap size={11} color={colors.textMuted} />} />
+        <SectionHeader label={t("quick_actions", "Quick Actions")} icon={<Zap size={11} color={colors.textMuted} />} />
 
         <View style={styles.quickGrid}>
           <QuickCard title="Slack" subtitle="Team chat" icon={<MessageSquare size={18} color={colors.slack} />} iconBg={colors.slackBg} onPress={openSlack} testID="slack-link" colors={colors} />
           <QuickCard title="Hubstaff" subtitle="Time track" icon={<Clock size={18} color={colors.hubstaff} />} iconBg={colors.hubstaffBg} onPress={openHubstaff} testID="hubstaff-link" colors={colors} />
+          <QuickCard title="Sheets" subtitle="Open app" icon={<FileText size={18} color={colors.sheets} />} iconBg={colors.sheetsBg} onPress={openSheets} testID="sheets-link" colors={colors} />
           <QuickCard title="Report" subtitle="Rig issue" icon={<AlertTriangle size={18} color={colors.airtable} />} iconBg={colors.airtableBg} onPress={openAirtableRigIssue} testID="airtable-link" colors={colors} />
         </View>
 
@@ -1167,6 +1301,15 @@ export default function ToolsScreen() {
 
           <View style={styles.bottomSpacer} />
         </ScrollView>
+
+        <DisplaySettingsModal
+          visible={showDisplayModal}
+          onClose={() => setShowDisplayModal(false)}
+          resolvedMode={resolvedMode}
+          onSelectTheme={handleSelectTheme}
+          locale={locale}
+          onSelectLocale={handleSelectLocale}
+        />
 
         <AdminPasswordModal
           visible={showAdminModal}
@@ -1240,6 +1383,8 @@ const styles = StyleSheet.create({
   settingIconWrap: { width: 36, height: 36, borderRadius: DesignTokens.radius.md, alignItems: "center", justifyContent: "center" },
   settingContent: { flex: 1 },
   settingLabel: { fontSize: 10, letterSpacing: 0.4, marginBottom: 4, textTransform: "uppercase", fontWeight: "600" as const },
+  settingSubLabel: { fontSize: 13, fontWeight: "600" as const, lineHeight: 18 },
+  settingHint: { fontSize: 10, marginTop: 5, letterSpacing: 0.2 },
   settingDivider: { height: 1, marginLeft: 60 },
   noRigText: { fontSize: 12, fontStyle: "italic" as const, paddingVertical: 4 },
   profileBadge: {
@@ -1252,21 +1397,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, alignSelf: "flex-start",
   },
   adminLogoutText: { fontSize: 12, fontWeight: "600" as const },
-  themeCard: { padding: DesignTokens.spacing.md },
-  themeGrid: { flexDirection: "row", flexWrap: "wrap", gap: DesignTokens.spacing.sm },
-  themeOption: {
-    flex: 1, minWidth: "44%" as unknown as number,
-    borderRadius: DesignTokens.radius.md, borderWidth: 1,
-    padding: DesignTokens.spacing.md, alignItems: "center", gap: DesignTokens.spacing.xs,
+  displaySettingsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-  themeIconWrap: {
-    width: 32, height: 32, borderRadius: DesignTokens.radius.sm,
-    alignItems: "center", justifyContent: "center", marginBottom: 2,
-  },
-  themeOptionLabel: { fontSize: 11, letterSpacing: 0.2, textAlign: "center" },
-  themeActiveDot: { width: 5, height: 5, borderRadius: 3, marginTop: 2 },
-  quickGrid: { flexDirection: "row", gap: 10 },
-  quickCardWrap: { flex: 1 },
+  quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  quickCardWrap: { width: "48%" },
   quickCard: {
     borderRadius: DesignTokens.radius.xl - 2, borderWidth: 1, padding: 14, aspectRatio: 1,
     alignItems: "center", justifyContent: "center",

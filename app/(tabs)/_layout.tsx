@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/providers/ThemeProvider";
+import { useLocale } from "@/providers/LocaleProvider";
 import { DesignTokens } from "@/constants/colors";
 import * as Haptics from "expo-haptics";
 
@@ -22,15 +23,16 @@ const { width: FALLBACK_SCREEN_WIDTH } = Dimensions.get("window");
 const TAB_ORDER = ["live", "index", "stats", "tools"] as const;
 type TabName = (typeof TAB_ORDER)[number];
 
-const TAB_CONFIG: Record<TabName, { title: string; icon: (color: string, size: number) => React.ReactNode }> = {
-  live: { title: "LIVE", icon: (color, size) => <Radio size={size} color={color} /> },
-  index: { title: "Collect", icon: (color, size) => <Send size={size} color={color} /> },
-  stats: { title: "Stats", icon: (color, size) => <BarChart3 size={size} color={color} /> },
-  tools: { title: "Tools", icon: (color, size) => <Wrench size={size} color={color} /> },
+const TAB_CONFIG: Record<TabName, { titleKey: string; fallback: string; icon: (color: string, size: number) => React.ReactNode }> = {
+  live: { titleKey: "live", fallback: "LIVE", icon: (color, size) => <Radio size={size} color={color} /> },
+  index: { titleKey: "collect", fallback: "Collect", icon: (color, size) => <Send size={size} color={color} /> },
+  stats: { titleKey: "stats", fallback: "Stats", icon: (color, size) => <BarChart3 size={size} color={color} /> },
+  tools: { titleKey: "tools", fallback: "Tools", icon: (color, size) => <Wrench size={size} color={color} /> },
 };
 
 function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
   const { colors, isDark } = useTheme();
+  const { t } = useLocale();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const sliderAnim = useRef(new Animated.Value(0)).current;
@@ -136,7 +138,9 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
                   fontSize: isLive ? 8 : 9,
                   letterSpacing: isLive ? 1.5 : 0.5,
                   fontFamily: isFocused ? "Lexend_700Bold" : "Lexend_500Medium",
-                }]}>{cfg.title}</Text>
+                }]}>
+                  {isLive ? t(cfg.titleKey, cfg.fallback).toUpperCase() : t(cfg.titleKey, cfg.fallback)}
+                </Text>
               </TouchableOpacity>
             );
           })}
@@ -148,16 +152,17 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
 
 export default function TabLayout() {
   const { colors } = useTheme();
+  const { t } = useLocale();
   return (
     <Tabs
       initialRouteName="live"
       tabBar={(props) => <CustomTabBar {...props} />}
       screenOptions={{ headerShown: false, tabBarActiveTintColor: colors.accent, tabBarInactiveTintColor: colors.textMuted }}
     >
-      <Tabs.Screen name="live" options={{ title: "LIVE" }} />
-      <Tabs.Screen name="index" options={{ title: "Collect", headerShown: false }} />
-      <Tabs.Screen name="stats" options={{ title: "Stats" }} />
-      <Tabs.Screen name="tools" options={{ title: "Tools" }} />
+      <Tabs.Screen name="live" options={{ title: t("live", "LIVE").toUpperCase() }} />
+      <Tabs.Screen name="index" options={{ title: t("collect", "Collect"), headerShown: false }} />
+      <Tabs.Screen name="stats" options={{ title: t("stats", "Stats") }} />
+      <Tabs.Screen name="tools" options={{ title: t("tools", "Tools") }} />
     </Tabs>
   );
 }
