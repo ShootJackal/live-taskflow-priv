@@ -17,6 +17,7 @@ import {
   submitAction,
   isApiConfigured,
   warmServerCache,
+  logCollectorRigSelection,
 } from "@/services/googleSheets";
 
 const STORAGE_KEYS = {
@@ -213,7 +214,10 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     console.log("[Provider] setSelectedRig:", rig);
     setSelectedRigState(rig);
     await AsyncStorage.setItem(STORAGE_KEYS.SELECTED_RIG, rig);
-  }, []);
+    if (selectedCollectorName && rig) {
+      void logCollectorRigSelection(selectedCollectorName, rig, "TOOLS");
+    }
+  }, [selectedCollectorName]);
 
   const addActivityEntry = useCallback(
     async (
@@ -318,9 +322,10 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
       hours,
       actionType: "ASSIGN",
       notes,
+      rig: selectedRig || undefined,
       requestId: createRequestId("ASSIGN", selectedTaskName, hours),
     });
-  }, [selectedCollectorName, selectedTaskName, hoursToLog, notes, createRequestId, submitOnce]);
+  }, [selectedCollectorName, selectedTaskName, hoursToLog, notes, selectedRig, createRequestId, submitOnce]);
 
   const completeTask = useCallback(
     async (taskName: string) => {
@@ -335,10 +340,11 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
         hours,
         actionType: "COMPLETE",
         notes,
+        rig: selectedRig || undefined,
         requestId: createRequestId("COMPLETE", taskName, hours),
       });
     },
-    [selectedCollectorName, hoursToLog, notes, createRequestId, submitOnce]
+    [selectedCollectorName, hoursToLog, notes, selectedRig, createRequestId, submitOnce]
   );
 
   const cancelTask = useCallback(
@@ -350,10 +356,11 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
         hours: 0,
         actionType: "CANCEL",
         notes,
+        rig: selectedRig || undefined,
         requestId: createRequestId("CANCEL", taskName, 0),
       });
     },
-    [selectedCollectorName, notes, createRequestId, submitOnce]
+    [selectedCollectorName, notes, selectedRig, createRequestId, submitOnce]
   );
 
   const addNote = useCallback(
@@ -367,10 +374,11 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
         hours: 0,
         actionType: "NOTE_ONLY",
         notes: notes.trim(),
+        rig: selectedRig || undefined,
         requestId: createRequestId("NOTE_ONLY", taskName, 0),
       });
     },
-    [selectedCollectorName, notes, createRequestId, submitOnce]
+    [selectedCollectorName, notes, selectedRig, createRequestId, submitOnce]
   );
 
   const refreshData = useCallback(() => {

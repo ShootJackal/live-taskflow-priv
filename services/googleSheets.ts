@@ -432,6 +432,54 @@ export async function submitAction(payload: SubmitPayload): Promise<SubmitRespon
   return apiPost(payload);
 }
 
+export async function logCollectorRigSelection(
+  collectorName: string,
+  rig: string,
+  source = "TOOLS"
+): Promise<void> {
+  const collector = normalizeCollectorName(collectorName ?? "").trim();
+  const rigValue = String(rig ?? "").trim();
+  if (!collector || !rigValue) return;
+
+  const scriptUrl = getScriptUrl();
+  if (!scriptUrl) return;
+
+  const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(scriptUrl, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({
+        metaAction: "SET_RIG",
+        collector,
+        rig: rigValue,
+        source,
+      }),
+      redirect: "follow",
+      signal: timeout.controller.signal,
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text || "Rig log failed"}`);
+    }
+
+    const json = await parseApiResponse<Record<string, unknown>>(response);
+    if (!json.success) {
+      throw new Error(json.error ?? json.message ?? "Rig log failed");
+    }
+
+    // Rig mapping affects all-time stats resolution; clear local snapshots.
+    memoryCache.clear();
+    appCacheSnapshotMemo.clear();
+  } catch (err) {
+    console.log("[API] logCollectorRigSelection failed:", err);
+  } finally {
+    timeout.cancel();
+  }
+}
+
 export async function fetchRecollections(): Promise<string[]> {
   try {
     return await apiGet<string[]>("getRecollections");

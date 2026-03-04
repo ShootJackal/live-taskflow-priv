@@ -14,6 +14,7 @@
  *   CA_INDEX
  *   Task Actuals | Redashpull   (or Collector Actuals | RedashPull — script tries both)
  *   Collector Task Assignments Log
+ *   Collector Rig History Log (auto-created if missing)
  *   RS_Task_Req
  *   _AppCache
  *
@@ -26,6 +27,7 @@
  *   Task Actuals:   A=TaskID B=TaskName C=CollectedHrs D=GoodHrs E=Status F=RemainingHrs K=LastRedash
  *   RS_Task_Req:    A=TaskName B=RequiredGoodHrs
  *   Assignments:    A=AssignmentID B=TaskID C=TaskName D=Collector E=AssignedDate F=PlannedHrs G=Status H=LoggedHrs I=RemainingHrs J=CompletedDate K=Notes L=WeekStart
+ *   Rig History:    A=EventTs B=Collector C=Rig D=Event E=SessionStart F=SessionEnd G=SessionHours H=Source I=WeekStart J=Notes
  *   _AppCache:      A=key B=jsonValue C=updatedAt
  */
 
@@ -37,6 +39,7 @@ var TASKFLOW_SHEETS = {
   CA_INDEX: 'CA_INDEX',
   TASK_ACTUALS: 'Task Actuals | Redashpull',
   ASSIGNMENTS: 'Collector Task Assignments Log',
+  RIG_HISTORY: 'Collector Rig History Log',
   RS_TASK_REQ: 'RS_Task_Req',
   APP_CACHE: '_AppCache'
 };
@@ -59,6 +62,7 @@ var GET_CACHE_TTL_MS = {
   adminDashboard: 60 * 1000,
   activeRigsCount: 30 * 1000
 };
+var _rigHistorySnapshot = null;
 
 function assertSheetConfig_() {
   var required = ['COLLECTORS', 'TASK_LIST', 'ASSIGNMENTS', 'RS_TASK_REQ', 'APP_CACHE'];
@@ -205,6 +209,12 @@ function doPost(e) {
     }
     body = unwrapSubmitBody(body);
 
+    var metaAction = safeStr(body && body.metaAction).toUpperCase();
+    if (metaAction === 'SET_RIG') {
+      var rigResult = handleLogCollectorRig(body);
+      return jsonOut({ success: true, data: rigResult, message: rigResult.message || 'Rig event logged' });
+    }
+
     var result = handleSubmit(body);
     return jsonOut({ success: true, data: result, message: result.message || 'OK' });
   } catch (err) {
@@ -237,6 +247,22 @@ function unwrapSubmitBody(body) {
     break;
   }
   return current;
+}
+
+function handleLogCollectorRig(body) {
+  var collector = safeStr(body && body.collector);
+  var rig = safeStr(body && body.rig);
+  var source = safeStr(body && body.source) || 'TOOLS';
+  var notes = safeStr(body && body.notes);
+  if (!collector) throw new Error('Missing collector');
+  if (!rig) throw new Error('Missing rig');
+
+  var eventAt = new Date();
+  if (body && body.at) {
+    var parsed = new Date(body.at);
+    if (!isNaN(parsed.getTime())) eventAt = parsed;
+  }
+  return logCollectorRigEvent(collector, rig, source, notes, eventAt);
 }
 
 function getSS() { return SpreadsheetApp.getActiveSpreadsheet(); }
@@ -418,6 +444,206 @@ function getCollectorRigMaps() {
   };
 }
 
+function normalizeRigKey(rig) {
+  return safeStr(rig).toLowerCase();
+}
+
+function getOrCreateRigHistorySheet() {
+  var ss = getSS();
+  var sheet = ss.getSheetByName(TASKFLOW_SHEETS.RIG_HISTORY);
+  if (!sheet) {
+    sheet = ss.insertSheet(TASKFLOW_SHEETS.RIG_HISTORY);
+    sheet.getRange(1, 1, 1, 10).setValues([[
+      'EventTs',
+      'Collector',
+      'Rig',
+      'Event',
+      'SessionStart',
+      'SessionEnd',
+      'SessionHours',
+      'Source',
+      'WeekStart',
+      'Notes'
+    ]]);
+  } else if (sheet.getLastRow() < 1) {
+    sheet.getRange(1, 1, 1, 10).setValues([[
+      'EventTs',
+      'Collector',
+      'Rig',
+      'Event',
+      'SessionStart',
+      'SessionEnd',
+      'SessionHours',
+      'Source',
+      'WeekStart',
+      'Notes'
+    ]]);
+  }
+  return sheet;
+}
+
+function getRigHistorySnapshot() {
+  if (_rigHistorySnapshot) return _rigHistorySnapshot;
+
+  var byCollector = {};
+  var byRigLatest = {};
+  var tsByRig = {};
+  var sheet = getSS().getSheetByName(TASKFLOW_SHEETS.RIG_HISTORY);
+  if (!sheet) {
+    _rigHistorySnapshot = { byCollector: byCollector, byRigLatest: byRigLatest };
+    return _rigHistorySnapshot;
+  }
+  var data = sheet.getDataRange().getValues();
+  if (!data || data.length < 2) {
+    _rigHistorySnapshot = { byCollector: byCollector, byRigLatest: byRigLatest };
+    return _rigHistorySnapshot;
+  }
+
+  for (var i = 1; i < data.length; i++) {
+    var collectorName = safeStr(data[i][1]);
+    var collectorKey = normalizeCollectorKey(collectorName);
+    var rig = normalizeRigKey(data[i][2]);
+    if (!collectorKey || !rig) continue;
+
+    if (!byCollector[collectorKey]) byCollector[collectorKey] = {};
+    byCollector[collectorKey][rig] = true;
+
+    var ts = Math.max(toTimestampMs(data[i][0]), toTimestampMs(data[i][4]));
+    if (!tsByRig[rig] || ts > tsByRig[rig]) {
+      tsByRig[rig] = ts;
+      byRigLatest[rig] = collectorName;
+    }
+  }
+
+  _rigHistorySnapshot = {
+    byCollector: byCollector,
+    byRigLatest: byRigLatest
+  };
+  return _rigHistorySnapshot;
+}
+
+function getCollectorRigSet(normCollector, fallbackRig) {
+  var set = {};
+  var fallback = normalizeRigKey(fallbackRig);
+  if (fallback) set[fallback] = true;
+
+  var snap = getRigHistorySnapshot();
+  var fromHistory = snap.byCollector[normCollector];
+  if (fromHistory) {
+    for (var rig in fromHistory) {
+      if (fromHistory[rig]) set[rig] = true;
+    }
+  }
+  return set;
+}
+
+function getRigToCollectorFromHistory() {
+  var snap = getRigHistorySnapshot();
+  return snap.byRigLatest || {};
+}
+
+function logCollectorRigEvent(collectorName, rigId, source, notes, eventDate) {
+  var collector = safeStr(collectorName);
+  var rig = safeStr(rigId);
+  if (!collector) throw new Error('Missing collector');
+  if (!rig) throw new Error('Missing rig');
+
+  var sheet = getOrCreateRigHistorySheet();
+  var now = eventDate instanceof Date ? eventDate : new Date();
+  if (isNaN(now.getTime())) now = new Date();
+  var normCollector = normalizeCollectorKey(collector);
+  var normRig = normalizeRigKey(rig);
+  var data = sheet.getDataRange().getValues();
+  var openRow = -1;
+  var openStartMs = 0;
+  var openRig = '';
+  var bestTs = -1;
+
+  for (var i = 1; i < data.length; i++) {
+    var rowCollector = normalizeCollectorKey(data[i][1]);
+    if (rowCollector !== normCollector) continue;
+    var sessionEnd = data[i][5];
+    if (sessionEnd != null && safeStr(sessionEnd) !== '') continue;
+    var rowRig = normalizeRigKey(data[i][2]);
+    var rowTs = Math.max(toTimestampMs(data[i][4]), toTimestampMs(data[i][0]));
+    if (rowTs > bestTs) {
+      bestTs = rowTs;
+      openRow = i + 1;
+      openStartMs = rowTs;
+      openRig = rowRig;
+    }
+  }
+
+  if (openRow > 0 && openRig === normRig) {
+    var openStartDate = openStartMs > 0 ? new Date(openStartMs) : null;
+    var isSameDay = false;
+    if (openStartDate && !isNaN(openStartDate.getTime())) {
+      isSameDay = (
+        openStartDate.getFullYear() === now.getFullYear() &&
+        openStartDate.getMonth() === now.getMonth() &&
+        openStartDate.getDate() === now.getDate()
+      );
+    }
+    if (isSameDay) {
+      return {
+        logged: false,
+        duplicate: true,
+        collector: collector,
+        rig: rig,
+        message: 'Rig already active'
+      };
+    }
+
+    // Same rig but a new day: close prior session at prior-day EOD, then open a new daily session.
+    var closeAt = now;
+    if (openStartDate && !isNaN(openStartDate.getTime())) {
+      var eod = new Date(openStartDate.getFullYear(), openStartDate.getMonth(), openStartDate.getDate(), 23, 59, 59, 999);
+      if (eod.getTime() > 0 && eod.getTime() < now.getTime()) {
+        closeAt = eod;
+      }
+    }
+    var sameRigHours = 0;
+    if (openStartMs > 0 && closeAt.getTime() > openStartMs) {
+      sameRigHours = Math.round(((closeAt.getTime() - openStartMs) / 3600000) * 100) / 100;
+    }
+    sheet.getRange(openRow, 6).setValue(closeAt);
+    sheet.getRange(openRow, 7).setValue(sameRigHours);
+    openRow = -1;
+  }
+
+  if (openRow > 0) {
+    var endMs = now.getTime();
+    var hours = 0;
+    if (openStartMs > 0 && endMs > openStartMs) {
+      hours = Math.round(((endMs - openStartMs) / 3600000) * 100) / 100;
+    }
+    sheet.getRange(openRow, 6).setValue(now);
+    sheet.getRange(openRow, 7).setValue(hours);
+  }
+
+  sheet.insertRowsBefore(2, 1);
+  sheet.getRange(2, 1, 1, 10).setValues([[
+    now,
+    collector,
+    rig,
+    'RIG_SELECTED',
+    now,
+    '',
+    '',
+    safeStr(source) || 'TOOLS',
+    getWeekStart(now),
+    safeStr(notes)
+  ]]);
+  _rigHistorySnapshot = null;
+
+  return {
+    logged: true,
+    collector: collector,
+    rig: rig,
+    message: 'Rig event logged'
+  };
+}
+
 /**
  * Returns normalized collector upload rows from CA_TAGGED (preferred) or CA_PLUS (fallback).
  * Output row shape: { date: Date|null, rigId: string, collector: string, taskName: string, taskKey: string, hours: number, site: string }
@@ -427,6 +653,7 @@ function getCollectorActualRows() {
   var sourceSheet = ss.getSheetByName(TASKFLOW_SHEETS.CA_TAGGED) || ss.getSheetByName(TASKFLOW_SHEETS.CA_PLUS);
   if (!sourceSheet) return [];
   var rigMaps = getCollectorRigMaps();
+  var rigHistoryMap = getRigToCollectorFromHistory();
 
   var rows = sourceSheet.getDataRange().getValues();
   if (!rows || rows.length === 0) return [];
@@ -487,9 +714,10 @@ function getCollectorActualRows() {
     var taskName = safeStr(r[idxTask]);
     var hours = safeNum(r[idxHours]);
     if (!rigId || !taskName || hours <= 0) continue;
-    var collectorFromRig = rigMaps.rigToCollectorName[rigId] || '';
     var collectorRaw = safeStr(r[idxCollector]);
-    var collectorName = collectorFromRig || collectorRaw;
+    var collectorFromHistory = rigHistoryMap[rigId] || '';
+    var collectorFromRig = rigMaps.rigToCollectorName[rigId] || '';
+    var collectorName = collectorRaw || collectorFromHistory || collectorFromRig;
     var site = idxSite >= 0 ? safeStr(r[idxSite]).toUpperCase() : '';
     if (!site) site = getRegionFromRigId(rigId);
 
@@ -533,6 +761,16 @@ function getLiveHoursForAssignment(liveIndex, rigId, taskName, sinceDate) {
   for (var i = 0; i < entries.length; i++) {
     var e = entries[i];
     if (!e.date || e.date.getTime() >= sinceMs) sum += safeNum(e.hours);
+  }
+  return sum;
+}
+
+function getLiveHoursForAssignmentAcrossRigs(liveIndex, rigSet, taskName, sinceDate) {
+  if (!rigSet || !taskName) return 0;
+  var sum = 0;
+  for (var rig in rigSet) {
+    if (!rigSet[rig]) continue;
+    sum += getLiveHoursForAssignment(liveIndex, rig, taskName, sinceDate);
   }
   return sum;
 }
@@ -886,6 +1124,7 @@ function handleGetCollectorStats(collectorName) {
   }
 
   var actualRows = getCollectorActualRows();
+  var collectorRigSet = getCollectorRigSet(normName, myRig);
   var actualHours = 0, actualWeeklyHours = 0;
   var actualTaskSet = {};
   var actualTaskHoursByKey = {};
@@ -894,7 +1133,7 @@ function handleGetCollectorStats(collectorName) {
     var ar = actualRows[t];
     var aRig = ar.rigId;
     var aCol = normalizeCollectorKey(ar.collector);
-    var matchesCollector = (myRig && aRig === myRig) || aCol === normName;
+    var matchesCollector = aCol === normName || (aRig && collectorRigSet[aRig]);
     if (matchesCollector) {
       var hours = safeNum(ar.hours);
       if (hours <= 0) continue;
@@ -960,6 +1199,7 @@ function handleGetTodayLog(collectorName) {
   var assignData;
   try { assignData = getSheetData(TASKFLOW_SHEETS.ASSIGNMENTS); } catch(e) { return []; }
   var collectorRigMap = getCollectorRigMap();
+  var collectorRigSet = getCollectorRigSet(normName, collectorRigMap[normName] || '');
   var liveHoursIndex = buildLiveHoursIndex(getCollectorActualRows());
   var taskActualLookup = buildTaskActualLookup();
   var today = getScriptTodayDate();
@@ -989,8 +1229,7 @@ function handleGetTodayLog(collectorName) {
     var taskProgressPct = taskTotal > 0 ? Math.round((taskCollected / taskTotal) * 100) : 0;
 
     if (isActive) {
-      var rigId = collectorRigMap[aCol] || '';
-      var liveHours = getLiveHoursForAssignment(liveHoursIndex, rigId, safeStr(row[2]), assignDate);
+      var liveHours = getLiveHoursForAssignmentAcrossRigs(liveHoursIndex, collectorRigSet, safeStr(row[2]), assignDate);
       if (liveHours > loggedHours) {
         loggedHours = liveHours;
         remainingHours = Math.max(0, plannedHours - loggedHours);
@@ -1061,6 +1300,7 @@ function handleGetFullLog(collectorFilter) {
   try { data = getSheetData(TASKFLOW_SHEETS.ASSIGNMENTS); } catch(e) { return []; }
   var normFilter = collectorFilter ? normalizeCollectorKey(collectorFilter) : '';
   var collectorRigMap = getCollectorRigMap();
+  var collectorRigSetCache = {};
   var liveHoursIndex = buildLiveHoursIndex(getCollectorActualRows());
   var taskActualLookup = buildTaskActualLookup();
   var latestByKey = {};
@@ -1084,8 +1324,10 @@ function handleGetFullLog(collectorFilter) {
     var taskProgressPct = taskTotal > 0 ? Math.round((taskCollected / taskTotal) * 100) : 0;
     if (isActive) {
       var assignedDate = toDateSafe(data[i][4]);
-      var rigId = collectorRigMap[collectorKey] || '';
-      var liveHours = getLiveHoursForAssignment(liveHoursIndex, rigId, safeStr(data[i][2]), assignedDate);
+      if (!collectorRigSetCache[collectorKey]) {
+        collectorRigSetCache[collectorKey] = getCollectorRigSet(collectorKey, collectorRigMap[collectorKey] || '');
+      }
+      var liveHours = getLiveHoursForAssignmentAcrossRigs(liveHoursIndex, collectorRigSetCache[collectorKey], safeStr(data[i][2]), assignedDate);
       if (liveHours > loggedHours) {
         loggedHours = liveHours;
         remainingHours = Math.max(0, plannedHours - loggedHours);
@@ -1471,12 +1713,13 @@ function roundedHours(v) {
   return Math.round(safeNum(v) * 100) / 100;
 }
 
-function buildSubmitFingerprint(collector, task, actionType, hours, notes) {
+function buildSubmitFingerprint(collector, task, actionType, hours, notes, rig) {
   var noteKey = safeStr(notes).replace(/\s+/g, ' ').toLowerCase();
   if (noteKey.length > 80) noteKey = noteKey.substring(0, 80);
   return [
     normalizeCollectorKey(collector),
     normalizeTaskKey(task),
+    normalizeRigKey(rig),
     safeStr(actionType).toUpperCase(),
     roundedHours(hours).toFixed(2),
     noteKey
@@ -1701,6 +1944,7 @@ function handleSubmit(body) {
   var hours = safeNum(body.hours);
   var actionType = safeStr(body.actionType);
   var notes = safeStr(body.notes);
+  var rig = safeStr(body.rig);
   var requestId = safeStr(body.requestId);
   if (!collector) throw new Error('Missing collector');
   if (!task) throw new Error('Missing task');
@@ -1708,7 +1952,7 @@ function handleSubmit(body) {
 
   var normCol = normalizeCollectorKey(collector);
   var normTask = normalizeTaskKey(task);
-  var fingerprint = buildSubmitFingerprint(collector, task, actionType, hours, notes);
+  var fingerprint = buildSubmitFingerprint(collector, task, actionType, hours, notes, rig);
   var cacheInfo = getSubmitCacheInfo(requestId, fingerprint);
   var cached = readCachedSubmitResult(cacheInfo.key);
   if (cached) {
@@ -1730,6 +1974,10 @@ function handleSubmit(body) {
       cached.duplicate = true;
       cached.message = cached.message || 'Duplicate submit ignored';
       return cached;
+    }
+
+    if (rig) {
+      logCollectorRigEvent(collector, rig, 'SUBMIT', actionType, new Date());
     }
 
     var result = handleSubmitCore(collector, task, hours, actionType, notes, normCol, normTask);

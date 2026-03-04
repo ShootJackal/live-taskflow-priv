@@ -52,6 +52,7 @@ export interface SubmitPayload {
   hours: number;
   actionType: ActionType;
   notes: string;
+  rig?: string;
   requestId?: string;
 }
 
