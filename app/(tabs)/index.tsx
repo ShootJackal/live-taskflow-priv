@@ -128,7 +128,7 @@ const logStyles = StyleSheet.create({
 });
 
 export default function DashboardScreen() {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const {
     configured,
     collectors,
@@ -263,9 +263,9 @@ export default function DashboardScreen() {
   }, [colors]);
 
   const cardShadow = useMemo(() => ({
-    shadowColor: isDark ? colors.accent : colors.shadow,
+    shadowColor: colors.shadow,
     ...DesignTokens.shadow.elevated,
-  }), [isDark, colors]);
+  }), [colors]);
 
   return (
     <ScreenContainer>

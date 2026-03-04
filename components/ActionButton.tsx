@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "@/providers/ThemeProvider";
+import { DesignTokens } from "@/constants/colors";
 
 interface ActionButtonProps {
   title: string;
@@ -33,7 +34,7 @@ export default React.memo(function ActionButton({
   testID,
   fullWidth = false,
 }: ActionButtonProps) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = useCallback(() => {
@@ -66,31 +67,49 @@ export default React.memo(function ActionButton({
         { transform: [{ scale: scaleAnim }] },
       ]}
     >
-      <TouchableOpacity
+      <View
         style={[
-          styles.button,
+          styles.shell,
           {
-            backgroundColor: bgColor,
-            borderColor: colors.border,
+            backgroundColor: colors.bg,
+            borderColor: isDark ? colors.border : colors.borderLight,
+            shadowColor: colors.shadow,
           },
           disabled && styles.disabled,
         ]}
-        onPress={handlePress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        disabled={disabled || loading}
-        activeOpacity={0.7}
-        testID={testID}
       >
-        {loading ? (
-          <ActivityIndicator size="small" color={color} />
-        ) : (
-          <View style={styles.content}>
-            {icon}
-            <Text style={[styles.text, { color }]}>{title}</Text>
-          </View>
-        )}
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.button,
+            {
+              backgroundColor: bgColor,
+              borderColor: colors.border,
+            },
+          ]}
+          onPress={handlePress}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          disabled={disabled || loading}
+          activeOpacity={0.92}
+          testID={testID}
+        >
+          <View
+            pointerEvents="none"
+            style={[
+              styles.topSheen,
+              { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : colors.cardDepth },
+            ]}
+          />
+          {loading ? (
+            <ActivityIndicator size="small" color={color} />
+          ) : (
+            <View style={styles.content}>
+              {icon}
+              <Text style={[styles.text, { color }]}>{title}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
     </Animated.View>
   );
 });
@@ -102,14 +121,28 @@ const styles = StyleSheet.create({
   fullWidth: {
     width: "100%",
   },
+  shell: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 3,
+    ...DesignTokens.shadow.card,
+  },
   button: {
-    borderRadius: 10,
+    borderRadius: 9,
     paddingVertical: 13,
     paddingHorizontal: 12,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
     minHeight: 48,
+    overflow: "hidden",
+  },
+  topSheen: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "50%",
   },
   content: {
     flexDirection: "row",
@@ -122,6 +155,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   disabled: {
-    opacity: 0.35,
+    opacity: 0.5,
   },
 });

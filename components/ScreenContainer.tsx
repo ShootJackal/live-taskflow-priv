@@ -25,11 +25,11 @@ export default React.memo(function ScreenContainer({
   const containerStyle = useMemo(
     () => [
       styles.root,
-      { backgroundColor: colors.bg },
+      { backgroundColor: isWide ? colors.bgSecondary : colors.bg },
       withTopInset && { paddingTop: insets.top },
       withBottomInset && { paddingBottom: insets.bottom },
     ],
-    [colors.bg, insets.top, insets.bottom, withTopInset, withBottomInset]
+    [colors.bgSecondary, colors.bg, isWide, insets.top, insets.bottom, withTopInset, withBottomInset]
   );
 
   const bezelStyle = useMemo(
@@ -41,7 +41,7 @@ export default React.memo(function ScreenContainer({
               maxWidth,
               borderColor: isDark ? colors.border : colors.borderLight,
               backgroundColor: colors.bg,
-              shadowColor: isDark ? "#000" : colors.shadow,
+              shadowColor: colors.shadow,
             },
           ]
         : null,
@@ -51,7 +51,18 @@ export default React.memo(function ScreenContainer({
   if (isWide) {
     return (
       <View style={containerStyle}>
-        <View style={bezelStyle}>{children}</View>
+        <View style={[styles.stage, { backgroundColor: colors.bgSecondary }]}>
+          <View style={bezelStyle}>
+            <View
+              pointerEvents="none"
+              style={[
+                styles.bezelHighlight,
+                { backgroundColor: isDark ? "rgba(255,255,255,0.03)" : colors.cardDepth },
+              ]}
+            />
+            {children}
+          </View>
+        </View>
       </View>
     );
   }
@@ -63,16 +74,29 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
+  stage: {
+    flex: 1,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
   bezel: {
     flex: 1,
     alignSelf: "center",
     width: "100%",
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.15,
-    shadowRadius: 40,
-    elevation: 12,
+    borderWidth: 1,
+    borderRadius: DesignTokens.radius.xxl + 8,
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.18,
+    shadowRadius: 32,
+    elevation: 16,
     overflow: "hidden",
+  },
+  bezelHighlight: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 120,
+    opacity: 0.9,
   },
 });

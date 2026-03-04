@@ -21,22 +21,22 @@ export const DesignTokens = {
   },
   shadow: {
     card: {
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.08,
+      shadowOffset: { width: 0, height: 7 },
+      shadowOpacity: 0.14,
       shadowRadius: 16,
-      elevation: 6,
-    },
-    elevated: {
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.12,
-      shadowRadius: 20,
       elevation: 8,
     },
+    elevated: {
+      shadowOffset: { width: 0, height: 12 },
+      shadowOpacity: 0.2,
+      shadowRadius: 24,
+      elevation: 12,
+    },
     subtle: {
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.05,
-      shadowRadius: 8,
-      elevation: 3,
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.1,
+      shadowRadius: 10,
+      elevation: 4,
     },
   },
   maxContentWidth: 600,
@@ -122,13 +122,13 @@ export interface ThemeColors {
 }
 
 export const LightTheme: ThemeColors = {
-  bg: '#ECE8E1',
-  bgSecondary: '#E4DED4',
-  bgCard: '#F8F5EE',
-  bgInput: '#EEE8DE',
-  bgElevated: '#E2DBCF',
-  border: '#D5CEC1',
-  borderLight: '#E2DBCF',
+  bg: '#E7EBF3',
+  bgSecondary: '#DEE4EE',
+  bgCard: '#EDF1F8',
+  bgInput: '#E3E8F1',
+  bgElevated: '#F5F7FC',
+  border: '#CDD6E4',
+  borderLight: '#F9FBFF',
   borderFocus: '#8B6FC0',
 
   textPrimary: '#1A1720',
@@ -163,17 +163,17 @@ export const LightTheme: ThemeColors = {
   sheets: '#2D8A56',
   sheetsBg: '#E4F4EB',
 
-  tabBar: '#F4F0E8',
+  tabBar: '#EAF0F8',
   tabBarBorder: 'transparent',
 
-  skeleton: '#D5CEC1',
+  skeleton: '#CDD6E4',
   overlay: 'rgba(0,0,0,0.25)',
 
-  shadow: '#3D2B6B',
-  shadowCard: 'rgba(60, 40, 110, 0.08)',
+  shadow: '#8B95A8',
+  shadowCard: 'rgba(120, 132, 160, 0.24)',
 
   terminal: '#7C3AED',
-  terminalBg: '#ECE8E1',
+  terminalBg: '#E7EBF3',
   terminalGreen: '#2D8A56',
   terminalDim: '#8E889A',
 
@@ -196,17 +196,17 @@ export const LightTheme: ThemeColors = {
   bronze: '#A0522D',
   bronzeBg: '#FDF0E8',
 
-  cardDepth: 'rgba(124,58,237,0.05)',
+  cardDepth: 'rgba(255,255,255,0.6)',
 };
 
 export const DarkTheme: ThemeColors = {
-  bg: '#191821',
-  bgSecondary: '#1F1E28',
-  bgCard: '#262430',
-  bgInput: '#2C2A36',
-  bgElevated: '#31303C',
-  border: '#3A3846',
-  borderLight: '#474556',
+  bg: '#171B24',
+  bgSecondary: '#1C2230',
+  bgCard: '#222939',
+  bgInput: '#1D2432',
+  bgElevated: '#2A3346',
+  border: '#2F394D',
+  borderLight: '#3D4A62',
   borderFocus: '#A78BFA',
 
   textPrimary: '#EEEDF2',
@@ -241,17 +241,17 @@ export const DarkTheme: ThemeColors = {
   sheets: '#5EBD8A',
   sheetsBg: '#0E1A12',
 
-  tabBar: '#24222D',
+  tabBar: '#202839',
   tabBarBorder: 'transparent',
 
-  skeleton: '#3A3846',
+  skeleton: '#2F394D',
   overlay: 'rgba(0,0,0,0.6)',
 
-  shadow: '#000000',
-  shadowCard: 'rgba(0, 0, 0, 0.4)',
+  shadow: '#070B12',
+  shadowCard: 'rgba(0, 0, 0, 0.68)',
 
   terminal: '#A78BFA',
-  terminalBg: '#191821',
+  terminalBg: '#171B24',
   terminalGreen: '#5EBD8A',
   terminalDim: '#4A4858',
 
@@ -274,15 +274,15 @@ export const DarkTheme: ThemeColors = {
   bronze: '#C87B52',
   bronzeBg: '#1A1208',
 
-  cardDepth: 'rgba(255,255,255,0.04)',
+  cardDepth: 'rgba(255,255,255,0.05)',
 };
 
 export const FrostedGlassTheme: ThemeColors = {
-  bg: '#F0F1F6',
-  bgSecondary: '#E8EAF0',
-  bgCard: 'rgba(255, 255, 255, 0.72)',
-  bgInput: 'rgba(240, 241, 248, 0.80)',
-  bgElevated: 'rgba(230, 232, 240, 0.65)',
+  bg: '#EAEEF6',
+  bgSecondary: '#E2E7F1',
+  bgCard: 'rgba(255, 255, 255, 0.78)',
+  bgInput: 'rgba(234, 239, 247, 0.86)',
+  bgElevated: 'rgba(245, 247, 252, 0.7)',
   border: 'rgba(180, 185, 210, 0.35)',
   borderLight: 'rgba(200, 205, 225, 0.30)',
   borderFocus: '#8B6FC0',
@@ -319,14 +319,14 @@ export const FrostedGlassTheme: ThemeColors = {
   sheets: '#2D8A56',
   sheetsBg: 'rgba(228, 244, 235, 0.60)',
 
-  tabBar: 'rgba(244, 245, 252, 0.72)',
+  tabBar: 'rgba(240, 244, 251, 0.8)',
   tabBarBorder: 'transparent',
 
-  skeleton: 'rgba(200, 205, 225, 0.40)',
+  skeleton: 'rgba(194, 202, 224, 0.42)',
   overlay: 'rgba(20, 20, 40, 0.20)',
 
-  shadow: '#3D2B6B',
-  shadowCard: 'rgba(60, 40, 110, 0.06)',
+  shadow: '#A0ABBF',
+  shadowCard: 'rgba(120, 132, 162, 0.2)',
 
   terminal: '#7C3AED',
   terminalBg: 'rgba(248, 248, 255, 0.55)',
@@ -352,15 +352,15 @@ export const FrostedGlassTheme: ThemeColors = {
   bronze: '#A0522D',
   bronzeBg: 'rgba(253, 240, 232, 0.60)',
 
-  cardDepth: 'rgba(124, 58, 237, 0.04)',
+  cardDepth: 'rgba(255,255,255,0.62)',
 };
 
 export const TintedGlassTheme: ThemeColors = {
-  bg: '#1A1232',
-  bgSecondary: '#201840',
-  bgCard: 'rgba(50, 35, 90, 0.60)',
-  bgInput: 'rgba(60, 42, 105, 0.55)',
-  bgElevated: 'rgba(70, 50, 120, 0.45)',
+  bg: '#18132F',
+  bgSecondary: '#1E1940',
+  bgCard: 'rgba(48, 39, 92, 0.68)',
+  bgInput: 'rgba(38, 31, 76, 0.74)',
+  bgElevated: 'rgba(68, 52, 126, 0.48)',
   border: 'rgba(140, 110, 220, 0.25)',
   borderLight: 'rgba(160, 130, 240, 0.18)',
   borderFocus: '#B794F6',
@@ -397,14 +397,14 @@ export const TintedGlassTheme: ThemeColors = {
   sheets: '#6ECC9A',
   sheetsBg: 'rgba(30, 80, 50, 0.35)',
 
-  tabBar: 'rgba(40, 28, 75, 0.75)',
+  tabBar: 'rgba(34, 27, 68, 0.82)',
   tabBarBorder: 'transparent',
 
   skeleton: 'rgba(100, 80, 160, 0.30)',
   overlay: 'rgba(10, 5, 25, 0.55)',
 
-  shadow: '#0A0520',
-  shadowCard: 'rgba(20, 10, 50, 0.40)',
+  shadow: '#060415',
+  shadowCard: 'rgba(10, 6, 28, 0.56)',
 
   terminal: '#B794F6',
   terminalBg: 'rgba(25, 18, 50, 0.65)',
@@ -430,5 +430,5 @@ export const TintedGlassTheme: ThemeColors = {
   bronze: '#D08858',
   bronzeBg: 'rgba(80, 45, 20, 0.30)',
 
-  cardDepth: 'rgba(180, 150, 255, 0.06)',
+  cardDepth: 'rgba(220, 207, 255, 0.08)',
 };

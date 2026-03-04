@@ -196,7 +196,7 @@ const compStyles = StyleSheet.create({
 });
 
 export default function StatsScreen() {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const queryClient = useQueryClient();
   const { selectedCollector, selectedCollectorName, selectedRig, todayLog, configured } = useCollection();
   const [refreshing, setRefreshing] = useState(false);
@@ -288,9 +288,9 @@ export default function StatsScreen() {
 
   const stats = statsQuery.data;
   const cardShadow = useMemo(() => ({
-    shadowColor: isDark ? colors.accent : colors.shadow,
+    shadowColor: colors.shadow,
     ...DesignTokens.shadow.elevated,
-  }), [isDark, colors]);
+  }), [colors]);
   const refreshControl = Platform.OS === "web"
     ? undefined
     : <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.accent} colors={[colors.accent]} />;

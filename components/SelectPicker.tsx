@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { ChevronDown, Check } from "lucide-react-native";
 import { useTheme } from "@/providers/ThemeProvider";
+import { DesignTokens } from "@/constants/colors";
 
 interface Option {
   value: string;
@@ -34,7 +35,7 @@ export default React.memo(function SelectPicker({
   placeholder = "Select...",
   testID,
 }: SelectPickerProps) {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const [visible, setVisible] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -98,22 +99,40 @@ export default React.memo(function SelectPicker({
   return (
     <View style={styles.container} testID={testID}>
       {label ? <Text style={[styles.label, { color: colors.textSecondary }]}>{label}</Text> : null}
-      <TouchableOpacity
-        style={[styles.trigger, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
-        onPress={open}
-        activeOpacity={0.7}
+      <View
+        style={[
+          styles.triggerShell,
+          {
+            backgroundColor: colors.bg,
+            borderColor: isDark ? colors.border : colors.borderLight,
+            shadowColor: colors.shadow,
+          },
+        ]}
       >
-        <Text
-          style={[
-            styles.triggerText,
-            { color: selectedOption ? colors.textPrimary : colors.textMuted },
-          ]}
-          numberOfLines={1}
+        <TouchableOpacity
+          style={[styles.trigger, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
+          onPress={open}
+          activeOpacity={0.92}
         >
-          {selectedOption?.label ?? placeholder}
-        </Text>
-        <ChevronDown size={18} color={colors.textMuted} />
-      </TouchableOpacity>
+          <View
+            pointerEvents="none"
+            style={[
+              styles.topSheen,
+              { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : colors.cardDepth },
+            ]}
+          />
+          <Text
+            style={[
+              styles.triggerText,
+              { color: selectedOption ? colors.textPrimary : colors.textMuted },
+            ]}
+            numberOfLines={1}
+          >
+            {selectedOption?.label ?? placeholder}
+          </Text>
+          <ChevronDown size={18} color={colors.textMuted} />
+        </TouchableOpacity>
+      </View>
 
       <Modal
         visible={visible}
@@ -122,7 +141,7 @@ export default React.memo(function SelectPicker({
         onRequestClose={close}
         statusBarTranslucent
       >
-        <Animated.View style={[styles.overlay, { opacity: fadeAnim }]}>
+        <Animated.View style={[styles.overlay, { opacity: fadeAnim, backgroundColor: colors.overlay }]}>
           <TouchableOpacity
             style={styles.overlayTouch}
             activeOpacity={1}
@@ -133,6 +152,8 @@ export default React.memo(function SelectPicker({
               styles.sheet,
               {
                 backgroundColor: colors.bgCard,
+                borderColor: colors.border,
+                shadowColor: colors.shadow,
                 transform: [
                   {
                     translateY: fadeAnim.interpolate({
@@ -179,6 +200,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderWidth: 1,
+    overflow: "hidden",
+  },
+  triggerShell: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 3,
+    ...DesignTokens.shadow.card,
+  },
+  topSheen: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "50%",
   },
   triggerText: {
     flex: 1,
@@ -187,7 +222,6 @@ const styles = StyleSheet.create({
   },
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "flex-end",
   },
   overlayTouch: {
@@ -199,6 +233,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: Platform.OS === "web" ? 20 : 40,
     maxHeight: "60%",
+    borderWidth: 1,
+    ...DesignTokens.shadow.elevated,
   },
   sheetHandle: {
     width: 36,

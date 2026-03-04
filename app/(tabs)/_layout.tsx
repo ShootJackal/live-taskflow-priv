@@ -88,7 +88,7 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
       <View style={[barStyles.islandWrap, { maxWidth: islandMaxWidth + 32 }]}>
         <View style={[barStyles.tintTray, {
           borderColor: isDark ? colors.accentDim + "60" : colors.borderLight,
-          backgroundColor: isDark ? "rgba(62,54,90,0.35)" : "rgba(236,232,225,0.82)",
+          backgroundColor: colors.bgElevated,
         }]} pointerEvents="none">
           <BlurView
             intensity={isDark ? 20 : 28}
@@ -99,7 +99,7 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
 
         <View style={[barStyles.island, {
           backgroundColor: colors.tabBar,
-          shadowColor: isDark ? colors.accent : colors.shadow,
+          shadowColor: colors.shadow,
           borderColor: isDark ? colors.border : colors.borderLight,
         }]}>
           <Animated.View style={[barStyles.slider, {
@@ -198,7 +198,7 @@ const barStyles = StyleSheet.create({
   },
   island: {
     flexDirection: "row", borderRadius: DesignTokens.radius.xxl + 4, borderWidth: 1, paddingVertical: 6,
-    shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 20,
+    shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 24, elevation: 16,
     position: "relative", overflow: "hidden", width: "100%",
   },
   slider: { position: "absolute", bottom: 0, height: 2.5, borderTopLeftRadius: 2, borderTopRightRadius: 2 },
