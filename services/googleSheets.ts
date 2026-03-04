@@ -13,6 +13,7 @@ import {
   LiveAlert,
   CollectorProfile,
   AdminStartPlanData,
+  DailyCarryoverItem,
 } from "@/types";
 
 const DEFAULT_SCRIPT_URL = "";
@@ -45,6 +46,7 @@ const CACHE_TTL_MS: Record<string, number> = {
   getLiveAlerts: 20 * 1000,
   getCollectorProfile: 60 * 1000,
   getAdminStartPlan: 60 * 1000,
+  getDailyCarryover: 20 * 1000,
 };
 
 const STORAGE_TTL_MS: Record<string, number> = {
@@ -61,6 +63,7 @@ const STORAGE_TTL_MS: Record<string, number> = {
   getLiveAlerts: 2 * 60 * 1000,
   getCollectorProfile: 5 * 60 * 1000,
   getAdminStartPlan: 5 * 60 * 1000,
+  getDailyCarryover: 2 * 60 * 1000,
 };
 
 function getCached<T>(key: string): T | null {
@@ -507,6 +510,18 @@ export async function fetchAdminStartPlan(): Promise<AdminStartPlanData> {
   }
 }
 
+export async function fetchDailyCarryover(collectorName: string): Promise<DailyCarryoverItem[]> {
+  try {
+    return await apiGet<DailyCarryoverItem[]>("getDailyCarryover", { collector: collectorName }, false);
+  } catch (err) {
+    const cacheKeys = [collectorCacheKey("dailyCarryover", collectorName)];
+    const cache = await getAppCacheSnapshot(cacheKeys);
+    const cached = readFirstCachedValue<DailyCarryoverItem[]>(cache, cacheKeys);
+    if (Array.isArray(cached)) return cached;
+    throw err;
+  }
+}
+
 export async function submitAction(payload: SubmitPayload): Promise<SubmitResponse> {
   return apiPost(payload);
 }
@@ -746,6 +761,38 @@ export async function grantCollectorAward(payload: {
     award: String(payload.award ?? "").trim(),
     pinned: !!payload.pinned,
     grantedBy: String(payload.grantedBy ?? "").trim(),
+    notes: String(payload.notes ?? "").trim(),
+  });
+}
+
+export async function reportDailyCarryover(payload: {
+  collector: string;
+  task: string;
+  assignmentId: string;
+  actualHours?: number;
+  notes?: string;
+}): Promise<SubmitResponse> {
+  return await apiMetaPost<SubmitResponse>({
+    metaAction: "CARRYOVER_REPORT",
+    collector: String(payload.collector ?? "").trim(),
+    task: String(payload.task ?? "").trim(),
+    assignmentId: String(payload.assignmentId ?? "").trim(),
+    actualHours: Number(payload.actualHours ?? 0),
+    notes: String(payload.notes ?? "").trim(),
+  });
+}
+
+export async function cancelDailyCarryover(payload: {
+  collector: string;
+  task: string;
+  assignmentId: string;
+  notes?: string;
+}): Promise<SubmitResponse> {
+  return await apiMetaPost<SubmitResponse>({
+    metaAction: "CARRYOVER_CANCEL",
+    collector: String(payload.collector ?? "").trim(),
+    task: String(payload.task ?? "").trim(),
+    assignmentId: String(payload.assignmentId ?? "").trim(),
     notes: String(payload.notes ?? "").trim(),
   });
 }

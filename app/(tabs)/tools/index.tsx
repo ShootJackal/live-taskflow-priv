@@ -43,6 +43,7 @@ import {
   Users,
   Star,
   X,
+  Search,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
@@ -791,6 +792,7 @@ function AdminToolsPanel({
   const [isSendingAlert, setIsSendingAlert] = useState(false);
   const [controlCollector, setControlCollector] = useState("");
   const [controlTask, setControlTask] = useState("");
+  const [controlTaskSearch, setControlTaskSearch] = useState("");
   const [controlHours, setControlHours] = useState("0.50");
   const [controlNotes, setControlNotes] = useState("");
   const [isRunningTaskAction, setIsRunningTaskAction] = useState(false);
@@ -969,6 +971,26 @@ function AdminToolsPanel({
     }
   }, [controlCollector, controlTask, controlHours, controlNotes, queryClient]);
 
+  const handleSearchTask = useCallback(() => {
+    const term = controlTaskSearch.trim().toLowerCase();
+    if (!term) {
+      Alert.alert("Search task", "Type part of a task name first.");
+      return;
+    }
+    const match = tasks.find((task) => {
+      const name = String(task.name ?? "").toLowerCase();
+      const label = String(task.label ?? task.name ?? "").toLowerCase();
+      return name.includes(term) || label.includes(term);
+    });
+    if (!match) {
+      Alert.alert("Task not found", `No task matched "${controlTaskSearch.trim()}".`);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
+    setControlTask(match.name);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, [controlTaskSearch, tasks]);
+
   const handleGrantAward = useCallback(async () => {
     const collector = awardCollector.trim();
     const award = awardName.trim();
@@ -1036,6 +1058,25 @@ function AdminToolsPanel({
           placeholder="Select task..."
           testID="admin-control-task"
         />
+        <View style={atStyles.controlSearchRow}>
+          <TextInput
+            style={[atStyles.controlSearchInput, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bgInput }]}
+            value={controlTaskSearch}
+            onChangeText={setControlTaskSearch}
+            placeholder="Search task name..."
+            placeholderTextColor={colors.textMuted}
+            returnKeyType="search"
+            onSubmitEditing={handleSearchTask}
+          />
+          <TouchableOpacity
+            style={[atStyles.controlSearchBtn, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}
+            onPress={handleSearchTask}
+            activeOpacity={0.8}
+          >
+            <Search size={12} color={colors.accent} />
+            <Text style={[atStyles.controlSearchBtnText, { color: colors.accent }]}>Search</Text>
+          </TouchableOpacity>
+        </View>
         <View style={atStyles.controlRow}>
           <TextInput
             style={[atStyles.controlHoursInput, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bgInput }]}
@@ -1339,6 +1380,27 @@ const atStyles = StyleSheet.create({
   },
   alertSendText: { fontSize: 12, fontWeight: "700" as const, letterSpacing: 0.35 },
   controlSpacer: { height: 8 },
+  controlSearchRow: { flexDirection: "row", gap: 8, marginTop: 8 },
+  controlSearchInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 12,
+  },
+  controlSearchBtn: {
+    minWidth: 94,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 5,
+  },
+  controlSearchBtnText: { fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.2 },
   controlRow: { flexDirection: "row", gap: 8, marginTop: 8 },
   controlHoursInput: {
     width: 92,
