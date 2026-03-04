@@ -15,6 +15,8 @@
  *   Task Actuals | Redashpull   (or Collector Actuals | RedashPull — script tries both)
  *   Collector Task Assignments Log
  *   Collector Rig History Log (auto-created if missing)
+ *   Live Alerts (auto-created if missing)
+ *   Collector Awards (auto-created if missing)
  *   RS_Task_Req
  *   _AppCache
  *
@@ -28,6 +30,8 @@
  *   RS_Task_Req:    A=TaskName B=RequiredGoodHrs
  *   Assignments:    A=AssignmentID B=TaskID C=TaskName D=Collector E=AssignedDate F=PlannedHrs G=Status H=LoggedHrs I=RemainingHrs J=CompletedDate K=Notes L=WeekStart
  *   Rig History:    A=EventTs B=Collector C=Rig D=Event E=SessionStart F=SessionEnd G=SessionHours H=Source I=WeekStart J=Notes
+ *   Live Alerts:    A=AlertID B=Message C=Level D=Target E=CreatedAt F=CreatedBy G=Active
+ *   Collector Awards: A=AwardID B=Collector C=Award D=Pinned E=GrantedBy F=GrantedAt G=Notes
  *   _AppCache:      A=key B=jsonValue C=updatedAt
  */
 
@@ -40,6 +44,8 @@ var TASKFLOW_SHEETS = {
   TASK_ACTUALS: 'Task Actuals | Redashpull',
   ASSIGNMENTS: 'Collector Task Assignments Log',
   RIG_HISTORY: 'Collector Rig History Log',
+  LIVE_ALERTS: 'Live Alerts',
+  COLLECTOR_AWARDS: 'Collector Awards',
   RS_TASK_REQ: 'RS_Task_Req',
   APP_CACHE: '_AppCache'
 };
@@ -60,7 +66,10 @@ var GET_CACHE_TTL_MS = {
   fullLog: 30 * 1000,
   taskActuals: 60 * 1000,
   adminDashboard: 60 * 1000,
-  activeRigsCount: 30 * 1000
+  activeRigsCount: 30 * 1000,
+  liveAlerts: 20 * 1000,
+  collectorProfile: 60 * 1000,
+  adminStartPlan: 90 * 1000
 };
 var _rigHistorySnapshot = null;
 
@@ -105,6 +114,12 @@ function getDoGetCachePolicy(action, params) {
       return { key: 'adminDashboard', ttlMs: GET_CACHE_TTL_MS.adminDashboard };
     case 'getActiveRigsCount':
       return { key: 'activeRigsCount', ttlMs: GET_CACHE_TTL_MS.activeRigsCount };
+    case 'getLiveAlerts':
+      return { key: 'liveAlerts', ttlMs: GET_CACHE_TTL_MS.liveAlerts };
+    case 'getCollectorProfile':
+      return normCollector ? { key: 'collectorProfile_' + normCollector, ttlMs: GET_CACHE_TTL_MS.collectorProfile } : null;
+    case 'getAdminStartPlan':
+      return { key: 'adminStartPlan', ttlMs: GET_CACHE_TTL_MS.adminStartPlan };
     default:
       return null;
   }
@@ -178,6 +193,9 @@ function doGet(e) {
       case 'getTaskActualsSheet':   result = handleGetTaskActuals(); break;
       case 'getAdminDashboardData': result = handleGetAdminDashboard(); break;
       case 'getActiveRigsCount':    result = handleGetActiveRigsCount(); break;
+      case 'getLiveAlerts':         result = handleGetLiveAlerts(); break;
+      case 'getCollectorProfile':   result = handleGetCollectorProfile(e.parameter.collector || ''); break;
+      case 'getAdminStartPlan':     result = handleGetAdminStartPlan(); break;
       case 'getAppCache':           result = handleGetAppCache(e.parameter.keys || ''); break;
       case 'refreshCache':          result = handleRefreshCache(e.parameter.collector || '', e.parameter.scope || ''); break;
       default:
@@ -213,6 +231,26 @@ function doPost(e) {
     if (metaAction === 'SET_RIG') {
       var rigResult = handleLogCollectorRig(body);
       return jsonOut({ success: true, data: rigResult, message: rigResult.message || 'Rig event logged' });
+    }
+    if (metaAction === 'PUSH_ALERT') {
+      var alertResult = handlePushLiveAlert(body);
+      return jsonOut({ success: true, data: alertResult, message: alertResult.message || 'Alert sent' });
+    }
+    if (metaAction === 'ADMIN_ASSIGN_TASK') {
+      var adminAssign = handleAdminAssignTask(body);
+      return jsonOut({ success: true, data: adminAssign, message: adminAssign.message || 'Task assigned' });
+    }
+    if (metaAction === 'ADMIN_CANCEL_TASK') {
+      var adminCancel = handleAdminCancelTask(body);
+      return jsonOut({ success: true, data: adminCancel, message: adminCancel.message || 'Task canceled' });
+    }
+    if (metaAction === 'ADMIN_EDIT_HOURS') {
+      var adminEdit = handleAdminEditHours(body);
+      return jsonOut({ success: true, data: adminEdit, message: adminEdit.message || 'Hours updated' });
+    }
+    if (metaAction === 'GRANT_AWARD') {
+      var awardResult = handleGrantAward(body);
+      return jsonOut({ success: true, data: awardResult, message: awardResult.message || 'Award granted' });
     }
 
     var result = handleSubmit(body);
@@ -263,6 +301,316 @@ function handleLogCollectorRig(body) {
     if (!isNaN(parsed.getTime())) eventAt = parsed;
   }
   return logCollectorRigEvent(collector, rig, source, notes, eventAt);
+}
+
+function getOrCreateLiveAlertsSheet() {
+  var ss = getSS();
+  var sheet = ss.getSheetByName(TASKFLOW_SHEETS.LIVE_ALERTS);
+  if (!sheet) {
+    sheet = ss.insertSheet(TASKFLOW_SHEETS.LIVE_ALERTS);
+  }
+  if (sheet.getLastRow() < 1) {
+    sheet.getRange(1, 1, 1, 7).setValues([[
+      'AlertID',
+      'Message',
+      'Level',
+      'Target',
+      'CreatedAt',
+      'CreatedBy',
+      'Active'
+    ]]);
+  }
+  return sheet;
+}
+
+function handlePushLiveAlert(body) {
+  var message = safeStr(body && body.message);
+  if (!message) throw new Error('Missing message');
+
+  var level = safeStr(body && body.level).toUpperCase() || 'INFO';
+  var target = safeStr(body && body.target).toUpperCase() || 'ALL';
+  var createdBy = safeStr(body && body.createdBy) || safeStr(body && body.collector) || 'ADMIN';
+  var now = new Date();
+  var alertId = 'AL-' + now.getTime();
+
+  var sheet = getOrCreateLiveAlertsSheet();
+  sheet.insertRows(2, 1);
+  sheet.getRange(2, 1, 1, 7).setValues([[
+    alertId,
+    message,
+    level,
+    target,
+    now.toISOString(),
+    createdBy,
+    true
+  ]]);
+
+  var latest = handleGetLiveAlerts();
+  writeCache('liveAlerts', latest);
+  return {
+    id: alertId,
+    message: message,
+    level: level,
+    target: target,
+    createdAt: now.toISOString(),
+    createdBy: createdBy,
+    success: true
+  };
+}
+
+function handleGetLiveAlerts() {
+  var sheet;
+  try {
+    sheet = getOrCreateLiveAlertsSheet();
+  } catch (e) {
+    return [];
+  }
+
+  var data = sheet.getDataRange().getValues();
+  if (!data || data.length < 2) return [];
+
+  var out = [];
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    var id = safeStr(row[0]);
+    var msg = safeStr(row[1]);
+    if (!id || !msg) continue;
+
+    var activeRaw = safeStr(row[6]).toLowerCase();
+    var isActive = !(activeRaw === 'false' || activeRaw === '0' || activeRaw === 'no');
+    if (!isActive) continue;
+
+    out.push({
+      id: id,
+      message: msg,
+      level: safeStr(row[2]).toUpperCase() || 'INFO',
+      target: safeStr(row[3]).toUpperCase() || 'ALL',
+      createdAt: safeStr(row[4]),
+      createdBy: safeStr(row[5])
+    });
+    if (out.length >= 25) break;
+  }
+
+  writeCache('liveAlerts', out);
+  return out;
+}
+
+function toBool(v) {
+  if (typeof v === 'boolean') return v;
+  var s = safeStr(v).toLowerCase();
+  return s === 'true' || s === '1' || s === 'yes' || s === 'y' || s === 'on';
+}
+
+function normalizeAssignmentStatusText(status) {
+  var s = safeStr(status).toLowerCase();
+  if (s === 'completed' || s === 'complete' || s === 'done' || s === 'finished') return 'Completed';
+  if (s === 'canceled' || s === 'cancelled' || s === 'cancel') return 'Canceled';
+  if (s === 'partial') return 'Partial';
+  return 'In Progress';
+}
+
+function getOrCreateCollectorAwardsSheet() {
+  var ss = getSS();
+  var sheet = ss.getSheetByName(TASKFLOW_SHEETS.COLLECTOR_AWARDS);
+  if (!sheet) sheet = ss.insertSheet(TASKFLOW_SHEETS.COLLECTOR_AWARDS);
+  if (sheet.getLastRow() < 1) {
+    sheet.getRange(1, 1, 1, 7).setValues([[
+      'AwardID',
+      'Collector',
+      'Award',
+      'Pinned',
+      'GrantedBy',
+      'GrantedAt',
+      'Notes'
+    ]]);
+  }
+  return sheet;
+}
+
+function enforcePinnedAwardLimit(sheet, collectorName) {
+  var data = sheet.getDataRange().getValues();
+  if (!data || data.length < 2) return;
+  var normCollector = normalizeCollectorKey(collectorName);
+  var pinnedRows = [];
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (normalizeCollectorKey(row[1]) !== normCollector) continue;
+    if (!toBool(row[3])) continue;
+    pinnedRows.push(i + 1);
+  }
+  if (pinnedRows.length <= 3) return;
+  for (var p = 3; p < pinnedRows.length; p++) {
+    sheet.getRange(pinnedRows[p], 4).setValue(false);
+  }
+}
+
+function getCollectorAwards(collectorName) {
+  var sheet = getSS().getSheetByName(TASKFLOW_SHEETS.COLLECTOR_AWARDS);
+  if (!sheet) return { all: [], pinned: [] };
+  var data = sheet.getDataRange().getValues();
+  if (!data || data.length < 2) return { all: [], pinned: [] };
+
+  var normCollector = normalizeCollectorKey(collectorName);
+  var all = [];
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (normalizeCollectorKey(row[1]) !== normCollector) continue;
+    var awardName = safeStr(row[2]);
+    if (!awardName) continue;
+    all.push({
+      id: safeStr(row[0]),
+      award: awardName,
+      pinned: toBool(row[3]),
+      grantedBy: safeStr(row[4]),
+      grantedAt: safeStr(row[5]),
+      notes: safeStr(row[6])
+    });
+  }
+  var pinned = [];
+  for (var a = 0; a < all.length; a++) {
+    if (all[a].pinned) pinned.push(all[a]);
+    if (pinned.length >= 3) break;
+  }
+  return { all: all, pinned: pinned };
+}
+
+function handleGrantAward(body) {
+  var collector = safeStr(body && body.collector);
+  var award = safeStr(body && body.award);
+  if (!collector) throw new Error('Missing collector');
+  if (!award) throw new Error('Missing award');
+
+  var grantedBy = safeStr(body && body.grantedBy) || 'ADMIN';
+  var notes = safeStr(body && body.notes);
+  var pinned = toBool(body && body.pinned);
+  var now = new Date();
+  var id = 'AW-' + now.getTime();
+
+  var sheet = getOrCreateCollectorAwardsSheet();
+  sheet.insertRowsBefore(2, 1);
+  sheet.getRange(2, 1, 1, 7).setValues([[
+    id,
+    collector,
+    award,
+    pinned,
+    grantedBy,
+    now.toISOString(),
+    notes
+  ]]);
+  if (pinned) enforcePinnedAwardLimit(sheet, collector);
+
+  var normCollector = normalizeCollectorKey(collector);
+  var profile = handleGetCollectorProfile(collector);
+  writeCache('collectorProfile_' + normCollector, profile);
+  return {
+    id: id,
+    collector: collector,
+    award: award,
+    pinned: pinned,
+    grantedBy: grantedBy,
+    grantedAt: now.toISOString(),
+    notes: notes,
+    success: true,
+    message: 'Award granted'
+  };
+}
+
+function handleAdminAssignTask(body) {
+  var collector = safeStr(body && body.collector);
+  var task = safeStr(body && body.task);
+  var hours = safeNum(body && body.hours);
+  var notes = safeStr(body && body.notes) || 'Admin assignment';
+  if (!collector) throw new Error('Missing collector');
+  if (!task) throw new Error('Missing task');
+  if (!(hours > 0)) hours = 0.5;
+  return handleSubmit({
+    collector: collector,
+    task: task,
+    hours: hours,
+    actionType: 'ASSIGN',
+    notes: notes,
+    rig: safeStr(body && body.rig),
+    requestId: safeStr(body && body.requestId)
+  });
+}
+
+function handleAdminCancelTask(body) {
+  var collector = safeStr(body && body.collector);
+  var task = safeStr(body && body.task);
+  var notes = safeStr(body && body.notes) || 'Admin cancellation';
+  if (!collector) throw new Error('Missing collector');
+  if (!task) throw new Error('Missing task');
+  return handleSubmit({
+    collector: collector,
+    task: task,
+    hours: 0,
+    actionType: 'CANCEL',
+    notes: notes,
+    rig: safeStr(body && body.rig),
+    requestId: safeStr(body && body.requestId)
+  });
+}
+
+function handleAdminEditHours(body) {
+  var collector = safeStr(body && body.collector);
+  var task = safeStr(body && body.task);
+  var hours = Math.max(0, safeNum(body && body.hours));
+  var notes = safeStr(body && body.notes);
+  var desiredStatus = safeStr(body && body.status);
+  var desiredPlanned = safeNum(body && body.plannedHours);
+  if (!collector) throw new Error('Missing collector');
+  if (!task) throw new Error('Missing task');
+
+  var sheet = getSheet(TASKFLOW_SHEETS.ASSIGNMENTS);
+  var data = sheet.getDataRange().getValues();
+  var normCol = normalizeCollectorKey(collector);
+  var normTask = normalizeTaskKey(task);
+  var latest = getLatestAssignmentState(data, normCol, normTask);
+  if (!latest) throw new Error('No assignment history found for collector/task');
+
+  var planned = desiredPlanned > 0 ? desiredPlanned : Math.max(safeNum(latest.planned), hours);
+  if (planned < hours) planned = hours;
+  var status = desiredStatus ? normalizeAssignmentStatusText(desiredStatus) : normalizeAssignmentStatusText(latest.status);
+  if (!status) status = (hours >= planned) ? 'Completed' : 'In Progress';
+  var remaining = Math.max(0, planned - hours);
+  if (status === 'Completed' && remaining > 0) status = 'Partial';
+  if (status === 'In Progress' && remaining <= 0) status = 'Completed';
+  var now = new Date();
+  var completedDate = (status === 'Completed') ? now : '';
+
+  var noteParts = [];
+  noteParts.push('ADMIN_EDIT ' + Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') + ' -> ' + hours.toFixed(2) + 'h');
+  if (notes) noteParts.push(notes);
+  var mergedNotes = noteParts.join(' | ');
+  var editId = 'A-' + now.getTime();
+
+  insertAssignmentLogRow(sheet, [
+    editId,
+    safeStr(latest.taskId),
+    task,
+    collector,
+    latest.assignedDate || now,
+    planned,
+    status,
+    hours,
+    remaining,
+    completedDate,
+    mergedNotes,
+    safeStr(latest.weekStart) || getWeekStart(now)
+  ]);
+
+  refreshPostSubmitCaches(collector);
+  return {
+    success: true,
+    assignmentId: editId,
+    message: 'Hours updated: ' + task,
+    collector: collector,
+    task: task,
+    hours: hours,
+    planned: planned,
+    remaining: remaining,
+    status: status
+  };
 }
 
 function getSS() { return SpreadsheetApp.getActiveSpreadsheet(); }
@@ -1193,6 +1541,247 @@ function handleGetCollectorStats(collectorName) {
   return result;
 }
 
+function handleGetCollectorProfile(collectorName) {
+  if (!collectorName) throw new Error('Missing collector');
+  var normName = normalizeCollectorKey(collectorName);
+
+  var collectors = getCollectorRows();
+  var displayName = collectorName;
+  var fallbackRig = '';
+  for (var c = 0; c < collectors.length; c++) {
+    if (normalizeCollectorKey(collectors[c].name) === normName) {
+      displayName = safeStr(collectors[c].name) || collectorName;
+      fallbackRig = safeStr(collectors[c].rigId).toLowerCase();
+      break;
+    }
+  }
+
+  var collectorRigSet = getCollectorRigSet(normName, fallbackRig);
+  var actualRows = getCollectorActualRows();
+  var weekStart = getWeekStartDate(getScriptTodayDate());
+  var totalActualHours = 0;
+  var weeklyActualHours = 0;
+  var longestRecordingHours = 0;
+  var hoursByTask = {};
+  var taskNameByKey = {};
+  for (var i = 0; i < actualRows.length; i++) {
+    var ar = actualRows[i];
+    if (!ar || !ar.rigId || !collectorRigSet[ar.rigId]) continue;
+    var hrs = safeNum(ar.hours);
+    if (hrs <= 0) continue;
+    totalActualHours += hrs;
+    if (ar.date && ar.date >= weekStart) weeklyActualHours += hrs;
+    if (hrs > longestRecordingHours) longestRecordingHours = hrs;
+    var tk = ar.taskKey || normalizeTaskKey(ar.taskName);
+    if (tk) {
+      hoursByTask[tk] = (hoursByTask[tk] || 0) + hrs;
+      if (!taskNameByKey[tk]) taskNameByKey[tk] = safeStr(ar.taskName) || tk;
+    }
+  }
+
+  var assignData;
+  try { assignData = getSheetData(TASKFLOW_SHEETS.ASSIGNMENTS); } catch (e) { assignData = []; }
+  var latestByTask = {};
+  var sessions = [];
+  for (var a = 1; a < assignData.length; a++) {
+    var row = assignData[a];
+    if (normalizeCollectorKey(row[3]) !== normName) continue;
+
+    var taskKey = normalizeTaskKey(row[2]) || safeStr(row[0]);
+    var eventTs = Math.max(toTimestampMs(row[9]), toTimestampMs(row[4]));
+    var existing = latestByTask[taskKey];
+    if (!existing || eventTs > existing._ts || (eventTs === existing._ts && a < existing._order)) {
+      latestByTask[taskKey] = { row: row, _ts: eventTs, _order: a };
+    }
+
+    var startTs = toTimestampMs(row[4]);
+    if (startTs > 0) {
+      var endTs = toTimestampMs(row[9]);
+      if (!endTs || endTs < startTs) endTs = startTs;
+      sessions.push({ start: startTs, end: endTs });
+    }
+  }
+
+  var tasksAssigned = 0;
+  var tasksCompleted = 0;
+  for (var tkLatest in latestByTask) {
+    tasksAssigned++;
+    var st = safeStr(latestByTask[tkLatest].row[6]).toLowerCase();
+    if (st === 'completed' || st === 'complete' || st === 'done') tasksCompleted++;
+  }
+  var completionRate = tasksAssigned > 0 ? Math.round((tasksCompleted / tasksAssigned) * 100) : 0;
+
+  sessions.sort(function(x, y) { return x.start - y.start; });
+  var shortestDowntimeMinutes = 0;
+  var hasDowntime = false;
+  var prevEnd = 0;
+  for (var s = 0; s < sessions.length; s++) {
+    var session = sessions[s];
+    if (prevEnd > 0 && session.start > prevEnd) {
+      var gapMin = Math.round(((session.start - prevEnd) / 60000) * 100) / 100;
+      if (gapMin > 0 && (!hasDowntime || gapMin < shortestDowntimeMinutes)) {
+        shortestDowntimeMinutes = gapMin;
+        hasDowntime = true;
+      }
+    }
+    if (session.end > prevEnd) prevEnd = session.end;
+  }
+  if (!hasDowntime) shortestDowntimeMinutes = 0;
+
+  var topTasks = [];
+  for (var tkHours in hoursByTask) {
+    topTasks.push({
+      taskName: taskNameByKey[tkHours] || tkHours,
+      hours: Math.round(safeNum(hoursByTask[tkHours]) * 100) / 100
+    });
+  }
+  topTasks.sort(function(x, y) { return y.hours - x.hours; });
+
+  var awards = getCollectorAwards(displayName);
+  var result = {
+    collectorName: displayName,
+    totalActualHours: Math.round(totalActualHours * 100) / 100,
+    weeklyActualHours: Math.round(weeklyActualHours * 100) / 100,
+    tasksAssigned: tasksAssigned,
+    tasksCompleted: tasksCompleted,
+    completionRate: completionRate,
+    longestRecordingHours: Math.round(longestRecordingHours * 100) / 100,
+    shortestDowntimeMinutes: Math.round(shortestDowntimeMinutes * 100) / 100,
+    medalsCount: awards.all.length,
+    pinnedAwards: awards.pinned,
+    recentAwards: awards.all.slice(0, 8),
+    topTasks: topTasks.slice(0, 5)
+  };
+  writeCache('collectorProfile_' + normName, result);
+  return result;
+}
+
+function handleGetAdminStartPlan() {
+  var today = getScriptTodayDate();
+  var yesterdayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  var yesterdayEnd = new Date(yesterdayStart.getFullYear(), yesterdayStart.getMonth(), yesterdayStart.getDate(), 23, 59, 59, 999);
+  var yStartMs = yesterdayStart.getTime();
+  var yEndMs = yesterdayEnd.getTime();
+
+  var collectors = getCollectorRows();
+  var activeCollectors = [];
+  for (var c = 0; c < collectors.length; c++) {
+    if (collectors[c].active === false) continue;
+    var cname = safeStr(collectors[c].name);
+    if (!cname) continue;
+    activeCollectors.push({
+      name: cname,
+      key: normalizeCollectorKey(cname),
+      region: getRegionFromRigId(collectors[c].rigId)
+    });
+  }
+
+  var assignData;
+  try { assignData = getSheetData(TASKFLOW_SHEETS.ASSIGNMENTS); } catch (e) { assignData = []; }
+  var latestYesterdayByCollectorTask = {};
+  for (var i = 1; i < assignData.length; i++) {
+    var row = assignData[i];
+    var collectorName = safeStr(row[3]);
+    var collectorKey = normalizeCollectorKey(collectorName);
+    if (!collectorKey) continue;
+    var taskKey = normalizeTaskKey(row[2]);
+    if (!taskKey) continue;
+    var assignedTs = toTimestampMs(row[4]);
+    if (!assignedTs || assignedTs < yStartMs || assignedTs > yEndMs) continue;
+
+    var dedupeKey = collectorKey + '|' + taskKey;
+    var eventTs = Math.max(toTimestampMs(row[9]), assignedTs);
+    var existing = latestYesterdayByCollectorTask[dedupeKey];
+    if (!existing || eventTs > existing._ts || (eventTs === existing._ts && i < existing._order)) {
+      latestYesterdayByCollectorTask[dedupeKey] = {
+        collector: collectorName,
+        collectorKey: collectorKey,
+        taskName: safeStr(row[2]),
+        taskKey: taskKey,
+        status: safeStr(row[6]),
+        _ts: eventTs,
+        _order: i
+      };
+    }
+  }
+
+  var carryOverByCollector = {};
+  var completedYesterdayByCollector = {};
+  for (var key in latestYesterdayByCollectorTask) {
+    var item = latestYesterdayByCollectorTask[key];
+    var ck = item.collectorKey;
+    var status = safeStr(item.status).toLowerCase();
+    if (!carryOverByCollector[ck]) carryOverByCollector[ck] = [];
+    if (!completedYesterdayByCollector[ck]) completedYesterdayByCollector[ck] = {};
+    if (status === 'completed' || status === 'complete' || status === 'done') {
+      completedYesterdayByCollector[ck][item.taskKey] = true;
+    } else if (status !== 'canceled' && status !== 'cancelled') {
+      carryOverByCollector[ck].push(item.taskName);
+    }
+  }
+
+  var taskRows = getTaskActualRows();
+  var globalSuggestedTasks = [];
+  for (var t = 0; t < taskRows.length; t++) {
+    var tr = taskRows[t];
+    var st = safeStr(tr.status).toLowerCase();
+    if (st === 'done' || st === 'completed' || st === 'complete') continue;
+    if (safeNum(tr.remainingHours) <= 0) continue;
+    globalSuggestedTasks.push({
+      taskName: safeStr(tr.taskName),
+      taskKey: normalizeTaskKey(tr.taskName),
+      remainingHours: safeNum(tr.remainingHours)
+    });
+  }
+  globalSuggestedTasks.sort(function(a, b) { return b.remainingHours - a.remainingHours; });
+
+  var regions = { SF: [], MX: [] };
+  for (var ac = 0; ac < activeCollectors.length; ac++) {
+    var collectorMeta = activeCollectors[ac];
+    var collectorCarry = carryOverByCollector[collectorMeta.key] || [];
+    var completedSet = completedYesterdayByCollector[collectorMeta.key] || {};
+    var suggestion = [];
+    var seen = {};
+
+    for (var ci = 0; ci < collectorCarry.length; ci++) {
+      var carryName = safeStr(collectorCarry[ci]);
+      var carryKey = normalizeTaskKey(carryName);
+      if (!carryName || seen[carryKey]) continue;
+      seen[carryKey] = true;
+      suggestion.push(carryName);
+      if (suggestion.length >= 3) break;
+    }
+
+    for (var gs = 0; gs < globalSuggestedTasks.length && suggestion.length < 3; gs++) {
+      var candidate = globalSuggestedTasks[gs];
+      if (!candidate.taskName || seen[candidate.taskKey]) continue;
+      if (completedSet[candidate.taskKey]) continue;
+      seen[candidate.taskKey] = true;
+      suggestion.push(candidate.taskName);
+    }
+
+    var region = collectorMeta.region === 'SF' ? 'SF' : 'MX';
+    regions[region].push({
+      collector: collectorMeta.name,
+      carryOver: collectorCarry.slice(0, 4),
+      suggested: suggestion,
+      hadCarryOver: collectorCarry.length > 0
+    });
+  }
+
+  regions.SF.sort(function(a, b) { return safeStr(a.collector).localeCompare(safeStr(b.collector)); });
+  regions.MX.sort(function(a, b) { return safeStr(a.collector).localeCompare(safeStr(b.collector)); });
+
+  var output = {
+    generatedAt: new Date().toISOString(),
+    yesterday: Utilities.formatDate(yesterdayStart, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+    regions: regions,
+    globalSuggestedTasks: globalSuggestedTasks.slice(0, 8)
+  };
+  writeCache('adminStartPlan', output);
+  return output;
+}
+
 function handleGetTodayLog(collectorName) {
   if (!collectorName) return [];
   var normName = normalizeCollectorKey(collectorName);
@@ -1646,6 +2235,9 @@ function handleRefreshCache(collectorName, scope) {
   var thisWeek = handleGetLeaderboard('thisWeek');
   var recollections = handleGetRecollections();
   var activeRigs = handleGetActiveRigsCount();
+  var liveAlerts = handleGetLiveAlerts();
+  var adminStartPlan;
+  try { adminStartPlan = handleGetAdminStartPlan(); } catch (e0) { adminStartPlan = { regions: { SF: [], MX: [] } }; }
 
   var lastWeek = [];
   var admin = null;
@@ -1657,13 +2249,16 @@ function handleRefreshCache(collectorName, scope) {
   }
 
   var collectorCached = false;
+  var collectorProfileCached = false;
   if (collectorName) {
     var normCollector = normalizeCollectorKey(collectorName);
     if (normCollector) {
       handleGetCollectorStats(collectorName);
+      handleGetCollectorProfile(collectorName);
       handleGetTodayLog(collectorName);
       handleGetFullLog(collectorName);
       collectorCached = true;
+      collectorProfileCached = true;
     }
   }
 
@@ -1676,9 +2271,12 @@ function handleRefreshCache(collectorName, scope) {
     leaderboardLastWeek: lastWeek.length,
     taskActuals: taskActuals.length,
     recollections: recollections.length,
+    liveAlerts: liveAlerts.length,
+    adminStartPlanCollectors: safeNum((adminStartPlan.regions.SF || []).length) + safeNum((adminStartPlan.regions.MX || []).length),
     activeRigsToday: activeRigs.activeRigsToday,
     adminCached: !!admin,
-    collectorCached: collectorCached
+    collectorCached: collectorCached,
+    collectorProfileCached: collectorProfileCached
   };
 }
 
@@ -1686,9 +2284,11 @@ function refreshPostSubmitCaches(collectorName) {
   try {
     handleGetTodayLog(collectorName);
     handleGetCollectorStats(collectorName);
+    handleGetCollectorProfile(collectorName);
     handleGetFullLog(collectorName);
     handleGetLeaderboard('thisWeek');
     handleGetAdminDashboard();
+    handleGetAdminStartPlan();
     handleGetActiveRigsCount();
   } catch (e) {}
 }

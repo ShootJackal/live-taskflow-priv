@@ -163,7 +163,7 @@ export const LightTheme: ThemeColors = {
   sheets: '#2D8A56',
   sheetsBg: '#E4F4EB',
 
-  tabBar: '#EAF0F8',
+  tabBar: 'rgba(237,243,252,0.92)',
   tabBarBorder: 'transparent',
 
   skeleton: '#CDD6E4',
@@ -241,7 +241,7 @@ export const DarkTheme: ThemeColors = {
   sheets: '#5EBD8A',
   sheetsBg: '#0E1A12',
 
-  tabBar: '#202839',
+  tabBar: 'rgba(34,42,61,0.90)',
   tabBarBorder: 'transparent',
 
   skeleton: '#2F394D',
@@ -280,11 +280,11 @@ export const DarkTheme: ThemeColors = {
 export const FrostedGlassTheme: ThemeColors = {
   bg: '#EAEEF6',
   bgSecondary: '#E2E7F1',
-  bgCard: 'rgba(255, 255, 255, 0.78)',
-  bgInput: 'rgba(234, 239, 247, 0.86)',
-  bgElevated: 'rgba(245, 247, 252, 0.7)',
-  border: 'rgba(180, 185, 210, 0.35)',
-  borderLight: 'rgba(200, 205, 225, 0.30)',
+  bgCard: 'rgba(255, 255, 255, 0.93)',
+  bgInput: 'rgba(236, 241, 249, 0.94)',
+  bgElevated: 'rgba(248, 250, 255, 0.82)',
+  border: 'rgba(180, 185, 210, 0.46)',
+  borderLight: 'rgba(205, 212, 232, 0.42)',
   borderFocus: '#8B6FC0',
 
   textPrimary: '#1C1E2E',
@@ -294,7 +294,7 @@ export const FrostedGlassTheme: ThemeColors = {
   accent: '#7C3AED',
   accentLight: '#9461F5',
   accentDim: '#D4CBF0',
-  accentSoft: 'rgba(238, 234, 255, 0.70)',
+  accentSoft: 'rgba(238, 234, 255, 0.82)',
 
   assign: '#7C3AED',
   assignBg: 'rgba(238, 234, 255, 0.65)',
@@ -319,14 +319,14 @@ export const FrostedGlassTheme: ThemeColors = {
   sheets: '#2D8A56',
   sheetsBg: 'rgba(228, 244, 235, 0.60)',
 
-  tabBar: 'rgba(240, 244, 251, 0.8)',
+  tabBar: 'rgba(241, 245, 252, 0.95)',
   tabBarBorder: 'transparent',
 
   skeleton: 'rgba(194, 202, 224, 0.42)',
   overlay: 'rgba(20, 20, 40, 0.20)',
 
   shadow: '#A0ABBF',
-  shadowCard: 'rgba(120, 132, 162, 0.2)',
+  shadowCard: 'rgba(120, 132, 162, 0.24)',
 
   terminal: '#7C3AED',
   terminalBg: 'rgba(248, 248, 255, 0.55)',
@@ -352,17 +352,17 @@ export const FrostedGlassTheme: ThemeColors = {
   bronze: '#A0522D',
   bronzeBg: 'rgba(253, 240, 232, 0.60)',
 
-  cardDepth: 'rgba(255,255,255,0.62)',
+  cardDepth: 'rgba(255,255,255,0.75)',
 };
 
 export const TintedGlassTheme: ThemeColors = {
   bg: '#18132F',
   bgSecondary: '#1E1940',
-  bgCard: 'rgba(48, 39, 92, 0.68)',
-  bgInput: 'rgba(38, 31, 76, 0.74)',
-  bgElevated: 'rgba(68, 52, 126, 0.48)',
-  border: 'rgba(140, 110, 220, 0.25)',
-  borderLight: 'rgba(160, 130, 240, 0.18)',
+  bgCard: 'rgba(50, 41, 98, 0.90)',
+  bgInput: 'rgba(44, 36, 87, 0.88)',
+  bgElevated: 'rgba(72, 56, 132, 0.66)',
+  border: 'rgba(146, 116, 228, 0.34)',
+  borderLight: 'rgba(168, 138, 246, 0.28)',
   borderFocus: '#B794F6',
 
   textPrimary: '#EDE8F8',
@@ -372,7 +372,7 @@ export const TintedGlassTheme: ThemeColors = {
   accent: '#B794F6',
   accentLight: '#D0BDF8',
   accentDim: 'rgba(100, 60, 180, 0.50)',
-  accentSoft: 'rgba(80, 50, 150, 0.40)',
+  accentSoft: 'rgba(86, 56, 156, 0.56)',
 
   assign: '#B794F6',
   assignBg: 'rgba(80, 50, 150, 0.35)',
@@ -397,14 +397,14 @@ export const TintedGlassTheme: ThemeColors = {
   sheets: '#6ECC9A',
   sheetsBg: 'rgba(30, 80, 50, 0.35)',
 
-  tabBar: 'rgba(34, 27, 68, 0.82)',
+  tabBar: 'rgba(36, 29, 72, 0.95)',
   tabBarBorder: 'transparent',
 
   skeleton: 'rgba(100, 80, 160, 0.30)',
   overlay: 'rgba(10, 5, 25, 0.55)',
 
   shadow: '#060415',
-  shadowCard: 'rgba(10, 6, 28, 0.56)',
+  shadowCard: 'rgba(10, 6, 28, 0.62)',
 
   terminal: '#B794F6',
   terminalBg: 'rgba(25, 18, 50, 0.65)',
@@ -430,5 +430,5 @@ export const TintedGlassTheme: ThemeColors = {
   bronze: '#D08858',
   bronzeBg: 'rgba(80, 45, 20, 0.30)',
 
-  cardDepth: 'rgba(220, 207, 255, 0.08)',
+  cardDepth: 'rgba(220, 207, 255, 0.16)',
 };

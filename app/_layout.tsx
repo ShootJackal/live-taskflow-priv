@@ -6,8 +6,11 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { View, Text, StyleSheet, Animated, Platform, Dimensions, TouchableOpacity } from "react-native";
 import { ThemeProvider, useTheme } from "@/providers/ThemeProvider";
+import { LocaleProvider } from "@/providers/LocaleProvider";
+import { UiPrefsProvider, useUiPrefs } from "@/providers/UiPrefsProvider";
 import { CollectionProvider } from "@/providers/CollectionProvider";
 import { useFonts, Lexend_300Light, Lexend_400Regular, Lexend_500Medium, Lexend_600SemiBold, Lexend_700Bold, Lexend_800ExtraBold } from "@expo-google-fonts/lexend";
+import { Image } from "expo-image";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -60,6 +63,9 @@ function BootSequence({ onComplete }: { onComplete: () => void }) {
   const progressAnim = useRef(new Animated.Value(0)).current;
   const cursorBlink = useRef(new Animated.Value(1)).current;
   const orbPulse = useRef(new Animated.Value(0.03)).current;
+  const iconFloat = useRef(new Animated.Value(0)).current;
+  const ringSpin = useRef(new Animated.Value(0)).current;
+  const titleBreath = useRef(new Animated.Value(0)).current;
 
   const bootLines = useRef([
     "TASKFLOW SYSTEM v3.1",
@@ -87,8 +93,23 @@ function BootSequence({ onComplete }: { onComplete: () => void }) {
     ]));
     pulse.start();
 
-    return () => { blink.stop(); pulse.stop(); };
-  }, [logoOpacity, logoSlide, cursorBlink, orbPulse]);
+    const float = Animated.loop(Animated.sequence([
+      Animated.timing(iconFloat, { toValue: 1, duration: 2100, useNativeDriver: true }),
+      Animated.timing(iconFloat, { toValue: -1, duration: 2100, useNativeDriver: true }),
+    ]));
+    float.start();
+
+    const spin = Animated.loop(Animated.timing(ringSpin, { toValue: 1, duration: 5200, useNativeDriver: true }));
+    spin.start();
+
+    const breathe = Animated.loop(Animated.sequence([
+      Animated.timing(titleBreath, { toValue: 1, duration: 2600, useNativeDriver: true }),
+      Animated.timing(titleBreath, { toValue: 0, duration: 2600, useNativeDriver: true }),
+    ]));
+    breathe.start();
+
+    return () => { blink.stop(); pulse.stop(); float.stop(); spin.stop(); breathe.stop(); };
+  }, [logoOpacity, logoSlide, cursorBlink, orbPulse, iconFloat, ringSpin, titleBreath]);
 
   useEffect(() => {
     if (phase !== "booting") return;
@@ -130,14 +151,58 @@ function BootSequence({ onComplete }: { onComplete: () => void }) {
   return (
     <Animated.View style={[bootStyles.container, { backgroundColor: bgColor, opacity: fadeOut }]}>
       <Animated.View style={[bootStyles.glowOrb, { backgroundColor: accentColor, opacity: orbPulse }]} />
-      <View style={[bootStyles.glowOrb2, { backgroundColor: colors.terminalGreen, opacity: 0.02 }]} />
+      <View style={[bootStyles.glowOrb2, { backgroundColor: colors.terminalGreen, opacity: 0.03 }]} />
+      <View style={[bootStyles.glowOrb3, { backgroundColor: colors.accentLight, opacity: 0.04 }]} />
 
       <Animated.View style={[bootStyles.logoWrap, { opacity: logoOpacity, transform: [{ translateY: logoSlide }] }]}>
-        <Text style={[bootStyles.logoText, { color: accentColor }]}>TaskFlow</Text>
-        <View style={bootStyles.logoSubRow}>
-          <View style={[bootStyles.logoDash, { backgroundColor: accentColor }]} />
-          <Text style={[bootStyles.logoSub, { color: dimColor }]}>COLLECTION SYSTEM</Text>
-          <View style={[bootStyles.logoDash, { backgroundColor: accentColor }]} />
+        <View style={bootStyles.brandHero}>
+          <View style={bootStyles.brandTextStack}>
+            <Animated.Text
+              style={[
+                bootStyles.logoText,
+                {
+                  color: accentColor,
+                  transform: [{ scale: titleBreath.interpolate({ inputRange: [0, 1], outputRange: [1, 1.02] }) }],
+                },
+              ]}
+            >
+              TaskFlow
+            </Animated.Text>
+            <View style={bootStyles.logoSubRow}>
+              <View style={[bootStyles.logoDash, { backgroundColor: accentColor }]} />
+              <Text style={[bootStyles.logoSub, { color: dimColor }]}>LIVE COLLECTION SYSTEM</Text>
+              <View style={[bootStyles.logoDash, { backgroundColor: accentColor }]} />
+            </View>
+            <Text style={[bootStyles.welcomeText, { color: colors.textMuted }]}>
+              Welcome back. Live operations are syncing now.
+            </Text>
+          </View>
+
+          <Animated.View
+            style={[
+              bootStyles.logoIconDock,
+              {
+                borderColor: colors.accent + "66",
+                backgroundColor: colors.bgCard,
+                transform: [{ translateY: iconFloat.interpolate({ inputRange: [-1, 1], outputRange: [4, -4] }) }],
+              },
+            ]}
+          >
+            <Animated.View
+              style={[
+                bootStyles.logoIconRing,
+                {
+                  borderColor: accentColor + "80",
+                  transform: [{ rotate: ringSpin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) }],
+                },
+              ]}
+            />
+            <Image
+              source={require("../assets/images/icon.png")}
+              style={bootStyles.logoIcon}
+              contentFit="contain"
+            />
+          </Animated.View>
         </View>
       </Animated.View>
 
@@ -188,17 +253,39 @@ const bootStyles = StyleSheet.create({
   container: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", zIndex: 999 },
   glowOrb: { position: "absolute", width: SW * 1.2, height: SW * 1.2, borderRadius: SW * 0.6, top: -SW * 0.3 },
   glowOrb2: { position: "absolute", width: SW * 0.8, height: SW * 0.8, borderRadius: SW * 0.4, bottom: -SW * 0.2 },
-  logoWrap: { alignItems: "center", marginBottom: 52 },
-  logoText: { fontSize: 42, fontWeight: "300" as const, letterSpacing: 2, fontFamily: "Lexend_300Light" },
-  logoSubRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 12 },
+  glowOrb3: { position: "absolute", width: SW * 0.92, height: SW * 0.92, borderRadius: SW * 0.48, left: -SW * 0.28, bottom: SW * 0.1 },
+  logoWrap: { alignItems: "center", marginBottom: 46, width: SW * 0.88, maxWidth: 420 },
+  brandHero: { width: "100%", flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
+  brandTextStack: { flex: 1, paddingTop: 4 },
+  logoIconDock: {
+    width: 86,
+    height: 86,
+    borderRadius: 27,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  logoIconRing: {
+    position: "absolute",
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    borderWidth: 1.6,
+    borderStyle: "dashed",
+  },
+  logoIcon: { width: 64, height: 64 },
+  logoText: { fontSize: 44, fontWeight: "300" as const, letterSpacing: 2.2, fontFamily: "Lexend_300Light" },
+  logoSubRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6 },
   logoDash: { width: 20, height: 1, opacity: 0.4 },
-  logoSub: { fontSize: 10, letterSpacing: 4, fontFamily: FONT_MONO },
-  terminalArea: { width: SW * 0.82, maxWidth: 380, minHeight: 130, paddingBottom: 8 },
+  logoSub: { fontSize: 9, letterSpacing: 2.8, fontFamily: FONT_MONO },
+  welcomeText: { marginTop: 12, fontSize: 11, letterSpacing: 0.35, textAlign: "left", maxWidth: 260 },
+  terminalArea: { width: SW * 0.84, maxWidth: 400, minHeight: 130, paddingBottom: 8 },
   termLine: { fontSize: 11, lineHeight: 20, letterSpacing: 0.3 },
   cursor: { fontSize: 12, lineHeight: 20 },
-  progressWrap: { width: SW * 0.5, maxWidth: 240, marginTop: 36, alignItems: "center", gap: 10 },
-  progressTrack: { width: "100%", height: 2, borderRadius: 1, overflow: "hidden" },
-  progressFill: { height: 2, borderRadius: 1 },
+  progressWrap: { width: SW * 0.58, maxWidth: 260, marginTop: 30, alignItems: "center", gap: 8 },
+  progressTrack: { width: "100%", height: 3, borderRadius: 2, overflow: "hidden" },
+  progressFill: { height: 3, borderRadius: 2 },
   progressLabel: { fontSize: 8, letterSpacing: 3 },
   enterWrap: { marginTop: 40, alignItems: "center", justifyContent: "center" },
   enterGlow: { position: "absolute", width: 200, height: 52, borderRadius: 26 },
@@ -211,10 +298,16 @@ const bootStyles = StyleSheet.create({
 
 function RootLayoutNav() {
   const { colors, isDark } = useTheme();
+  const { hideStatusBar } = useUiPrefs();
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
       <CollectionProvider>
-        <StatusBar style={isDark ? "light" : "dark"} />
+        <StatusBar
+          style={isDark ? "light" : "dark"}
+          hidden={hideStatusBar}
+          translucent
+          backgroundColor="transparent"
+        />
         <Stack screenOptions={{ headerBackTitle: "Back" }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         </Stack>
@@ -248,13 +341,32 @@ export default function RootLayout() {
     if (fontsLoaded) SplashScreen.hideAsync();
   }, [fontsLoaded]);
 
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const webGlobal = globalThis as any;
+    if (!webGlobal || typeof webGlobal.addEventListener !== "function") return;
+    const listener = (event: Event) => {
+      const installEvent = event as Event & { preventDefault: () => void };
+      installEvent.preventDefault();
+      webGlobal.__taskflowInstallPrompt = installEvent;
+    };
+    webGlobal.addEventListener("beforeinstallprompt", listener as EventListener);
+    return () => {
+      webGlobal.removeEventListener("beforeinstallprompt", listener as EventListener);
+    };
+  }, []);
+
   if (!fontsLoaded) return null;
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <AppWithBoot />
-      </ThemeProvider>
+      <LocaleProvider>
+        <ThemeProvider>
+          <UiPrefsProvider>
+            <AppWithBoot />
+          </UiPrefsProvider>
+        </ThemeProvider>
+      </LocaleProvider>
     </QueryClientProvider>
   );
 }

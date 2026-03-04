@@ -12,15 +12,12 @@ import {
   Modal,
   TextInput,
   Alert,
+  Switch,
 } from "react-native";
 import {
   MessageSquare,
   Clock,
   AlertTriangle,
-  Moon,
-  Sun,
-  Snowflake,
-  Glasses,
   Palette,
   User,
   Cpu,
@@ -38,22 +35,39 @@ import {
   Target,
   FileText,
   ChevronDown,
+  ChevronRight,
+  Download,
   ClipboardList,
   Lock,
   LogOut,
   Users,
   Star,
+  X,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { useTheme, THEME_META, type ThemeMode } from "@/providers/ThemeProvider";
+import { useLocale, type LocaleCode } from "@/providers/LocaleProvider";
+import { useUiPrefs } from "@/providers/UiPrefsProvider";
 import { useCollection } from "@/providers/CollectionProvider";
 import { DesignTokens } from "@/constants/colors";
 import ScreenContainer from "@/components/ScreenContainer";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchAdminDashboardData, fetchTaskActualsData, fetchFullLog, fetchLeaderboard, clearAllCaches } from "@/services/googleSheets";
-import { AdminDashboardData, CollectorSummary, TaskActualRow, FullLogEntry, LeaderboardEntry } from "@/types";
+import {
+  fetchAdminDashboardData,
+  fetchTaskActualsData,
+  fetchFullLog,
+  fetchLeaderboard,
+  clearAllCaches,
+  pushLiveAlert,
+  adminAssignTask,
+  adminCancelTask,
+  adminEditHours,
+  grantCollectorAward,
+} from "@/services/googleSheets";
+import { AdminDashboardData, CollectorSummary, TaskActualRow, FullLogEntry, LeaderboardEntry, Collector, Task } from "@/types";
 import SelectPicker from "@/components/SelectPicker";
+import { Image } from "expo-image";
 
 const FONT_MONO = DesignTokens.fontMono;
 
@@ -63,6 +77,13 @@ const OPEN_TASK_STATUSES = new Set(["IN_PROGRESS", "INPROGRESS", "ACTIVE", "IP",
 
 function normalizeTaskStatus(status: string): string {
   return String(status ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+}
+
+function buildRigSortValue(rig: string): [number, string] {
+  const clean = String(rig ?? "").trim();
+  const match = clean.match(/(\d+)(?!.*\d)/);
+  const numberPart = match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+  return [Number.isFinite(numberPart) ? numberPart : Number.MAX_SAFE_INTEGER, clean.toLowerCase()];
 }
 
 /** IDs must match sheet-viewer: log = Assignment Log (Collector Task Assignments Log), taskActuals = Task Actuals (Task Actuals | Redashpull). */
@@ -80,6 +101,15 @@ const TIMER_OPTIONS = [
   { mins: 30, label: "30 min", color: "#C53030" },
   { mins: 45, label: "45 min", color: "#6B21A8" },
   { mins: 60, label: "60 min", color: "#1D4ED8" },
+];
+
+const AWARD_OPTIONS = [
+  "Iron Consistency",
+  "Speed Runner",
+  "Long Session Pro",
+  "Zero Downtime",
+  "Quality King/Queen",
+  "Team MVP",
 ];
 
 const SectionHeader = React.memo(function SectionHeader({ label, icon }: { label: string; icon?: React.ReactNode }) {
@@ -355,6 +385,153 @@ function AdminPasswordModal({ visible, onClose, onAuthenticate }: {
   );
 }
 
+function DisplaySettingsModal({
+  visible,
+  onClose,
+  resolvedMode,
+  onSelectTheme,
+  locale,
+  onSelectLocale,
+  hideStatusBar,
+  onToggleStatusBar,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  resolvedMode: Exclude<ThemeMode, "system">;
+  onSelectTheme: (theme: Exclude<ThemeMode, "system">) => void;
+  locale: LocaleCode;
+  onSelectLocale: (next: LocaleCode) => void;
+  hideStatusBar: boolean;
+  onToggleStatusBar: (next: boolean) => void;
+}) {
+  const { colors } = useTheme();
+  const { t } = useLocale();
+
+  const themeEntries = Object.entries(THEME_META) as [Exclude<ThemeMode, "system">, typeof THEME_META["light"]][];
+  const languageEntries: { code: LocaleCode; label: string }[] = [
+    { code: "en", label: "English" },
+    { code: "es", label: "Español" },
+    { code: "ru", label: "Русский" },
+  ];
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
+      presentationStyle="overFullScreen"
+    >
+      <View style={displayModalStyles.overlay}>
+        <View
+          style={[displayModalStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}
+          accessible
+          accessibilityViewIsModal
+          accessibilityLabel={t("display_settings", "Display Settings")}
+          accessibilityHint="Adjust app theme, language, and visual behavior."
+        >
+          <View style={displayModalStyles.header}>
+            <Text style={[displayModalStyles.title, { color: colors.textPrimary }]}>{t("display_settings", "Display Settings")}</Text>
+            <TouchableOpacity
+              style={[displayModalStyles.closeBtn, { borderColor: colors.border }]}
+              onPress={onClose}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Close display settings"
+            >
+              <X size={14} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+
+          <Text accessibilityRole="header" style={[displayModalStyles.sectionLabel, { color: colors.textMuted }]}>{t("theme", "Theme")}</Text>
+          <View style={[displayModalStyles.listCard, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
+            {themeEntries.map(([key, meta], idx) => (
+              <View key={key}>
+                {idx > 0 && <View style={[displayModalStyles.divider, { backgroundColor: colors.border }]} />}
+                <TouchableOpacity
+                  style={displayModalStyles.row}
+                  onPress={() => onSelectTheme(key)}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Theme ${meta.label}`}
+                  accessibilityHint={resolvedMode === key ? "Currently selected." : "Double tap to apply this theme."}
+                  accessibilityState={{ selected: resolvedMode === key }}
+                >
+                  <Text style={[displayModalStyles.rowLabel, { color: colors.textPrimary }]}>{meta.label}</Text>
+                  <Switch
+                    value={resolvedMode === key}
+                    onValueChange={(next) => {
+                      if (next) onSelectTheme(key);
+                    }}
+                    trackColor={{ false: colors.border, true: colors.accent + "66" }}
+                    thumbColor={resolvedMode === key ? colors.accent : colors.white}
+                    ios_backgroundColor={colors.border}
+                    accessible={false}
+                  />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+
+          <Text accessibilityRole="header" style={[displayModalStyles.sectionLabel, { color: colors.textMuted, marginTop: 14 }]}>{t("language", "Language")}</Text>
+          <View style={[displayModalStyles.listCard, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
+            {languageEntries.map((entry, idx) => (
+              <View key={entry.code}>
+                {idx > 0 && <View style={[displayModalStyles.divider, { backgroundColor: colors.border }]} />}
+                <TouchableOpacity
+                  style={displayModalStyles.row}
+                  onPress={() => onSelectLocale(entry.code)}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Language ${entry.label}`}
+                  accessibilityHint={locale === entry.code ? "Currently selected." : "Double tap to switch language."}
+                  accessibilityState={{ selected: locale === entry.code }}
+                >
+                  <Text style={[displayModalStyles.rowLabel, { color: colors.textPrimary }]}>{entry.label}</Text>
+                  <Switch
+                    value={locale === entry.code}
+                    onValueChange={(next) => {
+                      if (next) onSelectLocale(entry.code);
+                    }}
+                    trackColor={{ false: colors.border, true: colors.accent + "66" }}
+                    thumbColor={locale === entry.code ? colors.accent : colors.white}
+                    ios_backgroundColor={colors.border}
+                    accessible={false}
+                  />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+
+          <Text accessibilityRole="header" style={[displayModalStyles.sectionLabel, { color: colors.textMuted, marginTop: 14 }]}>System</Text>
+          <View style={[displayModalStyles.listCard, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
+            <TouchableOpacity
+              style={displayModalStyles.row}
+              onPress={() => onToggleStatusBar(!hideStatusBar)}
+              activeOpacity={0.75}
+              accessibilityRole="switch"
+              accessibilityLabel={t("hide_status_bar", "Hide Status Bar")}
+              accessibilityState={{ checked: hideStatusBar }}
+              accessibilityHint="Controls whether the phone status bar is hidden while using TaskFlow."
+            >
+              <Text style={[displayModalStyles.rowLabel, { color: colors.textPrimary }]}>{t("hide_status_bar", "Hide Status Bar")}</Text>
+              <Switch
+                value={hideStatusBar}
+                onValueChange={onToggleStatusBar}
+                trackColor={{ false: colors.border, true: colors.accent + "66" }}
+                thumbColor={hideStatusBar ? colors.accent : colors.white}
+                ios_backgroundColor={colors.border}
+                accessible={false}
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const adminModalStyles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", alignItems: "center", padding: DesignTokens.spacing.xxl },
   card: { width: "100%", maxWidth: 340, borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.xxl },
@@ -369,6 +546,26 @@ const adminModalStyles = StyleSheet.create({
   cancelText: { fontSize: 14, fontWeight: "500" as const },
   submitBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center" },
   submitText: { fontSize: 14, fontWeight: "700" as const },
+});
+
+const displayModalStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.42)", justifyContent: "center", alignItems: "center", padding: 18 },
+  card: { width: "100%", maxWidth: 380, borderRadius: 20, borderWidth: 1, padding: 14 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  title: { fontSize: 17, fontWeight: "700" as const },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sectionLabel: { fontSize: 10, letterSpacing: 1, fontWeight: "700" as const, marginBottom: 8, marginTop: 6, textTransform: "uppercase" },
+  listCard: { borderRadius: 14, borderWidth: 1, overflow: "hidden" },
+  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, paddingVertical: 10 },
+  rowLabel: { fontSize: 14, fontWeight: "600" as const },
+  divider: { height: 1 },
 });
 
 function AdminOverview({ colors, isAdmin }: { colors: ReturnType<typeof useTheme>["colors"]; isAdmin: boolean }) {
@@ -578,10 +775,48 @@ const adminStyles = StyleSheet.create({
   loadingText: { fontSize: 12 },
 });
 
-function AdminToolsPanel({ colors }: { colors: ReturnType<typeof useTheme>["colors"] }) {
+function AdminToolsPanel({
+  colors,
+  collectors,
+  tasks,
+}: {
+  colors: ReturnType<typeof useTheme>["colors"];
+  collectors: Collector[];
+  tasks: Task[];
+}) {
   const { configured } = useCollection();
   const queryClient = useQueryClient();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const [alertMessage, setAlertMessage] = useState("");
+  const [isSendingAlert, setIsSendingAlert] = useState(false);
+  const [controlCollector, setControlCollector] = useState("");
+  const [controlTask, setControlTask] = useState("");
+  const [controlHours, setControlHours] = useState("0.50");
+  const [controlNotes, setControlNotes] = useState("");
+  const [isRunningTaskAction, setIsRunningTaskAction] = useState(false);
+  const [awardCollector, setAwardCollector] = useState("");
+  const [awardName, setAwardName] = useState(AWARD_OPTIONS[0]);
+  const [awardPinned, setAwardPinned] = useState(true);
+  const [awardNotes, setAwardNotes] = useState("");
+  const [isGrantingAward, setIsGrantingAward] = useState(false);
+
+  const collectorOptions = useMemo(
+    () => collectors.map((c) => ({ value: c.name, label: c.name })),
+    [collectors]
+  );
+  const taskOptions = useMemo(
+    () => tasks.map((t) => ({ value: t.name, label: t.label || t.name })),
+    [tasks]
+  );
+  const awardOptions = useMemo(
+    () => AWARD_OPTIONS.map((name) => ({ value: name, label: name })),
+    []
+  );
+
+  useEffect(() => {
+    if (!controlCollector && collectors.length > 0) setControlCollector(collectors[0].name);
+    if (!awardCollector && collectors.length > 0) setAwardCollector(collectors[0].name);
+  }, [collectors, controlCollector, awardCollector]);
 
   const fullLogQuery = useQuery<FullLogEntry[]>({
     queryKey: ["adminFullLog"],
@@ -648,6 +883,119 @@ function AdminToolsPanel({ colors }: { colors: ReturnType<typeof useTheme>["colo
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, [queryClient]);
 
+  const handleSendAlert = useCallback(async () => {
+    const message = alertMessage.trim();
+    if (!message) return;
+    setIsSendingAlert(true);
+    try {
+      await pushLiveAlert({ message, level: "INFO", target: "ALL", createdBy: "ADMIN" });
+      setAlertMessage("");
+      queryClient.invalidateQueries({ queryKey: ["liveAlerts"] });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      Alert.alert("Failed to send alert", err instanceof Error ? err.message : "Unknown error");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsSendingAlert(false);
+    }
+  }, [alertMessage, queryClient]);
+
+  const runTaskAction = useCallback(async (mode: "assign" | "cancel" | "edit") => {
+    const collector = controlCollector.trim();
+    const task = controlTask.trim();
+    if (!collector || !task) {
+      Alert.alert("Missing fields", "Select collector and task first.");
+      return;
+    }
+    const hours = Number(controlHours);
+    setIsRunningTaskAction(true);
+    try {
+      if (mode === "assign") {
+        await adminAssignTask({
+          collector,
+          task,
+          hours: Number.isFinite(hours) && hours > 0 ? hours : 0.5,
+          notes: controlNotes.trim() || "Admin assignment",
+        });
+        try {
+          await pushLiveAlert({
+            message: `${collector}: assigned ${task}`,
+            level: "INFO",
+            target: collector,
+            createdBy: "ADMIN",
+          });
+        } catch {}
+      } else if (mode === "cancel") {
+        await adminCancelTask({
+          collector,
+          task,
+          notes: controlNotes.trim() || "Admin canceled task",
+        });
+        try {
+          await pushLiveAlert({
+            message: `${collector}: task canceled ${task}`,
+            level: "WARN",
+            target: collector,
+            createdBy: "ADMIN",
+          });
+        } catch {}
+      } else {
+        if (!(Number.isFinite(hours) && hours >= 0)) {
+          Alert.alert("Invalid hours", "Enter a valid number for reported hours.");
+          return;
+        }
+        await adminEditHours({
+          collector,
+          task,
+          hours,
+          notes: controlNotes.trim() || "Admin adjusted reported hours",
+        });
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["todayLog", collector] });
+      queryClient.invalidateQueries({ queryKey: ["collectorStats", collector] });
+      queryClient.invalidateQueries({ queryKey: ["collectorProfile", collector] });
+      queryClient.invalidateQueries({ queryKey: ["adminFullLog"] });
+      queryClient.invalidateQueries({ queryKey: ["adminTaskActuals"] });
+      queryClient.invalidateQueries({ queryKey: ["adminLeaderboard"] });
+      queryClient.invalidateQueries({ queryKey: ["liveAlerts"] });
+      setControlNotes("");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      Alert.alert("Admin action failed", err instanceof Error ? err.message : "Unknown error");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsRunningTaskAction(false);
+    }
+  }, [controlCollector, controlTask, controlHours, controlNotes, queryClient]);
+
+  const handleGrantAward = useCallback(async () => {
+    const collector = awardCollector.trim();
+    const award = awardName.trim();
+    if (!collector || !award) {
+      Alert.alert("Missing fields", "Select collector and award.");
+      return;
+    }
+    setIsGrantingAward(true);
+    try {
+      await grantCollectorAward({
+        collector,
+        award,
+        pinned: awardPinned,
+        grantedBy: "ADMIN",
+        notes: awardNotes.trim(),
+      });
+      queryClient.invalidateQueries({ queryKey: ["collectorProfile", collector] });
+      setAwardNotes("");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      Alert.alert("Grant failed", err instanceof Error ? err.message : "Unknown error");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsGrantingAward(false);
+    }
+  }, [awardCollector, awardName, awardPinned, awardNotes, queryClient]);
+
   const getStatusIcon = useCallback((status: string) => {
     const st = normalizeTaskStatus(status);
     if (COMPLETED_TASK_STATUSES.has(st)) return <Check size={10} color={colors.complete} />;
@@ -665,6 +1013,164 @@ function AdminToolsPanel({ colors }: { colors: ReturnType<typeof useTheme>["colo
         <RotateCcw size={13} color={colors.accent} />
         <Text style={[atStyles.toolBtnText, { color: colors.accent }]}>Force Resync All Data</Text>
       </TouchableOpacity>
+
+      <View style={[atStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+        <View style={atStyles.cardHeader}>
+          <Users size={12} color={colors.accent} />
+          <Text style={[atStyles.cardTitle, { color: colors.accent }]}>ADMIN TASK CONTROL</Text>
+        </View>
+        <SelectPicker
+          label="Collector"
+          options={collectorOptions}
+          selectedValue={controlCollector}
+          onValueChange={setControlCollector}
+          placeholder="Select collector..."
+          testID="admin-control-collector"
+        />
+        <View style={atStyles.controlSpacer} />
+        <SelectPicker
+          label="Task"
+          options={taskOptions}
+          selectedValue={controlTask}
+          onValueChange={setControlTask}
+          placeholder="Select task..."
+          testID="admin-control-task"
+        />
+        <View style={atStyles.controlRow}>
+          <TextInput
+            style={[atStyles.controlHoursInput, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bgInput }]}
+            value={controlHours}
+            onChangeText={setControlHours}
+            keyboardType="decimal-pad"
+            placeholder="Hours"
+            placeholderTextColor={colors.textMuted}
+          />
+          <TextInput
+            style={[atStyles.controlNotesInput, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bgInput }]}
+            value={controlNotes}
+            onChangeText={setControlNotes}
+            placeholder="Notes (optional)"
+            placeholderTextColor={colors.textMuted}
+          />
+        </View>
+        <View style={atStyles.controlActions}>
+          <TouchableOpacity
+            style={[atStyles.controlBtn, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}
+            onPress={() => runTaskAction("assign")}
+            disabled={isRunningTaskAction}
+            activeOpacity={0.8}
+          >
+            <Text style={[atStyles.controlBtnText, { color: colors.accent }]}>Assign</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[atStyles.controlBtn, { backgroundColor: colors.cancelBg, borderColor: colors.cancel + "40" }]}
+            onPress={() => runTaskAction("cancel")}
+            disabled={isRunningTaskAction}
+            activeOpacity={0.8}
+          >
+            <Text style={[atStyles.controlBtnText, { color: colors.cancel }]}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[atStyles.controlBtn, { backgroundColor: colors.completeBg, borderColor: colors.complete + "40" }]}
+            onPress={() => runTaskAction("edit")}
+            disabled={isRunningTaskAction}
+            activeOpacity={0.8}
+          >
+            <Text style={[atStyles.controlBtnText, { color: colors.complete }]}>Save Hours</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={[atStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+        <View style={atStyles.cardHeader}>
+          <Star size={12} color={colors.gold} />
+          <Text style={[atStyles.cardTitle, { color: colors.gold }]}>COLLECTOR MEDALS</Text>
+        </View>
+        <SelectPicker
+          label="Collector"
+          options={collectorOptions}
+          selectedValue={awardCollector}
+          onValueChange={setAwardCollector}
+          placeholder="Select collector..."
+          testID="award-collector"
+        />
+        <View style={atStyles.controlSpacer} />
+        <SelectPicker
+          label="Award"
+          options={awardOptions}
+          selectedValue={awardName}
+          onValueChange={setAwardName}
+          placeholder="Select award..."
+          testID="award-name"
+        />
+        <View style={atStyles.controlPinRow}>
+          <Text style={[atStyles.controlPinText, { color: colors.textSecondary }]}>Pin on profile (max 3)</Text>
+          <Switch
+            value={awardPinned}
+            onValueChange={setAwardPinned}
+            trackColor={{ false: colors.border, true: colors.gold + "55" }}
+            thumbColor={awardPinned ? colors.gold : colors.white}
+            ios_backgroundColor={colors.border}
+          />
+        </View>
+        <TextInput
+          style={[atStyles.alertInput, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bgInput }]}
+          placeholder="Award note (optional)"
+          placeholderTextColor={colors.textMuted}
+          value={awardNotes}
+          onChangeText={setAwardNotes}
+          multiline
+          numberOfLines={2}
+        />
+        <TouchableOpacity
+          style={[atStyles.alertSendBtn, { backgroundColor: colors.goldBg, borderColor: colors.gold, opacity: isGrantingAward ? 0.7 : 1 }]}
+          onPress={handleGrantAward}
+          disabled={isGrantingAward}
+          activeOpacity={0.8}
+        >
+          <Text style={[atStyles.alertSendText, { color: colors.gold }]}>
+            {isGrantingAward ? "Granting..." : "Grant Medal"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={[atStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+        <View style={atStyles.cardHeader}>
+          <AlertTriangle size={12} color={colors.alertYellow} />
+          <Text style={[atStyles.cardTitle, { color: colors.alertYellow }]}>LIVE ALERT BROADCAST</Text>
+        </View>
+        <TextInput
+          style={[atStyles.alertInput, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bgInput }]}
+          placeholder="Send an alert to all collectors..."
+          placeholderTextColor={colors.textMuted}
+          value={alertMessage}
+          onChangeText={setAlertMessage}
+          multiline
+          numberOfLines={2}
+        />
+        <TouchableOpacity
+          style={[
+            atStyles.alertSendBtn,
+            {
+              backgroundColor: alertMessage.trim().length > 0 ? colors.alertYellowBg : colors.bgInput,
+              borderColor: alertMessage.trim().length > 0 ? colors.alertYellow : colors.border,
+              opacity: isSendingAlert ? 0.7 : 1,
+            },
+          ]}
+          onPress={handleSendAlert}
+          disabled={isSendingAlert || alertMessage.trim().length === 0}
+          activeOpacity={0.8}
+        >
+          <Text
+            style={[
+              atStyles.alertSendText,
+              { color: alertMessage.trim().length > 0 ? colors.alertYellow : colors.textMuted },
+            ]}
+          >
+            {isSendingAlert ? "Sending..." : "Send Alert"}
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       {teamPerformance && (
         <View style={[atStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
@@ -814,6 +1320,54 @@ const atStyles = StyleSheet.create({
   regionBarLabel: { color: "#fff", fontSize: 9, fontWeight: "800" as const, letterSpacing: 0.5 },
   regionDetail: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
   regionText: { fontSize: 10, fontWeight: "600" as const },
+  alertInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 12,
+    textAlignVertical: "top",
+    minHeight: 52,
+  },
+  alertSendBtn: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  alertSendText: { fontSize: 12, fontWeight: "700" as const, letterSpacing: 0.35 },
+  controlSpacer: { height: 8 },
+  controlRow: { flexDirection: "row", gap: 8, marginTop: 8 },
+  controlHoursInput: {
+    width: 92,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 12,
+  },
+  controlNotesInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 12,
+  },
+  controlActions: { flexDirection: "row", gap: 8, marginTop: 10 },
+  controlBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  controlBtnText: { fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.3 },
+  controlPinRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8, marginBottom: 8 },
+  controlPinText: { fontSize: 11, fontWeight: "500" as const },
   taskRow: { borderTopWidth: 1, paddingTop: DesignTokens.spacing.sm, marginTop: DesignTokens.spacing.sm },
   taskInfo: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
   taskName: { fontSize: 12, fontWeight: "500" as const, flex: 1 },
@@ -856,22 +1410,18 @@ function QuickCard({ title, subtitle, icon, iconBg, onPress, testID, colors }: {
   );
 }
 
-const THEME_ICON_MAP: Record<string, React.ComponentType<any>> = {
-  sun: Sun,
-  moon: Moon,
-  snowflake: Snowflake,
-  glasses: Glasses,
-};
-
 export default function ToolsScreen() {
   const { colors, resolvedMode, setThemeMode } = useTheme();
+  const { t, locale, setLocale } = useLocale();
+  const { hideStatusBar, setHideStatusBar } = useUiPrefs();
   const {
-    collectors, selectedCollectorName, selectedCollector, selectedRig,
+    collectors, tasks, selectedCollectorName, selectedRig,
     selectCollector, setSelectedRig, configured, isAdmin, authenticateAdmin, logoutAdmin,
   } = useCollection();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [showAdminModal, setShowAdminModal] = useState(false);
+  const [showDisplayModal, setShowDisplayModal] = useState(false);
   const adminModalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -894,9 +1444,23 @@ export default function ToolsScreen() {
   }, [collectors]);
 
   const rigOptions = useMemo(() => {
-    if (!selectedCollector || !selectedCollector.rigs.length) return [];
-    return selectedCollector.rigs.map(r => ({ value: r, label: r }));
-  }, [selectedCollector]);
+    const rigSet = new Set<string>();
+    for (const collector of collectors) {
+      for (const rig of collector.rigs ?? []) {
+        const clean = String(rig ?? "").trim();
+        if (clean) rigSet.add(clean);
+      }
+    }
+    if (selectedRig) rigSet.add(selectedRig);
+    return Array.from(rigSet)
+      .sort((a, b) => {
+        const [aNum, aText] = buildRigSortValue(a);
+        const [bNum, bText] = buildRigSortValue(b);
+        if (aNum !== bNum) return aNum - bNum;
+        return aText.localeCompare(bText, undefined, { numeric: true, sensitivity: "base" });
+      })
+      .map((rig) => ({ value: rig, label: rig }));
+  }, [collectors, selectedRig]);
 
   const handleSelectCollector = useCallback((name: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -932,23 +1496,36 @@ export default function ToolsScreen() {
     setSelectedRig(rig);
   }, [setSelectedRig]);
 
-  const openSlack = useCallback(() => {
-    const slackDeepLink = "slack://open";
-    const slackWeb = "https://slack.com/";
-    if (Platform.OS === "web") { Linking.openURL(slackWeb); }
-    else { Linking.canOpenURL(slackDeepLink).then(s => Linking.openURL(s ? slackDeepLink : slackWeb)).catch(() => Linking.openURL(slackWeb)); }
+  const openPreferredLink = useCallback(async (appUrl: string, webUrl: string) => {
+    try {
+      if (Platform.OS === "web") {
+        await Linking.openURL(webUrl);
+        return;
+      }
+      const canOpenApp = await Linking.canOpenURL(appUrl);
+      await Linking.openURL(canOpenApp ? appUrl : webUrl);
+    } catch {
+      try {
+        await Linking.openURL(webUrl);
+      } catch {}
+    }
   }, []);
+
+  const openSlack = useCallback(() => {
+    void openPreferredLink("slack://open", "https://slack.com/");
+  }, [openPreferredLink]);
 
   const openHubstaff = useCallback(() => {
-    const hubstaffDeepLink = "hubstaff://";
-    const hubstaffWeb = "https://app.hubstaff.com/";
-    if (Platform.OS === "web") { Linking.openURL(hubstaffWeb); }
-    else { Linking.canOpenURL(hubstaffDeepLink).then(s => Linking.openURL(s ? hubstaffDeepLink : hubstaffWeb)).catch(() => Linking.openURL(hubstaffWeb)); }
-  }, []);
+    void openPreferredLink("hubstaff://", "https://app.hubstaff.com/");
+  }, [openPreferredLink]);
+
+  const openSheets = useCallback(() => {
+    void openPreferredLink("googlesheets://", "https://docs.google.com/spreadsheets/");
+  }, [openPreferredLink]);
 
   const openAirtableRigIssue = useCallback(() => {
-    Linking.openURL("https://airtable.com/appvGgqeLbTxT4ld4/paghR1Qfi3cwZQtWZ/form");
-  }, []);
+    void openPreferredLink("airtable://", "https://airtable.com/appvGgqeLbTxT4ld4/paghR1Qfi3cwZQtWZ/form");
+  }, [openPreferredLink]);
 
   const openSheetPage = useCallback((sheetId: string, label: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -959,6 +1536,36 @@ export default function ToolsScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setThemeMode(theme);
   }, [setThemeMode]);
+
+  const handleSelectLocale = useCallback((nextLocale: LocaleCode) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void setLocale(nextLocale);
+  }, [setLocale]);
+
+  const handleToggleStatusBar = useCallback((next: boolean) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void setHideStatusBar(next);
+  }, [setHideStatusBar]);
+
+  const openInstallApp = useCallback(async () => {
+    if (Platform.OS !== "web") {
+      Alert.alert(
+        "Install App",
+        "Use your browser menu and tap 'Add to Home Screen' for full-screen mode."
+      );
+      return;
+    }
+    try {
+      const promptEvent = (globalThis as any).__taskflowInstallPrompt;
+      if (promptEvent && typeof promptEvent.prompt === "function") {
+        await promptEvent.prompt();
+      } else {
+        Alert.alert("Install App", "Use your browser menu and choose 'Install App' or 'Add to Home Screen'.");
+      }
+    } catch {
+      Alert.alert("Install App", "Use your browser menu and choose 'Install App' or 'Add to Home Screen'.");
+    }
+  }, []);
 
   const handleClearCache = useCallback(async () => {
     Alert.alert("Clear Cache", "Clear all locally cached data? The app will re-fetch from the server.", [
@@ -982,12 +1589,16 @@ export default function ToolsScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={[styles.pageHeader, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+          <View pointerEvents="none" accessible={false} style={[styles.headerGlow, { backgroundColor: colors.accentSoft }]} />
           <View>
             <View style={[styles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
               <Text style={[styles.headerTagText, { color: colors.accent }]}>SETTINGS</Text>
             </View>
-            <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>Tools</Text>
-            <Text style={[styles.brandSub, { color: colors.textSecondary, fontFamily: "Lexend_400Regular" }]}>Settings & Utilities</Text>
+            <View style={styles.brandRow}>
+              <Image source={require("../../../assets/images/icon.png")} style={styles.brandLogo} contentFit="contain" />
+              <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>{t("tools", "Tools")}</Text>
+            </View>
+            <Text style={[styles.brandSub, { color: colors.textSecondary, fontFamily: "Lexend_400Regular" }]}>{t("settings", "Settings & Utilities")}</Text>
           </View>
           <View style={styles.pageHeaderRight}>
             {isAdmin && (
@@ -999,7 +1610,7 @@ export default function ToolsScreen() {
           </View>
         </View>
 
-        <SectionHeader label="My Profile" icon={<User size={11} color={colors.textMuted} />} />
+        <SectionHeader label={t("my_profile", "My Profile")} icon={<User size={11} color={colors.textMuted} />} />
 
         <View style={cardStyle}>
           <View style={styles.settingRow}>
@@ -1032,6 +1643,9 @@ export default function ToolsScreen() {
                   ) : (
                     <Text style={[styles.noRigText, { color: colors.textMuted }]}>No rigs assigned</Text>
                   )}
+                  <Text style={[styles.settingHint, { color: colors.textMuted }]}>
+                    {rigOptions.length} available rigs
+                  </Text>
                 </View>
               </View>
             </>
@@ -1064,46 +1678,36 @@ export default function ToolsScreen() {
         </View>
 
         <View style={styles.sectionGap} />
-        <SectionHeader label="Appearance" icon={<Palette size={11} color={colors.textMuted} />} />
-        <View style={[...cardStyle, styles.themeCard]} testID="theme-toggle">
-          <View style={styles.themeGrid}>
-            {(Object.entries(THEME_META) as [Exclude<ThemeMode, "system">, typeof THEME_META["light"]][]).map(([key, meta]) => {
-              const isActive = resolvedMode === key;
-              const IconComp = THEME_ICON_MAP[meta.icon] ?? Sun;
-              return (
-                <TouchableOpacity
-                  key={key}
-                  style={[styles.themeOption, {
-                    backgroundColor: isActive ? colors.accentSoft : colors.bgInput,
-                    borderColor: isActive ? colors.accent + '50' : colors.border,
-                  }]}
-                  onPress={() => handleSelectTheme(key)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.themeIconWrap, {
-                    backgroundColor: isActive ? colors.accent + '18' : colors.bgElevated,
-                  }]}>
-                    <IconComp size={16} color={isActive ? colors.accent : colors.textMuted} />
-                  </View>
-                  <Text style={[styles.themeOptionLabel, {
-                    color: isActive ? colors.accent : colors.textSecondary,
-                    fontWeight: isActive ? "700" as const : "500" as const,
-                  }]}>{meta.label}</Text>
-                  {isActive && (
-                    <View style={[styles.themeActiveDot, { backgroundColor: colors.accent }]} />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
+        <SectionHeader label={t("appearance_language", "Appearance & Language")} icon={<Palette size={11} color={colors.textMuted} />} />
+        <TouchableOpacity
+          style={[...cardStyle, styles.displaySettingsRow]}
+          onPress={() => setShowDisplayModal(true)}
+          activeOpacity={0.75}
+          testID="theme-toggle"
+          accessibilityRole="button"
+          accessibilityLabel="Open display settings"
+          accessibilityHint="Change theme, language, and status bar options."
+        >
+          <View style={[styles.settingIconWrap, { backgroundColor: colors.accentSoft }]}>
+            <Palette size={16} color={colors.accent} />
           </View>
-        </View>
+          <View style={styles.settingContent}>
+            <Text style={[styles.settingLabel, { color: colors.textMuted }]}>{t("display_settings", "Display Settings")}</Text>
+            <Text style={[styles.settingSubLabel, { color: colors.textSecondary }]}>
+              {THEME_META[resolvedMode].label} · {locale.toUpperCase()}
+            </Text>
+          </View>
+          <ChevronRight size={16} color={colors.textMuted} />
+        </TouchableOpacity>
 
         <View style={styles.sectionGap} />
-        <SectionHeader label="Quick Actions" icon={<Zap size={11} color={colors.textMuted} />} />
+        <SectionHeader label={t("quick_actions", "Quick Actions")} icon={<Zap size={11} color={colors.textMuted} />} />
 
         <View style={styles.quickGrid}>
           <QuickCard title="Slack" subtitle="Team chat" icon={<MessageSquare size={18} color={colors.slack} />} iconBg={colors.slackBg} onPress={openSlack} testID="slack-link" colors={colors} />
           <QuickCard title="Hubstaff" subtitle="Time track" icon={<Clock size={18} color={colors.hubstaff} />} iconBg={colors.hubstaffBg} onPress={openHubstaff} testID="hubstaff-link" colors={colors} />
+          <QuickCard title="Sheets" subtitle="Open app" icon={<FileText size={18} color={colors.sheets} />} iconBg={colors.sheetsBg} onPress={openSheets} testID="sheets-link" colors={colors} />
+          <QuickCard title={t("install_app", "Install App")} subtitle="Home screen" icon={<Download size={18} color={colors.accent} />} iconBg={colors.accentSoft} onPress={openInstallApp} testID="install-link" colors={colors} />
           <QuickCard title="Report" subtitle="Rig issue" icon={<AlertTriangle size={18} color={colors.airtable} />} iconBg={colors.airtableBg} onPress={openAirtableRigIssue} testID="airtable-link" colors={colors} />
         </View>
 
@@ -1119,7 +1723,7 @@ export default function ToolsScreen() {
           <>
             <View style={styles.sectionGap} />
             <SectionHeader label="Admin Tools" icon={<Activity size={11} color={colors.textMuted} />} />
-            <AdminToolsPanel colors={colors} />
+            <AdminToolsPanel colors={colors} collectors={collectors} tasks={tasks} />
           </>
         )}
 
@@ -1168,6 +1772,17 @@ export default function ToolsScreen() {
           <View style={styles.bottomSpacer} />
         </ScrollView>
 
+        <DisplaySettingsModal
+          visible={showDisplayModal}
+          onClose={() => setShowDisplayModal(false)}
+          resolvedMode={resolvedMode}
+          onSelectTheme={handleSelectTheme}
+          locale={locale}
+          onSelectLocale={handleSelectLocale}
+          hideStatusBar={hideStatusBar}
+          onToggleStatusBar={handleToggleStatusBar}
+        />
+
         <AdminPasswordModal
           visible={showAdminModal}
           onClose={() => setShowAdminModal(false)}
@@ -1211,7 +1826,17 @@ const styles = StyleSheet.create({
   pageHeader: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start",
     marginBottom: DesignTokens.spacing.lg, padding: DesignTokens.spacing.lg,
-    borderRadius: DesignTokens.radius.xl, borderWidth: 1,
+    borderRadius: DesignTokens.radius.xl, borderWidth: 1, overflow: "hidden",
+  },
+  headerGlow: {
+    position: "absolute",
+    top: -44,
+    left: -24,
+    right: -24,
+    height: 120,
+    opacity: 0.75,
+    borderBottomLeftRadius: 70,
+    borderBottomRightRadius: 70,
   },
   pageHeaderRight: { alignItems: "flex-end", gap: DesignTokens.spacing.xs },
   headerTag: {
@@ -1223,6 +1848,8 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   headerTagText: { fontSize: 9, fontWeight: "800" as const, letterSpacing: 1.1 },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  brandLogo: { width: 26, height: 26, borderRadius: 8 },
   brandText: { fontSize: 34, fontWeight: "700" as const, letterSpacing: 0.2 },
   brandSub: { fontSize: 12, fontWeight: "500" as const, letterSpacing: 0.7, marginTop: 2, textTransform: "uppercase" },
   adminBadge: {
@@ -1240,6 +1867,8 @@ const styles = StyleSheet.create({
   settingIconWrap: { width: 36, height: 36, borderRadius: DesignTokens.radius.md, alignItems: "center", justifyContent: "center" },
   settingContent: { flex: 1 },
   settingLabel: { fontSize: 10, letterSpacing: 0.4, marginBottom: 4, textTransform: "uppercase", fontWeight: "600" as const },
+  settingSubLabel: { fontSize: 13, fontWeight: "600" as const, lineHeight: 18 },
+  settingHint: { fontSize: 10, marginTop: 5, letterSpacing: 0.2 },
   settingDivider: { height: 1, marginLeft: 60 },
   noRigText: { fontSize: 12, fontStyle: "italic" as const, paddingVertical: 4 },
   profileBadge: {
@@ -1252,28 +1881,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, alignSelf: "flex-start",
   },
   adminLogoutText: { fontSize: 12, fontWeight: "600" as const },
-  themeCard: { padding: DesignTokens.spacing.md },
-  themeGrid: { flexDirection: "row", flexWrap: "wrap", gap: DesignTokens.spacing.sm },
-  themeOption: {
-    flex: 1, minWidth: "44%" as unknown as number,
-    borderRadius: DesignTokens.radius.md, borderWidth: 1,
-    padding: DesignTokens.spacing.md, alignItems: "center", gap: DesignTokens.spacing.xs,
+  displaySettingsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-  themeIconWrap: {
-    width: 32, height: 32, borderRadius: DesignTokens.radius.sm,
-    alignItems: "center", justifyContent: "center", marginBottom: 2,
-  },
-  themeOptionLabel: { fontSize: 11, letterSpacing: 0.2, textAlign: "center" },
-  themeActiveDot: { width: 5, height: 5, borderRadius: 3, marginTop: 2 },
-  quickGrid: { flexDirection: "row", gap: 10 },
-  quickCardWrap: { flex: 1 },
+  quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  quickCardWrap: { width: "48%" },
   quickCard: {
-    borderRadius: DesignTokens.radius.xl - 2, borderWidth: 1, padding: 14, aspectRatio: 1,
+    borderRadius: DesignTokens.radius.xl - 2, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 10, minHeight: 86,
     alignItems: "center", justifyContent: "center",
     ...DesignTokens.shadow.card,
   },
-  quickIcon: { width: 36, height: 36, borderRadius: DesignTokens.radius.md, alignItems: "center", justifyContent: "center", marginBottom: 5 },
-  quickTitle: { fontSize: 11, marginBottom: 1, textAlign: "center", fontWeight: "700" as const },
+  quickIcon: { width: 30, height: 30, borderRadius: DesignTokens.radius.sm, alignItems: "center", justifyContent: "center", marginBottom: 5 },
+  quickTitle: { fontSize: 10, marginBottom: 1, textAlign: "center", fontWeight: "700" as const },
   quickSub: { fontSize: 9, textAlign: "center" },
   sheetRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
   sheetDivider: { height: 1, marginLeft: 58 },

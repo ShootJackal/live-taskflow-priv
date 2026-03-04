@@ -1,7 +1,6 @@
 import { Tabs } from "expo-router";
 import { Send, Wrench, BarChart3, Radio } from "lucide-react-native";
-import React, { useRef, useCallback, useMemo, useEffect } from "react";
-import { BlurView } from "expo-blur";
+import React, { useRef, useCallback, useMemo, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -12,135 +11,254 @@ import {
   Platform,
   useWindowDimensions,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useTheme } from "@/providers/ThemeProvider";
-import { DesignTokens } from "@/constants/colors";
 import * as Haptics from "expo-haptics";
+import { useTheme } from "@/providers/ThemeProvider";
+import { useLocale } from "@/providers/LocaleProvider";
+import { useCollection } from "@/providers/CollectionProvider";
+import { DesignTokens } from "@/constants/colors";
+import { fetchLiveAlerts } from "@/services/googleSheets";
+import type { LiveAlert } from "@/types";
 
 const { width: FALLBACK_SCREEN_WIDTH } = Dimensions.get("window");
+const ALERT_LAST_SEEN_KEY = "ci_live_alert_seen_ts";
 
 const TAB_ORDER = ["live", "index", "stats", "tools"] as const;
 type TabName = (typeof TAB_ORDER)[number];
 
-const TAB_CONFIG: Record<TabName, { title: string; icon: (color: string, size: number) => React.ReactNode }> = {
-  live: { title: "LIVE", icon: (color, size) => <Radio size={size} color={color} /> },
-  index: { title: "Collect", icon: (color, size) => <Send size={size} color={color} /> },
-  stats: { title: "Stats", icon: (color, size) => <BarChart3 size={size} color={color} /> },
-  tools: { title: "Tools", icon: (color, size) => <Wrench size={size} color={color} /> },
+const TAB_CONFIG: Record<TabName, { titleKey: string; fallback: string; icon: (color: string, size: number) => React.ReactNode }> = {
+  live: { titleKey: "live", fallback: "LIVE", icon: (color, size) => <Radio size={size} color={color} /> },
+  index: { titleKey: "collect", fallback: "Collect", icon: (color, size) => <Send size={size} color={color} /> },
+  stats: { titleKey: "stats", fallback: "Stats", icon: (color, size) => <BarChart3 size={size} color={color} /> },
+  tools: { titleKey: "tools", fallback: "Tools", icon: (color, size) => <Wrench size={size} color={color} /> },
 };
 
 function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
   const { colors, isDark } = useTheme();
+  const { t } = useLocale();
+  const { configured } = useCollection();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const sliderAnim = useRef(new Animated.Value(0)).current;
+  const unreadPulse = useRef(new Animated.Value(0)).current;
+  const [lastSeenAlertTs, setLastSeenAlertTs] = useState(0);
 
-  const { TAB_WIDTH, islandMaxWidth } = useMemo(() => {
+  const alertsQuery = useQuery<LiveAlert[]>({
+    queryKey: ["liveAlerts"],
+    queryFn: fetchLiveAlerts,
+    enabled: configured,
+    staleTime: 20000,
+    refetchInterval: 30000,
+    retry: 1,
+  });
+
+  const getRouteIndexByName = useCallback(
+    (name: TabName) => state.routes.findIndex((route: any) => route.name === name),
+    [state.routes]
+  );
+
+  const liveRouteIndex = getRouteIndexByName("live");
+  const isLiveFocused = state.index === liveRouteIndex;
+
+  const latestAlertTs = useMemo(() => {
+    const alerts = alertsQuery.data ?? [];
+    return alerts.reduce((latest, item) => {
+      const ts = Date.parse(String(item.createdAt ?? ""));
+      if (!Number.isFinite(ts)) return latest;
+      return ts > latest ? ts : latest;
+    }, 0);
+  }, [alertsQuery.data]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(ALERT_LAST_SEEN_KEY).then((raw) => {
+      const parsed = Number(raw ?? 0);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        setLastSeenAlertTs(parsed);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isLiveFocused || latestAlertTs <= 0 || latestAlertTs <= lastSeenAlertTs) return;
+    setLastSeenAlertTs(latestAlertTs);
+    void AsyncStorage.setItem(ALERT_LAST_SEEN_KEY, String(latestAlertTs));
+  }, [isLiveFocused, latestAlertTs, lastSeenAlertTs]);
+
+  const unreadCount = latestAlertTs > lastSeenAlertTs ? 1 : 0;
+
+  useEffect(() => {
+    if (unreadCount <= 0) {
+      unreadPulse.stopAnimation();
+      unreadPulse.setValue(0);
+      return;
+    }
+
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(unreadPulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(unreadPulse, { toValue: 0, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [unreadCount, unreadPulse]);
+
+  const { TAB_WIDTH, islandWidth } = useMemo(() => {
     const safeWidth = windowWidth > 0 ? windowWidth : FALLBACK_SCREEN_WIDTH;
-    const TAB_COUNT = TAB_ORDER.length;
-    const ISLAND_MARGIN = DesignTokens.spacing.lg;
-    const maxW = Platform.OS === "web" ? Math.min(safeWidth, DesignTokens.maxContentWidth) : safeWidth;
-    const ISLAND_WIDTH = Math.max(280, maxW - ISLAND_MARGIN * 2);
-    return { TAB_WIDTH: ISLAND_WIDTH / TAB_COUNT, islandMaxWidth: ISLAND_WIDTH };
+    const islandMargin = DesignTokens.spacing.lg;
+    const maxW = Platform.OS === "web" ? Math.min(safeWidth, DesignTokens.maxContentWidth + 44) : safeWidth;
+    const usableWidth = Math.max(290, maxW - islandMargin * 2);
+    return {
+      TAB_WIDTH: usableWidth / TAB_ORDER.length,
+      islandWidth: usableWidth,
+    };
   }, [windowWidth]);
 
-  const currentIndex = state.index;
+  const focusedRouteName = state.routes[state.index]?.name as TabName | undefined;
+  const focusedTabIndex = TAB_ORDER.findIndex((name) => name === focusedRouteName);
 
   useEffect(() => {
     Animated.spring(sliderAnim, {
-      toValue: currentIndex * TAB_WIDTH,
-      useNativeDriver: true, speed: 28, bounciness: 5,
+      toValue: Math.max(0, focusedTabIndex) * TAB_WIDTH,
+      useNativeDriver: true,
+      speed: 26,
+      bounciness: 7,
     }).start();
-  }, [currentIndex, TAB_WIDTH, sliderAnim]);
+  }, [focusedTabIndex, TAB_WIDTH, sliderAnim]);
 
-  const handlePress = useCallback(
+  const handlePressRoute = useCallback(
     (index: number) => {
       const route = state.routes[index];
       const isFocused = state.index === index;
       const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
-      if (!isFocused && !event.defaultPrevented) {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      if (event.defaultPrevented) return;
+
+      if (!isFocused) {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
         navigation.navigate(route.name);
+        return;
       }
+
+      Haptics.selectionAsync();
     },
     [state, navigation]
   );
 
-  const BOTTOM_PAD = insets.bottom > 0 ? insets.bottom : 10;
-  const FLOAT_OFFSET = 12;
-  const fadeBg = colors.bg;
+  const bottomPad = insets.bottom > 0 ? insets.bottom : 10;
 
   return (
-    <View style={[barStyles.outerWrap, { paddingBottom: BOTTOM_PAD + FLOAT_OFFSET }]}>
-      {/* Gradient fade layers - transparent at top, solid at bottom */}
-      <View style={[barStyles.fadeLayer1, { backgroundColor: fadeBg, opacity: 0 }]} pointerEvents="none" />
-      <View style={[barStyles.fadeLayer2, { backgroundColor: fadeBg, opacity: 0.4 }]} pointerEvents="none" />
-      <View style={[barStyles.fadeLayer3, { backgroundColor: fadeBg, opacity: 0.75 }]} pointerEvents="none" />
-      <View style={[barStyles.fadeLayer4, { backgroundColor: fadeBg, opacity: 0.95 }]} pointerEvents="none" />
-      <View style={barStyles.blurBand} pointerEvents="none">
-        <BlurView
-          intensity={isDark ? 32 : 56}
-          tint={isDark ? "dark" : "light"}
-          style={StyleSheet.absoluteFill}
+    <View style={[barStyles.outerWrap, { paddingBottom: bottomPad + 8 }]}>
+      <View
+        style={[
+          barStyles.island,
+          {
+            width: islandWidth,
+            backgroundColor: colors.tabBar,
+            borderColor: isDark ? colors.border : colors.borderLight,
+            shadowColor: colors.shadow,
+          },
+        ]}
+        {...(Platform.OS === "web" ? ({ role: "tablist", "aria-label": "TaskFlow navigation" } as any) : {})}
+      >
+        <View
+          pointerEvents="none"
+          accessible={false}
+          style={[
+            barStyles.glassSheen,
+            { backgroundColor: isDark ? "rgba(255,255,255,0.05)" : colors.cardDepth },
+          ]}
+          {...(Platform.OS === "web" ? ({ "aria-hidden": true, focusable: false } as any) : {})}
         />
-      </View>
 
-      <View style={[barStyles.islandWrap, { maxWidth: islandMaxWidth + 32 }]}>
-        <View style={[barStyles.tintTray, {
-          borderColor: isDark ? colors.accentDim + "60" : colors.borderLight,
-          backgroundColor: colors.bgElevated,
-        }]} pointerEvents="none">
-          <BlurView
-            intensity={isDark ? 20 : 28}
-            tint={isDark ? "dark" : "light"}
-            style={StyleSheet.absoluteFill}
-          />
-        </View>
+        <Animated.View
+          pointerEvents="none"
+          accessible={false}
+          style={[
+            barStyles.activePill,
+            {
+              width: TAB_WIDTH - 10,
+              backgroundColor: colors.accent + "20",
+              borderColor: colors.accent + "42",
+              transform: [{ translateX: sliderAnim }],
+            },
+          ]}
+          {...(Platform.OS === "web" ? ({ "aria-hidden": true, focusable: false } as any) : {})}
+        />
 
-        <View style={[barStyles.island, {
-          backgroundColor: colors.tabBar,
-          shadowColor: colors.shadow,
-          borderColor: isDark ? colors.border : colors.borderLight,
-        }]}>
-          <Animated.View style={[barStyles.slider, {
-            backgroundColor: colors.accent,
-            width: TAB_WIDTH * 0.5,
-            left: TAB_WIDTH * 0.25,
-            transform: [{ translateX: sliderAnim }],
-          }]} />
+        {TAB_ORDER.map((tabName) => {
+          const routeIndex = getRouteIndexByName(tabName);
+          if (routeIndex < 0) return null;
 
-          {TAB_ORDER.map((tabName, index) => {
-            const isFocused = state.index === index;
-            const cfg = TAB_CONFIG[tabName];
-            const isLive = tabName === "live";
-            const iconColor = isFocused ? (isLive ? colors.complete : colors.accent) : colors.textMuted;
+          const isFocused = state.index === routeIndex;
+          const cfg = TAB_CONFIG[tabName];
+          const iconColor = isFocused ? colors.accent : colors.textMuted;
+          const label = t(cfg.titleKey, cfg.fallback);
 
-            return (
-              <TouchableOpacity
-                key={tabName}
-                style={[barStyles.tab, { width: TAB_WIDTH }]}
-                onPress={() => handlePress(index)}
-                activeOpacity={0.7}
-                testID={`tab-${tabName}`}
+          return (
+            <TouchableOpacity
+              key={tabName}
+              style={[barStyles.tab, { width: TAB_WIDTH }]}
+              onPress={() => handlePressRoute(routeIndex)}
+              activeOpacity={0.8}
+              testID={`tab-${tabName}`}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isFocused }}
+              accessibilityLabel={`${label} tab`}
+            >
+              <View
+                style={[
+                  barStyles.iconWrap,
+                  isFocused && {
+                    backgroundColor: colors.accent + "14",
+                    borderRadius: 14,
+                  },
+                ]}
               >
-                <View style={[barStyles.iconWrap, isFocused && {
-                  backgroundColor: isLive ? colors.complete + "15" : colors.accent + "12",
-                  borderRadius: 14,
-                }]}>
-                  {cfg.icon(iconColor, 19)}
-                  {isLive && <View style={[barStyles.liveBlip, { backgroundColor: colors.complete }]} />}
-                </View>
-                <Text style={[barStyles.label, {
-                  color: iconColor,
-                  fontWeight: isFocused ? "700" as const : "500" as const,
-                  fontSize: isLive ? 8 : 9,
-                  letterSpacing: isLive ? 1.5 : 0.5,
-                  fontFamily: isFocused ? "Lexend_700Bold" : "Lexend_500Medium",
-                }]}>{cfg.title}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+                {cfg.icon(iconColor, tabName === "live" ? 20 : 19)}
+                {tabName === "live" && (
+                  <Animated.View
+                    style={[
+                      barStyles.liveDot,
+                      {
+                        backgroundColor: unreadCount > 0 ? colors.cancel : colors.complete,
+                        opacity: unreadCount > 0
+                          ? unreadPulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] })
+                          : 0.85,
+                        transform: [{
+                          scale: unreadCount > 0
+                            ? unreadPulse.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.18] })
+                            : 1,
+                        }],
+                      },
+                    ]}
+                    pointerEvents="none"
+                  />
+                )}
+                {tabName === "live" && unreadCount > 0 && (
+                  <View style={[barStyles.alertBadge, { backgroundColor: colors.cancel }]}>
+                    <Text style={barStyles.alertBadgeText}>+{unreadCount}</Text>
+                  </View>
+                )}
+              </View>
+              <Text
+                style={[
+                  barStyles.label,
+                  {
+                    color: iconColor,
+                    fontWeight: isFocused ? ("700" as const) : ("500" as const),
+                    fontSize: tabName === "live" ? 9 : 9,
+                    letterSpacing: tabName === "live" ? 1.2 : 0.6,
+                    fontFamily: isFocused ? "Lexend_700Bold" : "Lexend_500Medium",
+                  },
+                ]}
+              >
+                {tabName === "live" ? label.toUpperCase() : label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
     </View>
   );
@@ -148,62 +266,104 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
 
 export default function TabLayout() {
   const { colors } = useTheme();
+  const { t } = useLocale();
   return (
     <Tabs
       initialRouteName="live"
       tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{ headerShown: false, tabBarActiveTintColor: colors.accent, tabBarInactiveTintColor: colors.textMuted }}
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.textMuted,
+      }}
     >
-      <Tabs.Screen name="live" options={{ title: "LIVE" }} />
-      <Tabs.Screen name="index" options={{ title: "Collect", headerShown: false }} />
-      <Tabs.Screen name="stats" options={{ title: "Stats" }} />
-      <Tabs.Screen name="tools" options={{ title: "Tools" }} />
+      <Tabs.Screen name="live" options={{ title: t("live", "LIVE").toUpperCase() }} />
+      <Tabs.Screen name="index" options={{ title: t("collect", "Collect"), headerShown: false }} />
+      <Tabs.Screen name="stats" options={{ title: t("stats", "Stats") }} />
+      <Tabs.Screen name="tools" options={{ title: t("tools", "Tools") }} />
     </Tabs>
   );
 }
 
 const barStyles = StyleSheet.create({
   outerWrap: {
-    position: "absolute", bottom: 0, left: 0, right: 0,
-    alignItems: "center", paddingHorizontal: DesignTokens.spacing.lg,
-  },
-  fadeLayer1: { position: "absolute", bottom: -10, left: 0, right: 0, height: 150 },
-  fadeLayer2: { position: "absolute", bottom: -10, left: 0, right: 0, height: 110 },
-  fadeLayer3: { position: "absolute", bottom: -10, left: 0, right: 0, height: 80 },
-  fadeLayer4: { position: "absolute", bottom: -10, left: 0, right: 0, height: 55 },
-  blurBand: {
     position: "absolute",
-    left: 10,
-    right: 10,
-    bottom: 8,
-    height: 74,
-    borderTopLeftRadius: DesignTokens.radius.xxl + 6,
-    borderTopRightRadius: DesignTokens.radius.xxl + 6,
-    overflow: "hidden",
-  },
-  islandWrap: {
-    width: "100%",
-    position: "relative",
-    alignSelf: "center",
-  },
-  tintTray: {
-    position: "absolute",
-    left: 10,
-    right: 10,
-    bottom: -8,
-    height: 46,
-    borderRadius: DesignTokens.radius.xxl,
-    borderWidth: 1,
-    overflow: "hidden",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    paddingHorizontal: DesignTokens.spacing.lg,
   },
   island: {
-    flexDirection: "row", borderRadius: DesignTokens.radius.xxl + 4, borderWidth: 1, paddingVertical: 6,
-    shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 24, elevation: 16,
-    position: "relative", overflow: "hidden", width: "100%",
+    borderRadius: 30,
+    borderWidth: 1,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 18,
+    elevation: 11,
+    overflow: "hidden",
+    position: "relative",
   },
-  slider: { position: "absolute", bottom: 0, height: 2.5, borderTopLeftRadius: 2, borderTopRightRadius: 2 },
-  tab: { alignItems: "center", justifyContent: "center", paddingVertical: 6, gap: 3 },
-  iconWrap: { width: 40, height: 32, alignItems: "center", justifyContent: "center", position: "relative" },
-  liveBlip: { position: "absolute", top: 3, right: 5, width: 5, height: 5, borderRadius: 3 },
-  label: { textTransform: "uppercase" },
+  glassSheen: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "48%",
+    opacity: 0.9,
+  },
+  activePill: {
+    position: "absolute",
+    top: 4,
+    bottom: 4,
+    left: 5,
+    borderRadius: 24,
+    borderWidth: 1,
+  },
+  tab: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 6,
+    gap: 3,
+  },
+  iconWrap: {
+    width: 40,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  liveDot: {
+    position: "absolute",
+    top: 1,
+    right: 5,
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+  },
+  alertBadge: {
+    position: "absolute",
+    top: -5,
+    right: -6,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  alertBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 9,
+    fontWeight: "700" as const,
+    letterSpacing: 0.2,
+  },
+  label: {
+    textTransform: "uppercase",
+  },
 });

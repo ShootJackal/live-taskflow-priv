@@ -22,6 +22,43 @@ export default React.memo(function ScreenContainer({
   const { width: windowWidth } = useWindowDimensions();
   const isWide = Platform.OS === "web" && windowWidth > maxWidth + 80;
 
+  const decorativeProps = useMemo(
+    () =>
+      Platform.OS === "web"
+        ? ({ "aria-hidden": true, focusable: false } as any)
+        : ({ accessible: false } as any),
+    []
+  );
+
+  const mainLandmarkProps = useMemo(
+    () =>
+      Platform.OS === "web"
+        ? ({ role: "main", "aria-label": "TaskFlow main content" } as any)
+        : {},
+    []
+  );
+
+  const auraTones = useMemo(() => {
+    if (isDark) {
+      return {
+        top: "rgba(126,96,255,0.24)",
+        center: "rgba(82,196,170,0.14)",
+        left: "rgba(95,124,255,0.14)",
+        right: "rgba(244,144,206,0.12)",
+        bottom: "rgba(37,58,132,0.16)",
+        wash: "rgba(255,255,255,0.02)",
+      };
+    }
+    return {
+      top: "rgba(126,86,255,0.18)",
+      center: "rgba(96,180,240,0.10)",
+      left: "rgba(112,152,255,0.09)",
+      right: "rgba(236,126,190,0.10)",
+      bottom: "rgba(119,168,255,0.09)",
+      wash: "rgba(255,255,255,0.16)",
+    };
+  }, [isDark]);
+
   const containerStyle = useMemo(
     () => [
       styles.root,
@@ -40,7 +77,7 @@ export default React.memo(function ScreenContainer({
             {
               maxWidth,
               borderColor: isDark ? colors.border : colors.borderLight,
-              backgroundColor: colors.bg,
+              backgroundColor: colors.bgSecondary,
               shadowColor: colors.shadow,
             },
           ]
@@ -50,8 +87,56 @@ export default React.memo(function ScreenContainer({
 
   if (isWide) {
     return (
-      <View style={containerStyle}>
-        <View style={[styles.stage, { backgroundColor: colors.bgSecondary }]}>
+      <View style={containerStyle} {...mainLandmarkProps}>
+        <View
+          pointerEvents="none"
+          style={[
+            styles.colorWash,
+            { backgroundColor: auraTones.wash },
+          ]}
+          {...decorativeProps}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            styles.topAura,
+            { backgroundColor: auraTones.top },
+          ]}
+          {...decorativeProps}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            styles.centerAura,
+            { backgroundColor: auraTones.center },
+          ]}
+          {...decorativeProps}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            styles.gradientBlobLeft,
+            { backgroundColor: auraTones.left },
+          ]}
+          {...decorativeProps}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            styles.gradientBlobRight,
+            { backgroundColor: auraTones.right },
+          ]}
+          {...decorativeProps}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            styles.bottomAura,
+            { backgroundColor: auraTones.bottom },
+          ]}
+          {...decorativeProps}
+        />
+        <View style={[styles.stage, { backgroundColor: "transparent" }]}>
           <View style={bezelStyle}>
             <View
               pointerEvents="none"
@@ -59,6 +144,7 @@ export default React.memo(function ScreenContainer({
                 styles.bezelHighlight,
                 { backgroundColor: isDark ? "rgba(255,255,255,0.03)" : colors.cardDepth },
               ]}
+              {...decorativeProps}
             />
             {children}
           </View>
@@ -67,12 +153,113 @@ export default React.memo(function ScreenContainer({
     );
   }
 
-  return <View style={containerStyle}>{children}</View>;
+  return (
+    <View style={containerStyle} {...mainLandmarkProps}>
+      <View
+        pointerEvents="none"
+        style={[
+          styles.colorWash,
+          { backgroundColor: auraTones.wash },
+        ]}
+        {...decorativeProps}
+      />
+      <View
+        pointerEvents="none"
+        style={[
+          styles.topAura,
+          { backgroundColor: auraTones.top },
+        ]}
+        {...decorativeProps}
+      />
+      <View
+        pointerEvents="none"
+        style={[
+          styles.centerAura,
+          { backgroundColor: auraTones.center },
+        ]}
+        {...decorativeProps}
+      />
+      <View
+        pointerEvents="none"
+        style={[
+          styles.gradientBlobLeft,
+          { backgroundColor: auraTones.left },
+        ]}
+        {...decorativeProps}
+      />
+      <View
+        pointerEvents="none"
+        style={[
+          styles.gradientBlobRight,
+          { backgroundColor: auraTones.right },
+        ]}
+        {...decorativeProps}
+      />
+      <View
+        pointerEvents="none"
+        style={[
+          styles.bottomAura,
+          { backgroundColor: auraTones.bottom },
+        ]}
+        {...decorativeProps}
+      />
+      {children}
+    </View>
+  );
 });
 
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+  },
+  colorWash: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.9,
+  },
+  topAura: {
+    position: "absolute",
+    top: -260,
+    left: -180,
+    width: 620,
+    height: 620,
+    borderRadius: 320,
+    opacity: 0.92,
+  },
+  centerAura: {
+    position: "absolute",
+    top: 130,
+    left: "16%",
+    width: 430,
+    height: 430,
+    borderRadius: 215,
+    opacity: 0.62,
+  },
+  gradientBlobLeft: {
+    position: "absolute",
+    top: 120,
+    left: -130,
+    width: 290,
+    height: 290,
+    borderRadius: 160,
+    opacity: 0.58,
+  },
+  gradientBlobRight: {
+    position: "absolute",
+    top: 190,
+    right: -146,
+    width: 310,
+    height: 310,
+    borderRadius: 170,
+    opacity: 0.56,
+  },
+  bottomAura: {
+    position: "absolute",
+    bottom: -260,
+    right: -170,
+    width: 620,
+    height: 620,
+    borderRadius: 320,
+    opacity: 0.64,
   },
   stage: {
     flex: 1,

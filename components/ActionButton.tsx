@@ -95,6 +95,7 @@ export default React.memo(function ActionButton({
         >
           <View
             pointerEvents="none"
+            accessible={false}
             style={[
               styles.topSheen,
               { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : colors.cardDepth },
