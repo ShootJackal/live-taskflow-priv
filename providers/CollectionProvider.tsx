@@ -19,6 +19,8 @@ import {
   warmServerCache,
   logCollectorRigSelection,
 } from "@/services/googleSheets";
+import { normalizeCollectorName } from "@/utils/normalize";
+import { log } from "@/utils/logger";
 
 const STORAGE_KEYS = {
   SELECTED_COLLECTOR: "ci_selected_collector",
@@ -27,11 +29,11 @@ const STORAGE_KEYS = {
   ADMIN_AUTH: "ci_admin_auth",
 };
 
-const ADMIN_PASSWORD = "3121";
-
-function normalizeCollectorName(name: string): string {
-  return name.replace(/\s*\(.*?\)\s*$/g, "").trim();
-}
+// WARNING: Client-side password check is not secure. Anyone can inspect the
+// JS bundle and extract this value. For production use, validate the password
+// server-side (e.g. inside your Google Apps Script doPost handler) and return
+// a signed session token.
+const ADMIN_PASSWORD = process.env.EXPO_PUBLIC_ADMIN_PASSWORD ?? "";
 
 function mergeCollectors(raw: Collector[]): Collector[] {
   const map = new Map<string, Collector>();
@@ -183,7 +185,7 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   );
 
   const authenticateAdmin = useCallback(async (password: string): Promise<boolean> => {
-    console.log("[Provider] authenticateAdmin attempt");
+    log("[Provider] authenticateAdmin attempt");
     if (password === ADMIN_PASSWORD) {
       setIsAdmin(true);
       await AsyncStorage.setItem(
@@ -196,13 +198,13 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   }, []);
 
   const logoutAdmin = useCallback(async () => {
-    console.log("[Provider] logoutAdmin");
+    log("[Provider] logoutAdmin");
     setIsAdmin(false);
     await AsyncStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
   }, []);
 
   const selectCollector = useCallback(async (name: string) => {
-    console.log("[Provider] selectCollector:", name);
+    log("[Provider] selectCollector:", name);
     setSelectedCollectorName(name);
     setSelectedTaskName("");
     setSelectedRigState("");
@@ -211,7 +213,7 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   }, []);
 
   const setSelectedRig = useCallback(async (rig: string) => {
-    console.log("[Provider] setSelectedRig:", rig);
+    log("[Provider] setSelectedRig:", rig);
     setSelectedRigState(rig);
     await AsyncStorage.setItem(STORAGE_KEYS.SELECTED_RIG, rig);
     if (selectedCollectorName && rig) {
@@ -248,12 +250,12 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
 
   const submitMutation = useMutation({
     mutationFn: async (payload: SubmitPayload) => {
-      console.log("[Provider] submitAction:", payload.actionType, payload.task);
+      log("[Provider] submitAction:", payload.actionType, payload.task);
       const result = await submitAction(payload);
       return { payload, result };
     },
     onSuccess: async ({ payload, result }) => {
-      console.log("[Provider] Submit success:", result.message);
+      log("[Provider] Submit success:", result.message);
       await addActivityEntry(
         payload.actionType,
         payload.task,
@@ -382,7 +384,7 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   );
 
   const refreshData = useCallback(() => {
-    console.log("[Provider] Refreshing all data");
+    log("[Provider] Refreshing all data");
     queryClient.invalidateQueries({ queryKey: ["collectors"] });
     queryClient.invalidateQueries({ queryKey: ["tasks"] });
     queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] });

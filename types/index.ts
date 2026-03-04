@@ -23,7 +23,7 @@ export interface LogEntry {
   assignmentId: string;
   taskId: string;
   taskName: string;
-  status: AssignmentStatus | string;
+  status: AssignmentStatus;
   loggedHours: number;
   plannedHours: number;
   remainingHours: number;

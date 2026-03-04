@@ -15,6 +15,8 @@ import {
   AdminStartPlanData,
   DailyCarryoverItem,
 } from "@/types";
+import { normalizeCollectorName } from "@/utils/normalize";
+import { log } from "@/utils/logger";
 
 const DEFAULT_SCRIPT_URL_LEGACY = "";
 const DEFAULT_SCRIPT_URL_CORE = "";
@@ -127,7 +129,7 @@ async function setStorageCache(key: string, data: unknown): Promise<void> {
       JSON.stringify({ data, ts: Date.now() })
     );
   } catch (err) {
-    console.log("[Cache] AsyncStorage write failed:", err);
+    log("[Cache] AsyncStorage write failed:", err);
   }
 }
 
@@ -265,7 +267,7 @@ async function apiGet<T>(action: string, params: Record<string, string> = {}, us
   if (useCache) {
     const memoryCached = getCached<T>(cacheKey);
     if (memoryCached !== null) {
-      console.log("[API] Memory cache hit:", action);
+      log("[API] Memory cache hit:", action);
       return memoryCached;
     }
   }
@@ -273,7 +275,7 @@ async function apiGet<T>(action: string, params: Record<string, string> = {}, us
   if (useCache) {
     const storageCached = await getStorageCached<T>(cacheKey);
     if (storageCached !== null) {
-      console.log("[API] Storage cache hit:", action);
+      log("[API] Storage cache hit:", action);
       setCache(cacheKey, storageCached);
       backgroundRefresh<T>(action, params, cacheKey);
       return storageCached;
@@ -290,7 +292,7 @@ async function fetchFromApi<T>(action: string, params: Record<string, string>, c
     if (v !== "") url.searchParams.set(k, v);
   });
 
-  console.log("[API] GET", action, params);
+  log("[API] GET", action, params);
 
   for (let attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt += 1) {
     const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
@@ -305,7 +307,7 @@ async function fetchFromApi<T>(action: string, params: Record<string, string>, c
       if (!response.ok) {
         const text = await response.text();
         const retryable = RETRYABLE_STATUS_CODES.has(response.status);
-        console.log("[API] HTTP error:", response.status, "retryable:", retryable);
+        log("[API] HTTP error:", response.status, "retryable:", retryable);
         if (retryable && attempt < MAX_RETRY_ATTEMPTS) {
           await sleep(RETRY_DELAY_MS[attempt] ?? 1500);
           continue;
@@ -314,7 +316,7 @@ async function fetchFromApi<T>(action: string, params: Record<string, string>, c
       }
 
       const json = await parseApiResponse<T>(response);
-      console.log("[API] Response:", JSON.stringify(json).slice(0, 300));
+      log("[API] Response:", JSON.stringify(json).slice(0, 300));
 
       if (!json.success) {
         throw new Error(json.error ?? json.message ?? "Unknown API error");
@@ -328,7 +330,7 @@ async function fetchFromApi<T>(action: string, params: Record<string, string>, c
       timeout.cancel();
       const message = error instanceof Error ? error.message : "Network error";
       const canRetry = attempt < MAX_RETRY_ATTEMPTS && shouldRetryError(error);
-      console.log("[API] GET failed:", message, "attempt:", attempt + 1, "retry:", canRetry);
+      log("[API] GET failed:", message, "attempt:", attempt + 1, "retry:", canRetry);
       if (canRetry) {
         await sleep(RETRY_DELAY_MS[attempt] ?? 1500);
         continue;
@@ -344,7 +346,7 @@ function backgroundRefresh<T>(action: string, params: Record<string, string>, ca
   if (!scriptUrl) return;
   setTimeout(() => {
     fetchFromApi<T>(action, params, cacheKey, scriptUrl).catch((err) => {
-      console.log("[API] Background refresh failed:", action, err);
+      log("[API] Background refresh failed:", action, err);
     });
   }, 100);
 }
@@ -355,11 +357,12 @@ async function apiPost(payload: SubmitPayload): Promise<SubmitResponse> {
     throw getMissingScriptUrlError("core");
   }
 
-  console.log("[API] POST submit:", JSON.stringify(payload));
+  log("[API] POST submit:", JSON.stringify(payload));
 
   for (let attempt = 0; attempt <= MAX_POST_RETRY_ATTEMPTS; attempt += 1) {
     const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
     try {
+      // text/plain avoids CORS preflight which Google Apps Script cannot handle.
       const response = await fetch(scriptUrl, {
         method: "POST",
         headers: { "Content-Type": "text/plain" },
@@ -466,7 +469,7 @@ async function getAppCacheSnapshot(keys?: string[]): Promise<Record<string, AppC
     appCacheSnapshotMemo.set(memoKey, { data: snapshot ?? {}, ts: Date.now() });
     return snapshot ?? {};
   } catch (err) {
-    console.log("[API] getAppCache snapshot failed:", err);
+    log("[API] getAppCache snapshot failed:", err);
     return null;
   }
 }
@@ -624,7 +627,7 @@ export async function logCollectorRigSelection(
     memoryCache.clear();
     appCacheSnapshotMemo.clear();
   } catch (err) {
-    console.log("[API] logCollectorRigSelection failed:", err);
+    log("[API] logCollectorRigSelection failed:", err);
   } finally {
     timeout.cancel();
   }
@@ -871,7 +874,7 @@ export async function warmServerCache(collectorName?: string): Promise<void> {
     await apiGet("refreshCache", params, false);
   } catch (err) {
     warmServerLastRunByKey.delete(warmKey);
-    console.log("[API] warmServerCache failed:", err);
+    log("[API] warmServerCache failed:", err);
   }
 }
 
@@ -911,22 +914,22 @@ function sanitizeLeaderboard(raw: LeaderboardEntry[]): LeaderboardEntry[] {
 }
 
 export async function fetchLeaderboard(period: "thisWeek" | "lastWeek" = "thisWeek"): Promise<LeaderboardEntry[]> {
-  console.log("[API] fetchLeaderboard — using server endpoint", period);
+  log("[API] fetchLeaderboard — using server endpoint", period);
 
   try {
     // Always hit server for leaderboard to avoid stale storage snapshots masking live MX/SF updates.
     const serverLeaderboard = await apiGet<LeaderboardEntry[]>("getLeaderboard", { period }, false);
     if (serverLeaderboard && serverLeaderboard.length > 0) {
-      console.log("[API] Server leaderboard returned", serverLeaderboard.length, "entries");
+      log("[API] Server leaderboard returned", serverLeaderboard.length, "entries");
       return sanitizeLeaderboard(serverLeaderboard);
     }
-    console.log("[API] Server leaderboard empty — trying _AppCache fallback");
+    log("[API] Server leaderboard empty — trying _AppCache fallback");
   } catch (err) {
-    console.log("[API] Server getLeaderboard failed:", err);
+    log("[API] Server getLeaderboard failed:", err);
   }
 
   try {
-    console.log("[API] Attempting _AppCache fallback for leaderboard");
+    log("[API] Attempting _AppCache fallback for leaderboard");
     const periodCacheKeys = period === "lastWeek"
       ? ["leaderboard_lastWeek", "leaderboardLastWeek", "leaderboard"]
       : ["leaderboard_thisWeek", "leaderboardThisWeek", "leaderboard"];
@@ -937,21 +940,17 @@ export async function fetchLeaderboard(period: "thisWeek" | "lastWeek" = "thisWe
         if (!candidate) continue;
         const cached = candidate.value as LeaderboardEntry[];
         if (Array.isArray(cached) && cached.length > 0) {
-          console.log("[API] _AppCache leaderboard fallback:", cached.length, "entries, updated:", candidate.updatedAt, "key:", key);
+          log("[API] _AppCache leaderboard fallback:", cached.length, "entries, updated:", candidate.updatedAt, "key:", key);
           return sanitizeLeaderboard(cached);
         }
       }
     }
   } catch (err) {
-    console.log("[API] _AppCache fallback failed:", err);
+    log("[API] _AppCache fallback failed:", err);
   }
 
-  console.log("[API] Leaderboard empty or failed, returning []");
+  log("[API] Leaderboard empty or failed, returning []");
   return [];
-}
-
-function normalizeCollectorName(name: string): string {
-  return (name ?? "").replace(/\s*\(.*?\)\s*$/g, "").trim();
 }
 
 function toNumber(value: unknown): number {
@@ -968,7 +967,7 @@ export function isApiConfigured(): boolean {
 export function clearApiCache(): void {
   memoryCache.clear();
   appCacheSnapshotMemo.clear();
-  console.log("[API] Memory cache cleared");
+  log("[API] Memory cache cleared");
 }
 
 export async function clearAllCaches(): Promise<void> {
@@ -976,9 +975,9 @@ export async function clearAllCaches(): Promise<void> {
   appCacheSnapshotMemo.clear();
   try {
     await clearStorageApiCache();
-    console.log("[API] All caches cleared (memory + storage)");
+    log("[API] All caches cleared (memory + storage)");
   } catch (err) {
-    console.log("[API] Storage clear failed:", err);
+    log("[API] Storage clear failed:", err);
   }
 }
 
