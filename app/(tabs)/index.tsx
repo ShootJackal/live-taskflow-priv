@@ -34,12 +34,13 @@ import SelectPicker from "@/components/SelectPicker";
 import ActionButton from "@/components/ActionButton";
 import MarqueeText from "@/components/MarqueeText";
 import type { LogEntry } from "@/types";
+import type { ThemeColors } from "@/constants/colors";
 import { Image } from "expo-image";
 
 const LogEntryRow = React.memo(function LogEntryRow({ entry, statusColor, colors, isLast }: {
   entry: LogEntry;
   statusColor: string;
-  colors: any;
+  colors: ThemeColors;
   isLast: boolean;
 }) {
   const hasTaskProgress =
@@ -153,7 +154,6 @@ export default function DashboardScreen() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
   const searchAnim = useRef(new Animated.Value(0)).current;
-  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     Animated.parallel([
@@ -192,19 +192,12 @@ export default function DashboardScreen() {
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    refreshData();
-    if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
-    refreshTimeoutRef.current = setTimeout(() => setRefreshing(false), 1200);
+    try {
+      await refreshData();
+    } finally {
+      setRefreshing(false);
+    }
   }, [refreshData]);
-
-  useEffect(() => {
-    return () => {
-      if (refreshTimeoutRef.current) {
-        clearTimeout(refreshTimeoutRef.current);
-        refreshTimeoutRef.current = null;
-      }
-    };
-  }, []);
 
   const handleAssign = useCallback(async () => {
     try { await assignTask(); } catch (e: unknown) {

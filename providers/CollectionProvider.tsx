@@ -383,12 +383,14 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     [selectedCollectorName, notes, selectedRig, createRequestId, submitOnce]
   );
 
-  const refreshData = useCallback(() => {
+  const refreshData = useCallback(async () => {
     log("[Provider] Refreshing all data");
-    queryClient.invalidateQueries({ queryKey: ["collectors"] });
-    queryClient.invalidateQueries({ queryKey: ["tasks"] });
-    queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] });
-    queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] });
+    await Promise.allSettled([
+      queryClient.invalidateQueries({ queryKey: ["collectors"] }),
+      queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+      queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] }),
+      queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] }),
+    ]);
   }, [queryClient, selectedCollectorName]);
 
   return {
