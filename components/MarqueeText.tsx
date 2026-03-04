@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, StyleSheet, TextStyle, View } from "react-native";
+import { Animated, Easing, StyleProp, StyleSheet, TextStyle, View } from "react-native";
 
 interface MarqueeTextProps {
   text: string;
-  style?: TextStyle;
+  style?: StyleProp<TextStyle>;
   speedMs?: number;
   pauseMs?: number;
   numberOfLines?: number;
@@ -83,4 +83,3 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
-

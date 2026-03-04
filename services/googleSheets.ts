@@ -16,7 +16,9 @@ import {
   DailyCarryoverItem,
 } from "@/types";
 
-const DEFAULT_SCRIPT_URL = "";
+const DEFAULT_SCRIPT_URL_LEGACY = "";
+const DEFAULT_SCRIPT_URL_CORE = "";
+const DEFAULT_SCRIPT_URL_ANALYTICS = "";
 const REQUEST_TIMEOUT_MS = 25000;
 const MAX_RETRY_ATTEMPTS = 2;
 const MAX_POST_RETRY_ATTEMPTS = 0; // Prevent duplicate writes on flaky networks.
@@ -27,6 +29,26 @@ const APP_CACHE_SNAPSHOT_TTL_MS = 20 * 1000;
 const WARM_SERVER_MIN_INTERVAL_MS = 60 * 1000;
 
 const STORAGE_PREFIX = "tf_cache_";
+
+type ScriptRole = "core" | "analytics";
+
+const ANALYTICS_GET_ACTIONS = new Set<string>([
+  "getLeaderboard",
+  "getCollectorStats",
+  "getCollectorProfile",
+  "getTaskActualsSheet",
+  "getAdminDashboardData",
+  "getActiveRigsCount",
+  "getRecollections",
+  "getAdminStartPlan",
+  "getAppCache",
+  "refreshCache",
+  "forceServerRepull",
+]);
+
+const ANALYTICS_META_ACTIONS = new Set<string>([
+  "FORCE_SERVER_REPULL",
+]);
 
 const memoryCache = new Map<string, { data: unknown; ts: number }>();
 const appCacheSnapshotMemo = new Map<string, { data: Record<string, AppCacheEntry>; ts: number }>();
@@ -131,19 +153,52 @@ function isValidScriptUrl(url: string): boolean {
   return /\/exec$/i.test(url);
 }
 
-function getScriptUrl(): string {
-  const fromEnvRaw = normalizeScriptUrl(process.env.EXPO_PUBLIC_GOOGLE_SCRIPT_URL ?? "");
-  const fallbackRaw = normalizeScriptUrl(DEFAULT_SCRIPT_URL);
-  const fromEnv = isValidScriptUrl(fromEnvRaw) ? fromEnvRaw : "";
-  const fallback = isValidScriptUrl(fallbackRaw) ? fallbackRaw : "";
-  const resolved = fromEnv || fallback;
+function resolveScriptUrls(): { legacy: string; core: string; analytics: string } {
+  const legacyEnvRaw = normalizeScriptUrl(process.env.EXPO_PUBLIC_GOOGLE_SCRIPT_URL ?? "");
+  const coreEnvRaw = normalizeScriptUrl(process.env.EXPO_PUBLIC_GAS_CORE_URL ?? "");
+  const analyticsEnvRaw = normalizeScriptUrl(process.env.EXPO_PUBLIC_GAS_ANALYTICS_URL ?? "");
 
-  if (!resolved && (fromEnvRaw || fallbackRaw)) {
-    console.log("[API] Ignoring invalid script URL config");
+  const legacyFallbackRaw = normalizeScriptUrl(DEFAULT_SCRIPT_URL_LEGACY);
+  const coreFallbackRaw = normalizeScriptUrl(DEFAULT_SCRIPT_URL_CORE);
+  const analyticsFallbackRaw = normalizeScriptUrl(DEFAULT_SCRIPT_URL_ANALYTICS);
+
+  const legacy = isValidScriptUrl(legacyEnvRaw)
+    ? legacyEnvRaw
+    : (isValidScriptUrl(legacyFallbackRaw) ? legacyFallbackRaw : "");
+  const core = isValidScriptUrl(coreEnvRaw)
+    ? coreEnvRaw
+    : (isValidScriptUrl(coreFallbackRaw) ? coreFallbackRaw : "");
+  const analytics = isValidScriptUrl(analyticsEnvRaw)
+    ? analyticsEnvRaw
+    : (isValidScriptUrl(analyticsFallbackRaw) ? analyticsFallbackRaw : "");
+
+  return { legacy, core, analytics };
+}
+
+function getScriptUrlForRole(role: ScriptRole): string {
+  const { legacy, core, analytics } = resolveScriptUrls();
+  if (role === "analytics") {
+    return analytics || legacy || core;
   }
+  return core || legacy || analytics;
+}
 
-  console.log("[API] getScriptUrl resolved:", resolved ? `${resolved.slice(0, 80)}...` : "EMPTY");
-  return resolved;
+function getScriptUrlForAction(action: string): string {
+  return getScriptUrlForRole(ANALYTICS_GET_ACTIONS.has(action) ? "analytics" : "core");
+}
+
+function getScriptUrlForMetaAction(metaAction: string): string {
+  const clean = String(metaAction ?? "").trim().toUpperCase();
+  return getScriptUrlForRole(ANALYTICS_META_ACTIONS.has(clean) ? "analytics" : "core");
+}
+
+function getMissingScriptUrlError(role: ScriptRole): Error {
+  const target = role === "analytics" ? "analytics" : "core";
+  return new Error(
+    `Google Script URL not configured for ${target}. Set ` +
+    `EXPO_PUBLIC_GAS_CORE_URL / EXPO_PUBLIC_GAS_ANALYTICS_URL ` +
+    `or fallback EXPO_PUBLIC_GOOGLE_SCRIPT_URL.`
+  );
 }
 
 interface ApiResponse<T> {
@@ -200,9 +255,9 @@ async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T>> 
 }
 
 async function apiGet<T>(action: string, params: Record<string, string> = {}, useCache = true): Promise<T> {
-  const scriptUrl = getScriptUrl();
+  const scriptUrl = getScriptUrlForAction(action);
   if (!scriptUrl) {
-    throw new Error("Google Script URL not configured. Set EXPO_PUBLIC_GOOGLE_SCRIPT_URL.");
+    throw getMissingScriptUrlError(ANALYTICS_GET_ACTIONS.has(action) ? "analytics" : "core");
   }
 
   const cacheKey = `${action}?${JSON.stringify(params)}`;
@@ -285,7 +340,7 @@ async function fetchFromApi<T>(action: string, params: Record<string, string>, c
 }
 
 function backgroundRefresh<T>(action: string, params: Record<string, string>, cacheKey: string): void {
-  const scriptUrl = getScriptUrl();
+  const scriptUrl = getScriptUrlForAction(action);
   if (!scriptUrl) return;
   setTimeout(() => {
     fetchFromApi<T>(action, params, cacheKey, scriptUrl).catch((err) => {
@@ -295,9 +350,9 @@ function backgroundRefresh<T>(action: string, params: Record<string, string>, ca
 }
 
 async function apiPost(payload: SubmitPayload): Promise<SubmitResponse> {
-  const scriptUrl = getScriptUrl();
+  const scriptUrl = getScriptUrlForRole("core");
   if (!scriptUrl) {
-    throw new Error("Google Script URL not configured. Set EXPO_PUBLIC_GOOGLE_SCRIPT_URL.");
+    throw getMissingScriptUrlError("core");
   }
 
   console.log("[API] POST submit:", JSON.stringify(payload));
@@ -353,9 +408,10 @@ async function apiPost(payload: SubmitPayload): Promise<SubmitResponse> {
 }
 
 async function apiMetaPost<T>(payload: Record<string, unknown>): Promise<T> {
-  const scriptUrl = getScriptUrl();
+  const metaAction = String(payload?.metaAction ?? "").trim().toUpperCase();
+  const scriptUrl = getScriptUrlForMetaAction(metaAction);
   if (!scriptUrl) {
-    throw new Error("Google Script URL not configured. Set EXPO_PUBLIC_GOOGLE_SCRIPT_URL.");
+    throw getMissingScriptUrlError(ANALYTICS_META_ACTIONS.has(metaAction) ? "analytics" : "core");
   }
 
   const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
@@ -535,7 +591,7 @@ export async function logCollectorRigSelection(
   const rigValue = String(rig ?? "").trim();
   if (!collector || !rigValue) return;
 
-  const scriptUrl = getScriptUrl();
+  const scriptUrl = getScriptUrlForMetaAction("SET_RIG");
   if (!scriptUrl) return;
 
   const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
@@ -658,9 +714,9 @@ export async function pushLiveAlert(payload: {
   target?: string;
   createdBy?: string;
 }): Promise<void> {
-  const scriptUrl = getScriptUrl();
+  const scriptUrl = getScriptUrlForMetaAction("PUSH_ALERT");
   if (!scriptUrl) {
-    throw new Error("Google Script URL not configured. Set EXPO_PUBLIC_GOOGLE_SCRIPT_URL.");
+    throw getMissingScriptUrlError("core");
   }
 
   const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
@@ -841,7 +897,7 @@ function sanitizeLeaderboard(raw: LeaderboardEntry[]): LeaderboardEntry[] {
       hoursLogged,
       actualHours,
       reportedHours,
-      hoursSource: "actual",
+      hoursSource: "actual" as const,
       tasksCompleted: toNumber(e.tasksCompleted),
       tasksAssigned: toNumber(e.tasksAssigned),
       completionRate: toNumber(e.completionRate),
@@ -904,8 +960,9 @@ function toNumber(value: unknown): number {
 }
 
 export function isApiConfigured(): boolean {
-  const url = getScriptUrl();
-  return !!url;
+  const coreUrl = getScriptUrlForRole("core");
+  const analyticsUrl = getScriptUrlForRole("analytics");
+  return !!(coreUrl || analyticsUrl);
 }
 
 export function clearApiCache(): void {
@@ -923,6 +980,20 @@ export async function clearAllCaches(): Promise<void> {
   } catch (err) {
     console.log("[API] Storage clear failed:", err);
   }
+}
+
+export async function forceServerRepull(options?: {
+  collector?: string;
+  scope?: "light" | "full";
+  reason?: string;
+}): Promise<Record<string, unknown>> {
+  const params: Record<string, string> = {};
+  const collector = String(options?.collector ?? "").trim();
+  if (collector) params.collector = collector;
+  params.scope = options?.scope === "light" ? "light" : "full";
+  const reason = String(options?.reason ?? "").trim();
+  if (reason) params.reason = reason;
+  return await apiGet<Record<string, unknown>>("forceServerRepull", params, false);
 }
 
 async function clearStorageApiCache(): Promise<void> {

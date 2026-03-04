@@ -15,7 +15,7 @@ TaskFlow is a React Native/Expo (SDK 54) mobile task management app that also ru
 ### Non-obvious caveats
 
 - The default `package.json` scripts now use Expo CLI directly (`npm run start`, `npm run start-web`). If needed, Rork tunnel scripts are still available as `npm run start:rork` and `npm run start-web:rork`.
-- The app expects `EXPO_PUBLIC_GOOGLE_SCRIPT_URL` env var for backend connectivity. Without it, the app loads and renders UI but shows placeholder/mock data. This is acceptable for local development and testing.
+- The app supports split Google Apps Script endpoints via `EXPO_PUBLIC_GAS_CORE_URL` and `EXPO_PUBLIC_GAS_ANALYTICS_URL` (preferred), with `EXPO_PUBLIC_GOOGLE_SCRIPT_URL` as a legacy fallback. Without any valid script URL, the app loads and renders UI but shows placeholder/mock data.
 - `npm install` is the default dependency install command.
 - No Docker, no database, no CI/CD, no setup scripts, no pre-commit hooks in this repo.
 - The web export/build can be tested with `npx expo export --platform web`.

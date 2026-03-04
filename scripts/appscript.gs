@@ -56,6 +56,8 @@ var CACHE_CELL_MAX_CHARS = 49000; // Sheets hard limit is ~50000 chars per cell.
 var SUBMIT_DEDUP_WINDOW_MS = 2 * 60 * 1000;
 var SUBMIT_REQUEST_TTL_SECONDS = 6 * 60 * 60;
 var SUBMIT_FINGERPRINT_TTL_SECONDS = 2 * 60;
+// Bump this when deploying logic/schema changes that alter derived metrics (reported vs actual, etc).
+var TASKFLOW_DEPLOY_EPOCH = '2026-03-04-cache-epoch-1';
 var GET_CACHE_TTL_MS = {
   collectors: 5 * 60 * 1000,
   tasks: 5 * 60 * 1000,
@@ -170,10 +172,58 @@ function readFreshCacheValue(key, ttlMs) {
   return entry.value;
 }
 
+function clearDerivedCaches_(reason) {
+  var rowsCleared = 0;
+  try {
+    var cacheSheet = getOrCreateCacheSheet();
+    var lastRow = cacheSheet.getLastRow();
+    if (lastRow >= 2) {
+      rowsCleared = lastRow - 1;
+      cacheSheet.getRange(2, 1, rowsCleared, 3).clearContent();
+    }
+  } catch (e) {}
+
+  _rigHistorySnapshot = null;
+
+  try {
+    var props = PropertiesService.getScriptProperties();
+    props.setProperty('TASKFLOW_CACHE_LAST_RESET_AT', new Date().toISOString());
+    props.setProperty('TASKFLOW_CACHE_LAST_RESET_REASON', safeStr(reason) || 'manual');
+  } catch (e2) {}
+
+  return {
+    clearedAppCacheRows: rowsCleared,
+    reason: safeStr(reason) || 'manual',
+    at: new Date().toISOString()
+  };
+}
+
+function ensureDeployEpoch_() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var appliedEpoch = safeStr(props.getProperty('TASKFLOW_DEPLOY_EPOCH'));
+    if (appliedEpoch === TASKFLOW_DEPLOY_EPOCH) return null;
+
+    var resetInfo = clearDerivedCaches_('deploy_epoch_change');
+    props.setProperty('TASKFLOW_DEPLOY_EPOCH', TASKFLOW_DEPLOY_EPOCH);
+    props.setProperty('TASKFLOW_DEPLOY_EPOCH_APPLIED_AT', new Date().toISOString());
+    return resetInfo;
+  } catch (e) {
+    return null;
+  }
+}
+
+function handleForceServerRepull(collectorName, scope, reason) {
+  var resetInfo = clearDerivedCaches_('manual_force_repull:' + safeStr(reason));
+  var warm = handleRefreshCache(collectorName || '', scope || 'full');
+  return { reset: resetInfo, warmed: warm };
+}
+
 function doGet(e) {
   try {
     assertSheetConfig_();
     ensureDailyRollover_();
+    ensureDeployEpoch_();
     var action = (e.parameter.action || '').trim();
     var period = (e.parameter.period || '').trim();
 
@@ -203,6 +253,7 @@ function doGet(e) {
       case 'getAdminStartPlan':     result = handleGetAdminStartPlan(); break;
       case 'getAppCache':           result = handleGetAppCache(e.parameter.keys || ''); break;
       case 'refreshCache':          result = handleRefreshCache(e.parameter.collector || '', e.parameter.scope || ''); break;
+      case 'forceServerRepull':     result = handleForceServerRepull(e.parameter.collector || '', e.parameter.scope || 'full', e.parameter.reason || ''); break;
       default:
         return jsonOut({ success: false, error: 'Unknown action: ' + action });
     }
@@ -216,6 +267,7 @@ function doPost(e) {
   try {
     assertSheetConfig_();
     ensureDailyRollover_();
+    ensureDeployEpoch_();
     var raw = '';
     if (e && e.postData && typeof e.postData.contents === 'string') {
       raw = e.postData.contents;
@@ -265,6 +317,10 @@ function doPost(e) {
     if (metaAction === 'CARRYOVER_CANCEL') {
       var carryCancel = handleCarryoverCancel(body);
       return jsonOut({ success: true, data: carryCancel, message: carryCancel.message || 'Carryover canceled' });
+    }
+    if (metaAction === 'FORCE_SERVER_REPULL') {
+      var forceResult = handleForceServerRepull(body.collector || '', body.scope || 'full', body.reason || '');
+      return jsonOut({ success: true, data: forceResult, message: 'Server repull completed' });
     }
 
     var result = handleSubmit(body);

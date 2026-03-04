@@ -60,6 +60,7 @@ import {
   fetchFullLog,
   fetchLeaderboard,
   clearAllCaches,
+  forceServerRepull,
   pushLiveAlert,
   adminAssignTask,
   adminCancelTask,
@@ -881,9 +882,18 @@ function AdminToolsPanel({
   const handleForceResync = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     await clearAllCaches();
+    try {
+      await forceServerRepull({
+        collector: controlCollector || undefined,
+        scope: "full",
+        reason: "admin_force_resync",
+      });
+    } catch (err) {
+      console.log("[Admin] forceServerRepull failed:", err);
+    }
     queryClient.invalidateQueries();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  }, [queryClient]);
+  }, [queryClient, controlCollector]);
 
   const handleSendAlert = useCallback(async () => {
     const message = alertMessage.trim();
