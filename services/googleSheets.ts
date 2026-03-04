@@ -177,10 +177,12 @@ function resolveScriptUrls(): { legacy: string; core: string; analytics: string 
 
 function getScriptUrlForRole(role: ScriptRole): string {
   const { legacy, core, analytics } = resolveScriptUrls();
+  // Monolith-first mode: if legacy URL is set, always use it for all actions.
+  if (legacy) return legacy;
   if (role === "analytics") {
-    return analytics || legacy || core;
+    return analytics || core;
   }
-  return core || legacy || analytics;
+  return core || analytics;
 }
 
 function getScriptUrlForAction(action: string): string {
@@ -196,8 +198,8 @@ function getMissingScriptUrlError(role: ScriptRole): Error {
   const target = role === "analytics" ? "analytics" : "core";
   return new Error(
     `Google Script URL not configured for ${target}. Set ` +
-    `EXPO_PUBLIC_GAS_CORE_URL / EXPO_PUBLIC_GAS_ANALYTICS_URL ` +
-    `or fallback EXPO_PUBLIC_GOOGLE_SCRIPT_URL.`
+    `EXPO_PUBLIC_GOOGLE_SCRIPT_URL (monolith) or ` +
+    `EXPO_PUBLIC_GAS_CORE_URL / EXPO_PUBLIC_GAS_ANALYTICS_URL.`
   );
 }
 
