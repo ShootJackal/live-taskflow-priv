@@ -36,6 +36,7 @@ import {
   FileText,
   ChevronDown,
   ChevronRight,
+  Download,
   ClipboardList,
   Lock,
   LogOut,
@@ -47,13 +48,15 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { useTheme, THEME_META, type ThemeMode } from "@/providers/ThemeProvider";
 import { useLocale, type LocaleCode } from "@/providers/LocaleProvider";
+import { useUiPrefs } from "@/providers/UiPrefsProvider";
 import { useCollection } from "@/providers/CollectionProvider";
 import { DesignTokens } from "@/constants/colors";
 import ScreenContainer from "@/components/ScreenContainer";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchAdminDashboardData, fetchTaskActualsData, fetchFullLog, fetchLeaderboard, clearAllCaches } from "@/services/googleSheets";
+import { fetchAdminDashboardData, fetchTaskActualsData, fetchFullLog, fetchLeaderboard, clearAllCaches, pushLiveAlert } from "@/services/googleSheets";
 import { AdminDashboardData, CollectorSummary, TaskActualRow, FullLogEntry, LeaderboardEntry } from "@/types";
 import SelectPicker from "@/components/SelectPicker";
+import { Image } from "expo-image";
 
 const FONT_MONO = DesignTokens.fontMono;
 
@@ -369,6 +372,8 @@ function DisplaySettingsModal({
   onSelectTheme,
   locale,
   onSelectLocale,
+  hideStatusBar,
+  onToggleStatusBar,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -376,6 +381,8 @@ function DisplaySettingsModal({
   onSelectTheme: (theme: Exclude<ThemeMode, "system">) => void;
   locale: LocaleCode;
   onSelectLocale: (next: LocaleCode) => void;
+  hideStatusBar: boolean;
+  onToggleStatusBar: (next: boolean) => void;
 }) {
   const { colors } = useTheme();
   const { t } = useLocale();
@@ -446,6 +453,20 @@ function DisplaySettingsModal({
                 </TouchableOpacity>
               </View>
             ))}
+          </View>
+
+          <Text style={[displayModalStyles.sectionLabel, { color: colors.textMuted, marginTop: 14 }]}>System</Text>
+          <View style={[displayModalStyles.listCard, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
+            <View style={displayModalStyles.row}>
+              <Text style={[displayModalStyles.rowLabel, { color: colors.textPrimary }]}>{t("hide_status_bar", "Hide Status Bar")}</Text>
+              <Switch
+                value={hideStatusBar}
+                onValueChange={onToggleStatusBar}
+                trackColor={{ false: colors.border, true: colors.accent + "66" }}
+                thumbColor={hideStatusBar ? colors.accent : colors.white}
+                ios_backgroundColor={colors.border}
+              />
+            </View>
           </View>
         </View>
       </View>
@@ -700,6 +721,8 @@ function AdminToolsPanel({ colors }: { colors: ReturnType<typeof useTheme>["colo
   const { configured } = useCollection();
   const queryClient = useQueryClient();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const [alertMessage, setAlertMessage] = useState("");
+  const [isSendingAlert, setIsSendingAlert] = useState(false);
 
   const fullLogQuery = useQuery<FullLogEntry[]>({
     queryKey: ["adminFullLog"],
@@ -766,6 +789,23 @@ function AdminToolsPanel({ colors }: { colors: ReturnType<typeof useTheme>["colo
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, [queryClient]);
 
+  const handleSendAlert = useCallback(async () => {
+    const message = alertMessage.trim();
+    if (!message) return;
+    setIsSendingAlert(true);
+    try {
+      await pushLiveAlert({ message, level: "INFO", target: "ALL", createdBy: "ADMIN" });
+      setAlertMessage("");
+      queryClient.invalidateQueries({ queryKey: ["liveAlerts"] });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      Alert.alert("Failed to send alert", err instanceof Error ? err.message : "Unknown error");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsSendingAlert(false);
+    }
+  }, [alertMessage, queryClient]);
+
   const getStatusIcon = useCallback((status: string) => {
     const st = normalizeTaskStatus(status);
     if (COMPLETED_TASK_STATUSES.has(st)) return <Check size={10} color={colors.complete} />;
@@ -783,6 +823,44 @@ function AdminToolsPanel({ colors }: { colors: ReturnType<typeof useTheme>["colo
         <RotateCcw size={13} color={colors.accent} />
         <Text style={[atStyles.toolBtnText, { color: colors.accent }]}>Force Resync All Data</Text>
       </TouchableOpacity>
+
+      <View style={[atStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+        <View style={atStyles.cardHeader}>
+          <AlertTriangle size={12} color={colors.alertYellow} />
+          <Text style={[atStyles.cardTitle, { color: colors.alertYellow }]}>LIVE ALERT BROADCAST</Text>
+        </View>
+        <TextInput
+          style={[atStyles.alertInput, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bgInput }]}
+          placeholder="Send an alert to all collectors..."
+          placeholderTextColor={colors.textMuted}
+          value={alertMessage}
+          onChangeText={setAlertMessage}
+          multiline
+          numberOfLines={2}
+        />
+        <TouchableOpacity
+          style={[
+            atStyles.alertSendBtn,
+            {
+              backgroundColor: alertMessage.trim().length > 0 ? colors.alertYellowBg : colors.bgInput,
+              borderColor: alertMessage.trim().length > 0 ? colors.alertYellow : colors.border,
+              opacity: isSendingAlert ? 0.7 : 1,
+            },
+          ]}
+          onPress={handleSendAlert}
+          disabled={isSendingAlert || alertMessage.trim().length === 0}
+          activeOpacity={0.8}
+        >
+          <Text
+            style={[
+              atStyles.alertSendText,
+              { color: alertMessage.trim().length > 0 ? colors.alertYellow : colors.textMuted },
+            ]}
+          >
+            {isSendingAlert ? "Sending..." : "Send Alert"}
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       {teamPerformance && (
         <View style={[atStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
@@ -932,6 +1010,24 @@ const atStyles = StyleSheet.create({
   regionBarLabel: { color: "#fff", fontSize: 9, fontWeight: "800" as const, letterSpacing: 0.5 },
   regionDetail: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
   regionText: { fontSize: 10, fontWeight: "600" as const },
+  alertInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 12,
+    textAlignVertical: "top",
+    minHeight: 52,
+  },
+  alertSendBtn: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  alertSendText: { fontSize: 12, fontWeight: "700" as const, letterSpacing: 0.35 },
   taskRow: { borderTopWidth: 1, paddingTop: DesignTokens.spacing.sm, marginTop: DesignTokens.spacing.sm },
   taskInfo: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
   taskName: { fontSize: 12, fontWeight: "500" as const, flex: 1 },
@@ -977,6 +1073,7 @@ function QuickCard({ title, subtitle, icon, iconBg, onPress, testID, colors }: {
 export default function ToolsScreen() {
   const { colors, resolvedMode, setThemeMode } = useTheme();
   const { t, locale, setLocale } = useLocale();
+  const { hideStatusBar, setHideStatusBar } = useUiPrefs();
   const {
     collectors, selectedCollectorName, selectedRig,
     selectCollector, setSelectedRig, configured, isAdmin, authenticateAdmin, logoutAdmin,
@@ -1105,6 +1202,31 @@ export default function ToolsScreen() {
     void setLocale(nextLocale);
   }, [setLocale]);
 
+  const handleToggleStatusBar = useCallback((next: boolean) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    void setHideStatusBar(next);
+  }, [setHideStatusBar]);
+
+  const openInstallApp = useCallback(async () => {
+    if (Platform.OS !== "web") {
+      Alert.alert(
+        "Install App",
+        "Use your browser menu and tap 'Add to Home Screen' for full-screen mode."
+      );
+      return;
+    }
+    try {
+      const promptEvent = (globalThis as any).__taskflowInstallPrompt;
+      if (promptEvent && typeof promptEvent.prompt === "function") {
+        await promptEvent.prompt();
+      } else {
+        Alert.alert("Install App", "Use your browser menu and choose 'Install App' or 'Add to Home Screen'.");
+      }
+    } catch {
+      Alert.alert("Install App", "Use your browser menu and choose 'Install App' or 'Add to Home Screen'.");
+    }
+  }, []);
+
   const handleClearCache = useCallback(async () => {
     Alert.alert("Clear Cache", "Clear all locally cached data? The app will re-fetch from the server.", [
       { text: "Cancel", style: "cancel" },
@@ -1127,11 +1249,15 @@ export default function ToolsScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={[styles.pageHeader, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+          <View pointerEvents="none" style={[styles.headerGlow, { backgroundColor: colors.accentSoft }]} />
           <View>
             <View style={[styles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
               <Text style={[styles.headerTagText, { color: colors.accent }]}>SETTINGS</Text>
             </View>
-            <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>{t("tools", "Tools")}</Text>
+            <View style={styles.brandRow}>
+              <Image source={require("../../../assets/images/icon.png")} style={styles.brandLogo} contentFit="contain" />
+              <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>{t("tools", "Tools")}</Text>
+            </View>
             <Text style={[styles.brandSub, { color: colors.textSecondary, fontFamily: "Lexend_400Regular" }]}>{t("settings", "Settings & Utilities")}</Text>
           </View>
           <View style={styles.pageHeaderRight}>
@@ -1238,6 +1364,7 @@ export default function ToolsScreen() {
           <QuickCard title="Slack" subtitle="Team chat" icon={<MessageSquare size={18} color={colors.slack} />} iconBg={colors.slackBg} onPress={openSlack} testID="slack-link" colors={colors} />
           <QuickCard title="Hubstaff" subtitle="Time track" icon={<Clock size={18} color={colors.hubstaff} />} iconBg={colors.hubstaffBg} onPress={openHubstaff} testID="hubstaff-link" colors={colors} />
           <QuickCard title="Sheets" subtitle="Open app" icon={<FileText size={18} color={colors.sheets} />} iconBg={colors.sheetsBg} onPress={openSheets} testID="sheets-link" colors={colors} />
+          <QuickCard title={t("install_app", "Install App")} subtitle="Home screen" icon={<Download size={18} color={colors.accent} />} iconBg={colors.accentSoft} onPress={openInstallApp} testID="install-link" colors={colors} />
           <QuickCard title="Report" subtitle="Rig issue" icon={<AlertTriangle size={18} color={colors.airtable} />} iconBg={colors.airtableBg} onPress={openAirtableRigIssue} testID="airtable-link" colors={colors} />
         </View>
 
@@ -1309,6 +1436,8 @@ export default function ToolsScreen() {
           onSelectTheme={handleSelectTheme}
           locale={locale}
           onSelectLocale={handleSelectLocale}
+          hideStatusBar={hideStatusBar}
+          onToggleStatusBar={handleToggleStatusBar}
         />
 
         <AdminPasswordModal
@@ -1354,7 +1483,17 @@ const styles = StyleSheet.create({
   pageHeader: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start",
     marginBottom: DesignTokens.spacing.lg, padding: DesignTokens.spacing.lg,
-    borderRadius: DesignTokens.radius.xl, borderWidth: 1,
+    borderRadius: DesignTokens.radius.xl, borderWidth: 1, overflow: "hidden",
+  },
+  headerGlow: {
+    position: "absolute",
+    top: -44,
+    left: -24,
+    right: -24,
+    height: 120,
+    opacity: 0.75,
+    borderBottomLeftRadius: 70,
+    borderBottomRightRadius: 70,
   },
   pageHeaderRight: { alignItems: "flex-end", gap: DesignTokens.spacing.xs },
   headerTag: {
@@ -1366,6 +1505,8 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   headerTagText: { fontSize: 9, fontWeight: "800" as const, letterSpacing: 1.1 },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  brandLogo: { width: 26, height: 26, borderRadius: 8 },
   brandText: { fontSize: 34, fontWeight: "700" as const, letterSpacing: 0.2 },
   brandSub: { fontSize: 12, fontWeight: "500" as const, letterSpacing: 0.7, marginTop: 2, textTransform: "uppercase" },
   adminBadge: {
@@ -1407,12 +1548,12 @@ const styles = StyleSheet.create({
   quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   quickCardWrap: { width: "48%" },
   quickCard: {
-    borderRadius: DesignTokens.radius.xl - 2, borderWidth: 1, padding: 14, aspectRatio: 1,
+    borderRadius: DesignTokens.radius.xl - 2, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 10, minHeight: 86,
     alignItems: "center", justifyContent: "center",
     ...DesignTokens.shadow.card,
   },
-  quickIcon: { width: 36, height: 36, borderRadius: DesignTokens.radius.md, alignItems: "center", justifyContent: "center", marginBottom: 5 },
-  quickTitle: { fontSize: 11, marginBottom: 1, textAlign: "center", fontWeight: "700" as const },
+  quickIcon: { width: 30, height: 30, borderRadius: DesignTokens.radius.sm, alignItems: "center", justifyContent: "center", marginBottom: 5 },
+  quickTitle: { fontSize: 10, marginBottom: 1, textAlign: "center", fontWeight: "700" as const },
   quickSub: { fontSize: 9, textAlign: "center" },
   sheetRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
   sheetDivider: { height: 1, marginLeft: 58 },

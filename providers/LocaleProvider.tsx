@@ -22,6 +22,8 @@ const DICT: Record<LocaleCode, Record<string, string>> = {
     quick_actions: "Quick Actions",
     my_profile: "My Profile",
     display_settings: "Display Settings",
+    hide_status_bar: "Hide Status Bar",
+    install_app: "Install App",
   },
   es: {
     collect: "Recolectar",
@@ -38,6 +40,8 @@ const DICT: Record<LocaleCode, Record<string, string>> = {
     quick_actions: "Acciones Rápidas",
     my_profile: "Mi Perfil",
     display_settings: "Ajustes de Pantalla",
+    hide_status_bar: "Ocultar Barra de Estado",
+    install_app: "Instalar App",
   },
   ru: {
     collect: "Сбор",
@@ -54,6 +58,8 @@ const DICT: Record<LocaleCode, Record<string, string>> = {
     quick_actions: "Быстрые Действия",
     my_profile: "Профиль",
     display_settings: "Настройки Экрана",
+    hide_status_bar: "Скрыть Статус Бар",
+    install_app: "Установить Приложение",
   },
 };
 
@@ -94,4 +100,3 @@ export const [LocaleProvider, useLocale] = createContextHook(() => {
     ],
   };
 });
-

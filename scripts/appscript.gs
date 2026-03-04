@@ -15,6 +15,7 @@
  *   Task Actuals | Redashpull   (or Collector Actuals | RedashPull — script tries both)
  *   Collector Task Assignments Log
  *   Collector Rig History Log (auto-created if missing)
+ *   Live Alerts (auto-created if missing)
  *   RS_Task_Req
  *   _AppCache
  *
@@ -28,6 +29,7 @@
  *   RS_Task_Req:    A=TaskName B=RequiredGoodHrs
  *   Assignments:    A=AssignmentID B=TaskID C=TaskName D=Collector E=AssignedDate F=PlannedHrs G=Status H=LoggedHrs I=RemainingHrs J=CompletedDate K=Notes L=WeekStart
  *   Rig History:    A=EventTs B=Collector C=Rig D=Event E=SessionStart F=SessionEnd G=SessionHours H=Source I=WeekStart J=Notes
+ *   Live Alerts:    A=AlertID B=Message C=Level D=Target E=CreatedAt F=CreatedBy G=Active
  *   _AppCache:      A=key B=jsonValue C=updatedAt
  */
 
@@ -40,6 +42,7 @@ var TASKFLOW_SHEETS = {
   TASK_ACTUALS: 'Task Actuals | Redashpull',
   ASSIGNMENTS: 'Collector Task Assignments Log',
   RIG_HISTORY: 'Collector Rig History Log',
+  LIVE_ALERTS: 'Live Alerts',
   RS_TASK_REQ: 'RS_Task_Req',
   APP_CACHE: '_AppCache'
 };
@@ -60,7 +63,8 @@ var GET_CACHE_TTL_MS = {
   fullLog: 30 * 1000,
   taskActuals: 60 * 1000,
   adminDashboard: 60 * 1000,
-  activeRigsCount: 30 * 1000
+  activeRigsCount: 30 * 1000,
+  liveAlerts: 20 * 1000
 };
 var _rigHistorySnapshot = null;
 
@@ -105,6 +109,8 @@ function getDoGetCachePolicy(action, params) {
       return { key: 'adminDashboard', ttlMs: GET_CACHE_TTL_MS.adminDashboard };
     case 'getActiveRigsCount':
       return { key: 'activeRigsCount', ttlMs: GET_CACHE_TTL_MS.activeRigsCount };
+    case 'getLiveAlerts':
+      return { key: 'liveAlerts', ttlMs: GET_CACHE_TTL_MS.liveAlerts };
     default:
       return null;
   }
@@ -178,6 +184,7 @@ function doGet(e) {
       case 'getTaskActualsSheet':   result = handleGetTaskActuals(); break;
       case 'getAdminDashboardData': result = handleGetAdminDashboard(); break;
       case 'getActiveRigsCount':    result = handleGetActiveRigsCount(); break;
+      case 'getLiveAlerts':         result = handleGetLiveAlerts(); break;
       case 'getAppCache':           result = handleGetAppCache(e.parameter.keys || ''); break;
       case 'refreshCache':          result = handleRefreshCache(e.parameter.collector || '', e.parameter.scope || ''); break;
       default:
@@ -213,6 +220,10 @@ function doPost(e) {
     if (metaAction === 'SET_RIG') {
       var rigResult = handleLogCollectorRig(body);
       return jsonOut({ success: true, data: rigResult, message: rigResult.message || 'Rig event logged' });
+    }
+    if (metaAction === 'PUSH_ALERT') {
+      var alertResult = handlePushLiveAlert(body);
+      return jsonOut({ success: true, data: alertResult, message: alertResult.message || 'Alert sent' });
     }
 
     var result = handleSubmit(body);
@@ -263,6 +274,98 @@ function handleLogCollectorRig(body) {
     if (!isNaN(parsed.getTime())) eventAt = parsed;
   }
   return logCollectorRigEvent(collector, rig, source, notes, eventAt);
+}
+
+function getOrCreateLiveAlertsSheet() {
+  var ss = getSS();
+  var sheet = ss.getSheetByName(TASKFLOW_SHEETS.LIVE_ALERTS);
+  if (!sheet) {
+    sheet = ss.insertSheet(TASKFLOW_SHEETS.LIVE_ALERTS);
+  }
+  if (sheet.getLastRow() < 1) {
+    sheet.getRange(1, 1, 1, 7).setValues([[
+      'AlertID',
+      'Message',
+      'Level',
+      'Target',
+      'CreatedAt',
+      'CreatedBy',
+      'Active'
+    ]]);
+  }
+  return sheet;
+}
+
+function handlePushLiveAlert(body) {
+  var message = safeStr(body && body.message);
+  if (!message) throw new Error('Missing message');
+
+  var level = safeStr(body && body.level).toUpperCase() || 'INFO';
+  var target = safeStr(body && body.target).toUpperCase() || 'ALL';
+  var createdBy = safeStr(body && body.createdBy) || safeStr(body && body.collector) || 'ADMIN';
+  var now = new Date();
+  var alertId = 'AL-' + now.getTime();
+
+  var sheet = getOrCreateLiveAlertsSheet();
+  sheet.insertRows(2, 1);
+  sheet.getRange(2, 1, 1, 7).setValues([[
+    alertId,
+    message,
+    level,
+    target,
+    now.toISOString(),
+    createdBy,
+    true
+  ]]);
+
+  var latest = handleGetLiveAlerts();
+  writeCache('liveAlerts', latest);
+  return {
+    id: alertId,
+    message: message,
+    level: level,
+    target: target,
+    createdAt: now.toISOString(),
+    createdBy: createdBy,
+    success: true
+  };
+}
+
+function handleGetLiveAlerts() {
+  var sheet;
+  try {
+    sheet = getOrCreateLiveAlertsSheet();
+  } catch (e) {
+    return [];
+  }
+
+  var data = sheet.getDataRange().getValues();
+  if (!data || data.length < 2) return [];
+
+  var out = [];
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    var id = safeStr(row[0]);
+    var msg = safeStr(row[1]);
+    if (!id || !msg) continue;
+
+    var activeRaw = safeStr(row[6]).toLowerCase();
+    var isActive = !(activeRaw === 'false' || activeRaw === '0' || activeRaw === 'no');
+    if (!isActive) continue;
+
+    out.push({
+      id: id,
+      message: msg,
+      level: safeStr(row[2]).toUpperCase() || 'INFO',
+      target: safeStr(row[3]).toUpperCase() || 'ALL',
+      createdAt: safeStr(row[4]),
+      createdBy: safeStr(row[5])
+    });
+    if (out.length >= 25) break;
+  }
+
+  writeCache('liveAlerts', out);
+  return out;
 }
 
 function getSS() { return SpreadsheetApp.getActiveSpreadsheet(); }
@@ -1646,6 +1749,7 @@ function handleRefreshCache(collectorName, scope) {
   var thisWeek = handleGetLeaderboard('thisWeek');
   var recollections = handleGetRecollections();
   var activeRigs = handleGetActiveRigsCount();
+  var liveAlerts = handleGetLiveAlerts();
 
   var lastWeek = [];
   var admin = null;
@@ -1676,6 +1780,7 @@ function handleRefreshCache(collectorName, scope) {
     leaderboardLastWeek: lastWeek.length,
     taskActuals: taskActuals.length,
     recollections: recollections.length,
+    liveAlerts: liveAlerts.length,
     activeRigsToday: activeRigs.activeRigsToday,
     adminCached: !!admin,
     collectorCached: collectorCached

@@ -34,6 +34,7 @@ import SelectPicker from "@/components/SelectPicker";
 import ActionButton from "@/components/ActionButton";
 import MarqueeText from "@/components/MarqueeText";
 import type { LogEntry } from "@/types";
+import { Image } from "expo-image";
 
 const LogEntryRow = React.memo(function LogEntryRow({ entry, statusColor, colors, isLast }: {
   entry: LogEntry;
@@ -52,7 +53,6 @@ const LogEntryRow = React.memo(function LogEntryRow({ entry, statusColor, colors
   const taskRemaining = Number(entry.taskRemainingHours ?? 0);
   const taskTotal = Math.max(taskCollected + taskRemaining, 0);
   const taskProgressPct = Math.max(0, Math.min(100, Math.round(Number(entry.taskProgressPct ?? (taskTotal > 0 ? (taskCollected / taskTotal) * 100 : 0)))));
-  const hasMissing = Math.round((Number(entry.remainingHours) || 0) * 100) / 100 > 0;
 
   return (
     <View style={[logStyles.row, !isLast && { borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
@@ -73,11 +73,6 @@ const LogEntryRow = React.memo(function LogEntryRow({ entry, statusColor, colors
             <Text style={[logStyles.hours, { color: colors.textMuted }]}>
               {Number(entry.loggedHours).toFixed(2)}h / {Number(entry.plannedHours).toFixed(2)}h
             </Text>
-            {hasMissing && (
-              <Text style={[logStyles.remaining, { color: colors.statusPending }]}>
-                {Number(entry.remainingHours).toFixed(2)}h left
-              </Text>
-            )}
           </View>
           {isActive && (
             <View style={[logStyles.progressTrack, { backgroundColor: colors.bgInput }]}>
@@ -302,13 +297,17 @@ export default function DashboardScreen() {
           }
         >
           <View style={[styles.header, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+            <View pointerEvents="none" style={[styles.headerGlow, { backgroundColor: colors.accentSoft }]} />
             <View style={styles.headerLeft}>
               <View style={[styles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
                 <Text style={[styles.headerTagText, { color: colors.accent }]}>COLLECT HUB</Text>
               </View>
-              <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>
-                {t("collect", "Collect")}
-              </Text>
+              <View style={styles.brandRow}>
+                <Image source={require("../../assets/images/icon.png")} style={styles.brandLogo} contentFit="contain" />
+                <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>
+                  {t("collect", "Collect")}
+                </Text>
+              </View>
               <Text style={[styles.brandSub, { color: colors.textSecondary, fontFamily: "Lexend_400Regular" }]}>
                 {selectedCollector ? `${selectedCollector.name.split(" ")[0]}'s Workspace` : "Task Management"}
               </Text>
@@ -583,6 +582,17 @@ const styles = StyleSheet.create({
     padding: DesignTokens.spacing.lg,
     borderRadius: DesignTokens.radius.xl,
     borderWidth: 1,
+    overflow: "hidden",
+  },
+  headerGlow: {
+    position: "absolute",
+    top: -44,
+    left: -20,
+    right: -20,
+    height: 120,
+    opacity: 0.78,
+    borderBottomLeftRadius: 70,
+    borderBottomRightRadius: 70,
   },
   headerLeft: { gap: DesignTokens.spacing.xs },
   headerTag: {
@@ -598,6 +608,8 @@ const styles = StyleSheet.create({
     fontWeight: "800" as const,
     letterSpacing: 1.1,
   },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  brandLogo: { width: 26, height: 26, borderRadius: 8 },
   headerRight: { alignItems: "flex-end", gap: DesignTokens.spacing.xs + 2 },
   brandText: { fontSize: 34, fontWeight: "700" as const, letterSpacing: 0.2 },
   brandSub: { fontSize: 12, fontWeight: "500" as const, letterSpacing: 0.7, marginTop: 2, textTransform: "uppercase" },

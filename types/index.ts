@@ -162,3 +162,12 @@ export interface LeaderboardEntry {
   completionRate: number;
   region: string;
 }
+
+export interface LiveAlert {
+  id: string;
+  message: string;
+  level: string;
+  target: string;
+  createdAt: string;
+  createdBy?: string;
+}

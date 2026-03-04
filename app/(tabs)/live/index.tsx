@@ -17,7 +17,9 @@ import { useCollection } from "@/providers/CollectionProvider";
 import { DesignTokens } from "@/constants/colors";
 import ScreenContainer from "@/components/ScreenContainer";
 import { useQuery } from "@tanstack/react-query";
-import { fetchTodayLog, fetchCollectorStats, fetchRecollections, fetchActiveRigsCount, fetchLeaderboard } from "@/services/googleSheets";
+import { fetchTodayLog, fetchCollectorStats, fetchRecollections, fetchActiveRigsCount, fetchLeaderboard, fetchLiveAlerts } from "@/services/googleSheets";
+import { Image } from "expo-image";
+import type { LiveAlert } from "@/types";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const FONT_MONO = DesignTokens.fontMono;
@@ -364,7 +366,7 @@ export default function LiveScreen() {
   const lineIndexRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const livePulse = useRef(new Animated.Value(0)).current;
-  const brandFloat = useRef(new Animated.Value(0)).current;
+  const brandWave = useRef(new Animated.Value(0)).current;
 
   const statsQuery = useQuery({
     queryKey: ["liveStats", selectedCollectorName],
@@ -406,6 +408,15 @@ export default function LiveScreen() {
     enabled: configured,
     staleTime: 60000,
     refetchInterval: 60000,
+  });
+
+  const alertsQuery = useQuery<LiveAlert[]>({
+    queryKey: ["liveAlerts"],
+    queryFn: fetchLiveAlerts,
+    enabled: configured,
+    staleTime: 20000,
+    refetchInterval: 30000,
+    retry: 1,
   });
 
   const recollectItems = useMemo(() => {
@@ -494,15 +505,19 @@ export default function LiveScreen() {
   const totalRigCount = activeRigsQuery.data != null
     ? activeRigsQuery.data.activeRigsToday
     : totalRigCountFallback;
+  const liveAlerts = alertsQuery.data ?? [];
 
   const stats = statsQuery.data;
-  const isSyncing = isFeeding || statsQuery.isFetching || leaderboardQuery.isFetching || todayLogQuery.isFetching || recollectionsQuery.isFetching || activeRigsQuery.isFetching;
+  const isSyncing = isFeeding || statsQuery.isFetching || leaderboardQuery.isFetching || todayLogQuery.isFetching || recollectionsQuery.isFetching || activeRigsQuery.isFetching || alertsQuery.isFetching;
 
   const tickerSegments = useMemo((): TickerSegment[] => {
     const segs: TickerSegment[] = [];
+    const alertItems = liveAlerts.length > 0
+      ? liveAlerts.slice(0, 8).map((item) => `${item.level || "INFO"}: ${item.message}`)
+      : ["Welcome to TaskFlow", "Check your daily assignments", "Stay on target"];
     segs.push({
       label: "ALERT", color: colors.alertYellow,
-      items: ["Welcome to TaskFlow", "Check your daily assignments", "Stay on target"],
+      items: alertItems,
       speed: 32,
     });
     segs.push({
@@ -533,7 +548,7 @@ export default function LiveScreen() {
     }
     segs.push({ label: "STATS", color: colors.statsGreen, items: statsItems, speed: 36 });
     return segs;
-  }, [colors, recollectItems, stats, regionOverview]);
+  }, [colors, recollectItems, stats, regionOverview, liveAlerts]);
 
   const buildTerminalLines = useCallback((): TerminalLine[] => {
     const lines: TerminalLine[] = [];
@@ -652,15 +667,15 @@ export default function LiveScreen() {
   }, [livePulse]);
 
   useEffect(() => {
-    const floating = Animated.loop(
+    const waving = Animated.loop(
       Animated.sequence([
-        Animated.timing(brandFloat, { toValue: 1, duration: 1700, useNativeDriver: true }),
-        Animated.timing(brandFloat, { toValue: 0, duration: 1700, useNativeDriver: true }),
+        Animated.timing(brandWave, { toValue: 1, duration: 2100, useNativeDriver: true }),
+        Animated.timing(brandWave, { toValue: 0, duration: 2100, useNativeDriver: true }),
       ])
     );
-    floating.start();
-    return () => floating.stop();
-  }, [brandFloat]);
+    waving.start();
+    return () => waving.stop();
+  }, [brandWave]);
 
   const handleResync = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -669,10 +684,11 @@ export default function LiveScreen() {
     todayLogQuery.refetch();
     recollectionsQuery.refetch();
     activeRigsQuery.refetch();
+    alertsQuery.refetch();
     setLiveLines([]);
     setIsFeeding(true);
     lineIndexRef.current = 0;
-  }, [statsQuery, leaderboardQuery, todayLogQuery, recollectionsQuery, activeRigsQuery]);
+  }, [statsQuery, leaderboardQuery, todayLogQuery, recollectionsQuery, activeRigsQuery, alertsQuery]);
 
   const handlePersonalStats = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -705,27 +721,40 @@ export default function LiveScreen() {
   return (
     <ScreenContainer>
       <View style={[liveStyles.topBar, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+        <View pointerEvents="none" style={[liveStyles.headerGlow, { backgroundColor: colors.accentSoft }]} />
         <View style={liveStyles.topBarLeft}>
           <View style={[liveStyles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
             <Text style={[liveStyles.headerTagText, { color: colors.accent }]}>{`${t("live", "Live").toUpperCase()} MONITOR`}</Text>
           </View>
           <View style={liveStyles.brandRow}>
-            <Animated.View
-              style={{
-                transform: [{ translateY: brandFloat.interpolate({ inputRange: [0, 1], outputRange: [0, -2] }) }],
-              }}
-            >
-              <Text
-                style={[liveStyles.brandText, {
-                  color: colors.accent,
-                  fontFamily: "Lexend_700Bold",
-                  textShadowColor: colors.accent + "33",
-                  textShadowRadius: 8,
-                }]}
+            <Image source={require("../../../assets/images/icon.png")} style={liveStyles.brandLogo} contentFit="contain" />
+            <View style={liveStyles.brandStack}>
+              <Animated.Text
+                style={[
+                  liveStyles.brandStroke,
+                  {
+                    color: colors.accentDim,
+                    transform: [{ translateX: brandWave.interpolate({ inputRange: [0, 1], outputRange: [-2, 2] }) }],
+                  },
+                ]}
               >
                 TASKFLOW
-              </Text>
-            </Animated.View>
+              </Animated.Text>
+              <Animated.Text
+                style={[
+                  liveStyles.brandText,
+                  {
+                    color: colors.accent,
+                    fontFamily: "Lexend_700Bold",
+                    textShadowColor: colors.accent + "33",
+                    textShadowRadius: 9,
+                    transform: [{ translateX: brandWave.interpolate({ inputRange: [0, 1], outputRange: [2, -2] }) }],
+                  },
+                ]}
+              >
+                TASKFLOW
+              </Animated.Text>
+            </View>
             <View style={[liveStyles.liveBadge, {
               backgroundColor: isOnline ? livePillColor + '14' : colors.cancel + '14',
               borderColor: isOnline ? livePillColor + '40' : colors.cancel + '40',
@@ -760,6 +789,13 @@ export default function LiveScreen() {
                 {totalRigCount} rigs active
               </Text>
             </View>
+            {liveAlerts.length > 0 && (
+              <View style={[liveStyles.alertChip, { borderColor: colors.alertYellow + "35", backgroundColor: colors.alertYellowBg }]}>
+                <Text style={[liveStyles.alertChipText, { color: colors.alertYellow, fontFamily: FONT_MONO }]}>
+                  {liveAlerts.length} alerts
+                </Text>
+              </View>
+            )}
             <View style={[liveStyles.clockPill, {
               backgroundColor: isSyncing ? colors.statusPending + "14" : colors.bgCard,
               borderColor: isSyncing ? colors.statusPending + "3A" : colors.border,
@@ -919,6 +955,17 @@ const liveStyles = StyleSheet.create({
     padding: DesignTokens.spacing.lg,
     borderRadius: DesignTokens.radius.xl,
     borderWidth: 1,
+    overflow: "hidden",
+  },
+  headerGlow: {
+    position: "absolute",
+    top: -44,
+    left: -22,
+    right: -22,
+    height: 126,
+    opacity: 0.8,
+    borderBottomLeftRadius: 74,
+    borderBottomRightRadius: 74,
   },
   topBarLeft: { flex: 1 },
   headerTag: {
@@ -931,6 +978,17 @@ const liveStyles = StyleSheet.create({
   },
   headerTagText: { fontSize: 9, fontWeight: "800" as const, letterSpacing: 1.1 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  brandLogo: { width: 26, height: 26, borderRadius: 8 },
+  brandStack: { position: "relative", minWidth: 190, height: 42, justifyContent: "center" },
+  brandStroke: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    fontSize: 34,
+    fontWeight: "700" as const,
+    letterSpacing: 0.4,
+    opacity: 0.58,
+  },
   brandText: { fontSize: 34, fontWeight: "700" as const, letterSpacing: 0.2 },
   liveBadge: {
     position: "relative" as const,
@@ -964,6 +1022,15 @@ const liveStyles = StyleSheet.create({
   },
   rigCountDot: { width: 6, height: 6, borderRadius: 4 },
   rigCountText: { fontSize: 10, letterSpacing: 0.5 },
+  alertChip: {
+    borderWidth: 1,
+    borderRadius: 9,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  alertChipText: { fontSize: 9, letterSpacing: 0.5, fontWeight: "700" as const },
   clockPill: {
     flexDirection: "row",
     alignItems: "center",

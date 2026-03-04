@@ -7,8 +7,10 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { View, Text, StyleSheet, Animated, Platform, Dimensions, TouchableOpacity } from "react-native";
 import { ThemeProvider, useTheme } from "@/providers/ThemeProvider";
 import { LocaleProvider } from "@/providers/LocaleProvider";
+import { UiPrefsProvider, useUiPrefs } from "@/providers/UiPrefsProvider";
 import { CollectionProvider } from "@/providers/CollectionProvider";
 import { useFonts, Lexend_300Light, Lexend_400Regular, Lexend_500Medium, Lexend_600SemiBold, Lexend_700Bold, Lexend_800ExtraBold } from "@expo-google-fonts/lexend";
+import { Image } from "expo-image";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -61,6 +63,7 @@ function BootSequence({ onComplete }: { onComplete: () => void }) {
   const progressAnim = useRef(new Animated.Value(0)).current;
   const cursorBlink = useRef(new Animated.Value(1)).current;
   const orbPulse = useRef(new Animated.Value(0.03)).current;
+  const logoDriftX = useRef(new Animated.Value(0)).current;
 
   const bootLines = useRef([
     "TASKFLOW SYSTEM v3.1",
@@ -88,8 +91,14 @@ function BootSequence({ onComplete }: { onComplete: () => void }) {
     ]));
     pulse.start();
 
-    return () => { blink.stop(); pulse.stop(); };
-  }, [logoOpacity, logoSlide, cursorBlink, orbPulse]);
+    const drift = Animated.loop(Animated.sequence([
+      Animated.timing(logoDriftX, { toValue: 1, duration: 2400, useNativeDriver: true }),
+      Animated.timing(logoDriftX, { toValue: -1, duration: 2400, useNativeDriver: true }),
+    ]));
+    drift.start();
+
+    return () => { blink.stop(); pulse.stop(); drift.stop(); };
+  }, [logoOpacity, logoSlide, cursorBlink, orbPulse, logoDriftX]);
 
   useEffect(() => {
     if (phase !== "booting") return;
@@ -134,12 +143,29 @@ function BootSequence({ onComplete }: { onComplete: () => void }) {
       <View style={[bootStyles.glowOrb2, { backgroundColor: colors.terminalGreen, opacity: 0.02 }]} />
 
       <Animated.View style={[bootStyles.logoWrap, { opacity: logoOpacity, transform: [{ translateY: logoSlide }] }]}>
+        <Animated.View
+          style={[
+            bootStyles.logoIconWrap,
+            {
+              transform: [{ translateX: logoDriftX.interpolate({ inputRange: [-1, 1], outputRange: [-4, 4] }) }],
+            },
+          ]}
+        >
+          <Image
+            source={require("../assets/images/icon.png")}
+            style={bootStyles.logoIcon}
+            contentFit="contain"
+          />
+        </Animated.View>
         <Text style={[bootStyles.logoText, { color: accentColor }]}>TaskFlow</Text>
         <View style={bootStyles.logoSubRow}>
           <View style={[bootStyles.logoDash, { backgroundColor: accentColor }]} />
           <Text style={[bootStyles.logoSub, { color: dimColor }]}>COLLECTION SYSTEM</Text>
           <View style={[bootStyles.logoDash, { backgroundColor: accentColor }]} />
         </View>
+        <Text style={[bootStyles.welcomeText, { color: colors.textMuted }]}>
+          Welcome back. Live operations are syncing now.
+        </Text>
       </Animated.View>
 
       <View style={bootStyles.terminalArea}>
@@ -190,10 +216,23 @@ const bootStyles = StyleSheet.create({
   glowOrb: { position: "absolute", width: SW * 1.2, height: SW * 1.2, borderRadius: SW * 0.6, top: -SW * 0.3 },
   glowOrb2: { position: "absolute", width: SW * 0.8, height: SW * 0.8, borderRadius: SW * 0.4, bottom: -SW * 0.2 },
   logoWrap: { alignItems: "center", marginBottom: 52 },
+  logoIconWrap: {
+    width: 92,
+    height: 92,
+    borderRadius: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+  },
+  logoIcon: { width: 78, height: 78 },
   logoText: { fontSize: 42, fontWeight: "300" as const, letterSpacing: 2, fontFamily: "Lexend_300Light" },
   logoSubRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 12 },
   logoDash: { width: 20, height: 1, opacity: 0.4 },
   logoSub: { fontSize: 10, letterSpacing: 4, fontFamily: FONT_MONO },
+  welcomeText: { marginTop: 10, fontSize: 11, letterSpacing: 0.5, textAlign: "center" },
   terminalArea: { width: SW * 0.82, maxWidth: 380, minHeight: 130, paddingBottom: 8 },
   termLine: { fontSize: 11, lineHeight: 20, letterSpacing: 0.3 },
   cursor: { fontSize: 12, lineHeight: 20 },
@@ -212,10 +251,16 @@ const bootStyles = StyleSheet.create({
 
 function RootLayoutNav() {
   const { colors, isDark } = useTheme();
+  const { hideStatusBar } = useUiPrefs();
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
       <CollectionProvider>
-        <StatusBar style={isDark ? "light" : "dark"} />
+        <StatusBar
+          style={isDark ? "light" : "dark"}
+          hidden={hideStatusBar}
+          translucent
+          backgroundColor="transparent"
+        />
         <Stack screenOptions={{ headerBackTitle: "Back" }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         </Stack>
@@ -249,13 +294,30 @@ export default function RootLayout() {
     if (fontsLoaded) SplashScreen.hideAsync();
   }, [fontsLoaded]);
 
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const webGlobal = globalThis as any;
+    if (!webGlobal || typeof webGlobal.addEventListener !== "function") return;
+    const listener = (event: Event) => {
+      const installEvent = event as Event & { preventDefault: () => void };
+      installEvent.preventDefault();
+      webGlobal.__taskflowInstallPrompt = installEvent;
+    };
+    webGlobal.addEventListener("beforeinstallprompt", listener as EventListener);
+    return () => {
+      webGlobal.removeEventListener("beforeinstallprompt", listener as EventListener);
+    };
+  }, []);
+
   if (!fontsLoaded) return null;
 
   return (
     <QueryClientProvider client={queryClient}>
       <LocaleProvider>
         <ThemeProvider>
-          <AppWithBoot />
+          <UiPrefsProvider>
+            <AppWithBoot />
+          </UiPrefsProvider>
         </ThemeProvider>
       </LocaleProvider>
     </QueryClientProvider>

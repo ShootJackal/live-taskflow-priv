@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Collector, Task, LogEntry, SubmitPayload, SubmitResponse, CollectorStats, TaskActualRow, FullLogEntry, AdminDashboardData, LeaderboardEntry } from "@/types";
+import { Collector, Task, LogEntry, SubmitPayload, SubmitResponse, CollectorStats, TaskActualRow, FullLogEntry, AdminDashboardData, LeaderboardEntry, LiveAlert } from "@/types";
 
 const DEFAULT_SCRIPT_URL = "";
 const REQUEST_TIMEOUT_MS = 25000;
@@ -28,6 +28,7 @@ const CACHE_TTL_MS: Record<string, number> = {
   getAdminDashboardData: 60 * 1000,
   getTodayLog: 30 * 1000,
   getActiveRigsCount: 60 * 1000,
+  getLiveAlerts: 20 * 1000,
 };
 
 const STORAGE_TTL_MS: Record<string, number> = {
@@ -41,6 +42,7 @@ const STORAGE_TTL_MS: Record<string, number> = {
   getAdminDashboardData: 10 * 60 * 1000,
   getTodayLog: 2 * 60 * 1000,
   getActiveRigsCount: 2 * 60 * 1000,
+  getLiveAlerts: 2 * 60 * 1000,
 };
 
 function getCached<T>(key: string): T | null {
@@ -543,6 +545,63 @@ export async function fetchActiveRigsCount(): Promise<ActiveRigsCount> {
     const cached = readFirstCachedValue<ActiveRigsCount>(cache, cacheKeys);
     if (cached && typeof cached === "object" && typeof cached.activeRigsToday === "number") return cached;
     throw err;
+  }
+}
+
+export async function fetchLiveAlerts(): Promise<LiveAlert[]> {
+  try {
+    return await apiGet<LiveAlert[]>("getLiveAlerts");
+  } catch (err) {
+    const cacheKeys = ["liveAlerts"];
+    const cache = await getAppCacheSnapshot(cacheKeys);
+    const cached = readFirstCachedValue<LiveAlert[]>(cache, cacheKeys);
+    if (Array.isArray(cached)) return cached;
+    throw err;
+  }
+}
+
+export async function pushLiveAlert(payload: {
+  message: string;
+  level?: string;
+  target?: string;
+  createdBy?: string;
+}): Promise<void> {
+  const scriptUrl = getScriptUrl();
+  if (!scriptUrl) {
+    throw new Error("Google Script URL not configured. Set EXPO_PUBLIC_GOOGLE_SCRIPT_URL.");
+  }
+
+  const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(scriptUrl, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({
+        metaAction: "PUSH_ALERT",
+        message: String(payload.message ?? "").trim(),
+        level: String(payload.level ?? "INFO").trim(),
+        target: String(payload.target ?? "ALL").trim(),
+        createdBy: String(payload.createdBy ?? "").trim(),
+      }),
+      redirect: "follow",
+      signal: timeout.controller.signal,
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text || "Alert push failed"}`);
+    }
+
+    const json = await parseApiResponse<Record<string, unknown>>(response);
+    if (!json.success) {
+      throw new Error(json.error ?? json.message ?? "Alert push failed");
+    }
+
+    memoryCache.clear();
+    appCacheSnapshotMemo.clear();
+  } finally {
+    timeout.cancel();
   }
 }
 

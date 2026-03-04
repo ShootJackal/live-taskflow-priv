@@ -15,8 +15,9 @@ import { useCollection } from "@/providers/CollectionProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { DesignTokens } from "@/constants/colors";
 import ScreenContainer from "@/components/ScreenContainer";
-import { fetchCollectorStats, fetchLeaderboard, clearApiCache } from "@/services/googleSheets";
-import { CollectorStats, LeaderboardEntry } from "@/types";
+import { fetchCollectorStats, fetchLeaderboard, fetchTaskActualsData, clearApiCache } from "@/services/googleSheets";
+import { CollectorStats, LeaderboardEntry, TaskActualRow } from "@/types";
+import { Image } from "expo-image";
 
 function normalizeCollectorName(name: string): string {
   return name.replace(/\s*\(.*?\)\s*$/g, "").trim();
@@ -225,6 +226,15 @@ export default function StatsScreen() {
     refetchOnWindowFocus: false,
   });
 
+  const taskActualsQuery = useQuery<TaskActualRow[]>({
+    queryKey: ["taskActuals", "statsRecommendations"],
+    queryFn: fetchTaskActualsData,
+    enabled: configured,
+    staleTime: 120000,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+
   const localStats = useMemo(() => {
     const completed = todayLog.filter((e) => e.status === "Completed").length;
     const totalLogged = todayLog.reduce((s, e) => s + e.loggedHours, 0);
@@ -272,6 +282,20 @@ export default function StatsScreen() {
         region: e.region,
       }));
   }, [leaderboard]);
+
+  const recommendedTasks = useMemo(() => {
+    const rows = taskActualsQuery.data ?? [];
+    return rows
+      .filter((row) => {
+        const remaining = Number(row.remainingHours) || 0;
+        const status = String(row.status ?? "").toUpperCase();
+        if (remaining <= 0) return false;
+        if (status === "DONE" || status === "COMPLETED" || status === "COMPLETE") return false;
+        return true;
+      })
+      .sort((a, b) => (Number(b.remainingHours) || 0) - (Number(a.remainingHours) || 0))
+      .slice(0, 6);
+  }, [taskActualsQuery.data]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -361,11 +385,15 @@ export default function StatsScreen() {
       refreshControl={refreshControl}
     >
       <View style={[styles.pageHeader, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+        <View pointerEvents="none" style={[styles.headerGlow, { backgroundColor: colors.accentSoft }]} />
         <View>
           <View style={[styles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
             <Text style={[styles.headerTagText, { color: colors.accent }]}>PERFORMANCE</Text>
           </View>
-          <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>Stats</Text>
+          <View style={styles.brandRow}>
+            <Image source={require("../../../assets/images/icon.png")} style={styles.brandLogo} contentFit="contain" />
+            <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>Stats</Text>
+          </View>
           <Text style={[styles.brandSub, { color: colors.textSecondary, fontFamily: "Lexend_400Regular" }]}>
             {normalizeCollectorName(selectedCollector.name)}
           </Text>
@@ -419,6 +447,28 @@ export default function StatsScreen() {
             </View>
           </View>
         </>
+      )}
+
+      {recommendedTasks.length > 0 && (
+        <View style={[styles.recommendCard, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
+          <View style={styles.recommendHeader}>
+            <Target size={12} color={colors.mxOrange} />
+            <Text style={[styles.recommendTitle, { color: colors.mxOrange }]}>RECOMMENDED NEXT TASKS</Text>
+          </View>
+          {recommendedTasks.map((task, idx) => (
+            <View
+              key={`rec_${idx}`}
+              style={[styles.recommendRow, { borderBottomColor: colors.border }, idx === recommendedTasks.length - 1 && styles.recommendLast]}
+            >
+              <Text style={[styles.recommendName, { color: colors.textPrimary }]} numberOfLines={1}>
+                {task.taskName}
+              </Text>
+              <Text style={[styles.recommendMeta, { color: colors.statusPending }]}>
+                {Number(task.remainingHours).toFixed(2)}h left
+              </Text>
+            </View>
+          ))}
+        </View>
       )}
 
       <View style={[styles.sectionHeader, { marginTop: 24 }]}>
@@ -638,7 +688,17 @@ const styles = StyleSheet.create({
   pageHeader: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end",
     marginBottom: DesignTokens.spacing.xxl, padding: DesignTokens.spacing.lg,
-    borderRadius: DesignTokens.radius.xl, borderWidth: 1,
+    borderRadius: DesignTokens.radius.xl, borderWidth: 1, overflow: "hidden",
+  },
+  headerGlow: {
+    position: "absolute",
+    top: -44,
+    left: -20,
+    right: -20,
+    height: 120,
+    opacity: 0.76,
+    borderBottomLeftRadius: 70,
+    borderBottomRightRadius: 70,
   },
   pageHeaderRight: { alignItems: "flex-end", gap: DesignTokens.spacing.xs },
   headerTag: {
@@ -654,6 +714,8 @@ const styles = StyleSheet.create({
     fontWeight: "800" as const,
     letterSpacing: 1.1,
   },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  brandLogo: { width: 26, height: 26, borderRadius: 8 },
   brandText: { fontSize: 34, fontWeight: "700" as const, letterSpacing: 0.2 },
   brandSub: { fontSize: 12, fontWeight: "500" as const, letterSpacing: 0.7, marginTop: 2, textTransform: "uppercase" },
   rigBadge: { fontSize: 10, letterSpacing: 0.6, fontWeight: "500" as const },
@@ -718,6 +780,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   lbMoreText: { fontSize: 12, fontWeight: "600" as const, letterSpacing: 0.2 },
+  recommendCard: { borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.lg, marginBottom: 14 },
+  recommendHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
+  recommendTitle: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1.2 },
+  recommendRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, borderBottomWidth: 1 },
+  recommendLast: { borderBottomWidth: 0 },
+  recommendName: { flex: 1, fontSize: 12, fontWeight: "600" as const },
+  recommendMeta: { fontSize: 11, fontWeight: "600" as const },
   recentCard: { borderRadius: DesignTokens.radius.xl, padding: DesignTokens.spacing.lg, marginBottom: 14, borderWidth: 1 },
   recentTitle: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1.2, marginBottom: 10 },
   recentRow: { flexDirection: "row", alignItems: "center", paddingVertical: DesignTokens.spacing.sm, borderBottomWidth: 1, gap: DesignTokens.spacing.sm },
