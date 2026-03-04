@@ -24,26 +24,22 @@ const queryClient = new QueryClient({
 const FONT_MONO = Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" });
 
 const BOOT_MESSAGES_POOL = [
-  "Calibrating the vibes...",
-  "Convincing rigs to cooperate...",
-  "Syncing with the mothership...",
-  "Running rig diagnostics...",
-  "Warming up the data pipeline...",
-  "Optimizing snack break algorithms...",
-  "Bribing the Wi-Fi gods...",
-  "Turning coffee into data...",
-  "Consulting the rig whisperer...",
-  "Spinning up the hamster wheels...",
-  "Deploying tactical vibes...",
-  "Charging the flux capacitor...",
-  "Feeding the data gnomes...",
-  "Giving the servers a pep talk...",
-  "Adjusting the vibe frequency...",
-  "Making EGO RIGs heavier...",
-  "Asking Redash nicely for data...",
-  "Untangling USB cables mentally...",
-  "Counting pixels for QA...",
-  "Downloading more RAM... jk...",
+  "Verifying collector session state...",
+  "Syncing assignment ledger...",
+  "Loading task requirement profile...",
+  "Initializing active rig routing...",
+  "Refreshing CA_PLUS and CA_TAGGED indexes...",
+  "Building live leaderboard snapshot...",
+  "Validating collector identity map...",
+  "Preparing weekly metrics window...",
+  "Checking cache consistency...",
+  "Applying user display preferences...",
+  "Preloading dashboard data blocks...",
+  "Negotiating network channel...",
+  "Hydrating operational context...",
+  "Finalizing interface services...",
+  "Confirming data source readiness...",
+  "Establishing command channel...",
 ];
 
 function pickRandomMessages(count: number): string[] {
@@ -68,11 +64,11 @@ function BootSequence({ onComplete }: { onComplete: () => void }) {
   const titleBreath = useRef(new Animated.Value(0)).current;
 
   const bootLines = useRef([
-    "TASKFLOW SYSTEM v3.1",
-    "Initializing modules...",
-    "Loading collection engine...",
+    "TASKFLOW PLATFORM v4.0",
+    "Booting core services...",
+    "Loading live collection engine...",
     ...pickRandomMessages(3),
-    "Systems online. Welcome to TaskFlow.",
+    "System online. TaskFlow operational.",
   ]).current;
 
   useEffect(() => {
@@ -155,55 +151,51 @@ function BootSequence({ onComplete }: { onComplete: () => void }) {
       <View style={[bootStyles.glowOrb3, { backgroundColor: colors.accentLight, opacity: 0.04 }]} />
 
       <Animated.View style={[bootStyles.logoWrap, { opacity: logoOpacity, transform: [{ translateY: logoSlide }] }]}>
-        <View style={bootStyles.brandHero}>
-          <View style={bootStyles.brandTextStack}>
-            <Animated.Text
-              style={[
-                bootStyles.logoText,
-                {
-                  color: accentColor,
-                  transform: [{ scale: titleBreath.interpolate({ inputRange: [0, 1], outputRange: [1, 1.02] }) }],
-                },
-              ]}
-            >
-              TaskFlow
-            </Animated.Text>
-            <View style={bootStyles.logoSubRow}>
-              <View style={[bootStyles.logoDash, { backgroundColor: accentColor }]} />
-              <Text style={[bootStyles.logoSub, { color: dimColor }]}>LIVE COLLECTION SYSTEM</Text>
-              <View style={[bootStyles.logoDash, { backgroundColor: accentColor }]} />
-            </View>
-            <Text style={[bootStyles.welcomeText, { color: colors.textMuted }]}>
-              Welcome back. Live operations are syncing now.
-            </Text>
-          </View>
-
+        <Animated.View
+          style={[
+            bootStyles.logoIconDock,
+            {
+              borderColor: colors.accent + "66",
+              backgroundColor: colors.bgCard,
+              transform: [{ translateY: iconFloat.interpolate({ inputRange: [-1, 1], outputRange: [4, -4] }) }],
+            },
+          ]}
+        >
           <Animated.View
             style={[
-              bootStyles.logoIconDock,
+              bootStyles.logoIconRing,
               {
-                borderColor: colors.accent + "66",
-                backgroundColor: colors.bgCard,
-                transform: [{ translateY: iconFloat.interpolate({ inputRange: [-1, 1], outputRange: [4, -4] }) }],
+                borderColor: accentColor + "80",
+                transform: [{ rotate: ringSpin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) }],
               },
             ]}
-          >
-            <Animated.View
-              style={[
-                bootStyles.logoIconRing,
-                {
-                  borderColor: accentColor + "80",
-                  transform: [{ rotate: ringSpin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) }],
-                },
-              ]}
-            />
-            <Image
-              source={require("../assets/images/icon.png")}
-              style={bootStyles.logoIcon}
-              contentFit="contain"
-            />
-          </Animated.View>
+          />
+          <Image
+            source={require("../assets/images/icon.png")}
+            style={bootStyles.logoIcon}
+            contentFit="contain"
+          />
+        </Animated.View>
+
+        <Animated.Text
+          style={[
+            bootStyles.logoText,
+            {
+              color: accentColor,
+              transform: [{ scale: titleBreath.interpolate({ inputRange: [0, 1], outputRange: [1, 1.02] }) }],
+            },
+          ]}
+        >
+          TASKFLOW
+        </Animated.Text>
+        <View style={bootStyles.logoSubRow}>
+          <View style={[bootStyles.logoDash, { backgroundColor: accentColor }]} />
+          <Text style={[bootStyles.logoSub, { color: dimColor }]}>LIVE COLLECTION OPERATIONS</Text>
+          <View style={[bootStyles.logoDash, { backgroundColor: accentColor }]} />
         </View>
+        <Text style={[bootStyles.welcomeText, { color: colors.textMuted }]}>
+          Securely connecting your workspace and loading live operational data.
+        </Text>
       </Animated.View>
 
       <View style={bootStyles.terminalArea}>
@@ -254,33 +246,38 @@ const bootStyles = StyleSheet.create({
   glowOrb: { position: "absolute", width: SW * 1.2, height: SW * 1.2, borderRadius: SW * 0.6, top: -SW * 0.3 },
   glowOrb2: { position: "absolute", width: SW * 0.8, height: SW * 0.8, borderRadius: SW * 0.4, bottom: -SW * 0.2 },
   glowOrb3: { position: "absolute", width: SW * 0.92, height: SW * 0.92, borderRadius: SW * 0.48, left: -SW * 0.28, bottom: SW * 0.1 },
-  logoWrap: { alignItems: "center", marginBottom: 46, width: SW * 0.88, maxWidth: 420 },
-  brandHero: { width: "100%", flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
-  brandTextStack: { flex: 1, paddingTop: 4 },
+  logoWrap: { alignItems: "center", marginBottom: 44, width: SW * 0.9, maxWidth: 440 },
   logoIconDock: {
-    width: 86,
-    height: 86,
-    borderRadius: 27,
+    width: 94,
+    height: 94,
+    borderRadius: 30,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
     overflow: "hidden",
+    marginBottom: 16,
   },
   logoIconRing: {
     position: "absolute",
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     borderWidth: 1.6,
     borderStyle: "dashed",
   },
-  logoIcon: { width: 64, height: 64 },
-  logoText: { fontSize: 44, fontWeight: "300" as const, letterSpacing: 2.2, fontFamily: "Lexend_300Light" },
-  logoSubRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6 },
-  logoDash: { width: 20, height: 1, opacity: 0.4 },
-  logoSub: { fontSize: 9, letterSpacing: 2.8, fontFamily: FONT_MONO },
-  welcomeText: { marginTop: 12, fontSize: 11, letterSpacing: 0.35, textAlign: "left", maxWidth: 260 },
-  terminalArea: { width: SW * 0.84, maxWidth: 400, minHeight: 130, paddingBottom: 8 },
+  logoIcon: { width: 70, height: 70 },
+  logoText: {
+    fontSize: 40,
+    fontWeight: "700" as const,
+    letterSpacing: 3.8,
+    fontFamily: "Lexend_700Bold",
+    textAlign: "center",
+  },
+  logoSubRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8, justifyContent: "center" },
+  logoDash: { width: 26, height: 1, opacity: 0.48 },
+  logoSub: { fontSize: 9, letterSpacing: 2.2, fontFamily: FONT_MONO, textAlign: "center" },
+  welcomeText: { marginTop: 12, fontSize: 11, letterSpacing: 0.25, textAlign: "center", maxWidth: 340, lineHeight: 16 },
+  terminalArea: { width: SW * 0.84, maxWidth: 420, minHeight: 130, paddingBottom: 8 },
   termLine: { fontSize: 11, lineHeight: 20, letterSpacing: 0.3 },
   cursor: { fontSize: 12, lineHeight: 20 },
   progressWrap: { width: SW * 0.58, maxWidth: 260, marginTop: 30, alignItems: "center", gap: 8 },
