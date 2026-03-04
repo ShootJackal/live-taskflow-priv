@@ -41,21 +41,21 @@ export default React.memo(function ScreenContainer({
   const auraTones = useMemo(() => {
     if (isDark) {
       return {
-        top: "rgba(124,94,255,0.26)",
-        mid: "rgba(80,198,163,0.16)",
-        left: "rgba(95,124,255,0.16)",
-        right: "rgba(244,144,206,0.13)",
-        bottom: "rgba(35,58,132,0.20)",
-        veil: "rgba(255,255,255,0.035)",
+        top: "rgba(126,96,255,0.24)",
+        center: "rgba(82,196,170,0.14)",
+        left: "rgba(95,124,255,0.14)",
+        right: "rgba(244,144,206,0.12)",
+        bottom: "rgba(37,58,132,0.16)",
+        wash: "rgba(255,255,255,0.02)",
       };
     }
     return {
-      top: "rgba(126,86,255,0.20)",
-      mid: "rgba(96,180,240,0.12)",
-      left: "rgba(112,152,255,0.10)",
-      right: "rgba(236,126,190,0.11)",
-      bottom: "rgba(119,168,255,0.10)",
-      veil: "rgba(255,255,255,0.34)",
+      top: "rgba(126,86,255,0.18)",
+      center: "rgba(96,180,240,0.10)",
+      left: "rgba(112,152,255,0.09)",
+      right: "rgba(236,126,190,0.10)",
+      bottom: "rgba(119,168,255,0.09)",
+      wash: "rgba(255,255,255,0.16)",
     };
   }, [isDark]);
 
@@ -77,7 +77,7 @@ export default React.memo(function ScreenContainer({
             {
               maxWidth,
               borderColor: isDark ? colors.border : colors.borderLight,
-              backgroundColor: colors.bg,
+              backgroundColor: colors.bgSecondary,
               shadowColor: colors.shadow,
             },
           ]
@@ -91,6 +91,14 @@ export default React.memo(function ScreenContainer({
         <View
           pointerEvents="none"
           style={[
+            styles.colorWash,
+            { backgroundColor: auraTones.wash },
+          ]}
+          {...decorativeProps}
+        />
+        <View
+          pointerEvents="none"
+          style={[
             styles.topAura,
             { backgroundColor: auraTones.top },
           ]}
@@ -99,8 +107,8 @@ export default React.memo(function ScreenContainer({
         <View
           pointerEvents="none"
           style={[
-            styles.midAura,
-            { backgroundColor: auraTones.mid },
+            styles.centerAura,
+            { backgroundColor: auraTones.center },
           ]}
           {...decorativeProps}
         />
@@ -128,15 +136,7 @@ export default React.memo(function ScreenContainer({
           ]}
           {...decorativeProps}
         />
-        <View
-          pointerEvents="none"
-          style={[
-            styles.topVeil,
-            { backgroundColor: auraTones.veil, top: insets.top ? insets.top - 10 : 0 },
-          ]}
-          {...decorativeProps}
-        />
-        <View style={[styles.stage, { backgroundColor: colors.bgSecondary }]}>
+        <View style={[styles.stage, { backgroundColor: "transparent" }]}>
           <View style={bezelStyle}>
             <View
               pointerEvents="none"
@@ -158,6 +158,14 @@ export default React.memo(function ScreenContainer({
       <View
         pointerEvents="none"
         style={[
+          styles.colorWash,
+          { backgroundColor: auraTones.wash },
+        ]}
+        {...decorativeProps}
+      />
+      <View
+        pointerEvents="none"
+        style={[
           styles.topAura,
           { backgroundColor: auraTones.top },
         ]}
@@ -166,8 +174,8 @@ export default React.memo(function ScreenContainer({
       <View
         pointerEvents="none"
         style={[
-          styles.midAura,
-          { backgroundColor: auraTones.mid },
+          styles.centerAura,
+          { backgroundColor: auraTones.center },
         ]}
         {...decorativeProps}
       />
@@ -195,14 +203,6 @@ export default React.memo(function ScreenContainer({
         ]}
         {...decorativeProps}
       />
-      <View
-        pointerEvents="none"
-        style={[
-          styles.topVeil,
-          { backgroundColor: auraTones.veil, top: insets.top ? insets.top - 10 : 0 },
-        ]}
-        {...decorativeProps}
-      />
       {children}
     </View>
   );
@@ -212,59 +212,54 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
+  colorWash: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.9,
+  },
   topAura: {
     position: "absolute",
-    top: -140,
-    left: -20,
-    right: -20,
-    height: 330,
-    borderBottomLeftRadius: 180,
-    borderBottomRightRadius: 180,
-    opacity: 0.95,
+    top: -260,
+    left: -180,
+    width: 620,
+    height: 620,
+    borderRadius: 320,
+    opacity: 0.92,
   },
-  midAura: {
+  centerAura: {
     position: "absolute",
-    top: 150,
-    left: 10,
-    right: 10,
-    height: 360,
-    borderRadius: 220,
-    opacity: 0.72,
+    top: 130,
+    left: "16%",
+    width: 430,
+    height: 430,
+    borderRadius: 215,
+    opacity: 0.62,
   },
   gradientBlobLeft: {
     position: "absolute",
-    top: 96,
-    left: -110,
-    width: 250,
-    height: 250,
-    borderRadius: 140,
-    opacity: 0.6,
+    top: 120,
+    left: -130,
+    width: 290,
+    height: 290,
+    borderRadius: 160,
+    opacity: 0.58,
   },
   gradientBlobRight: {
     position: "absolute",
     top: 190,
-    right: -126,
-    width: 280,
-    height: 280,
-    borderRadius: 150,
-    opacity: 0.58,
+    right: -146,
+    width: 310,
+    height: 310,
+    borderRadius: 170,
+    opacity: 0.56,
   },
   bottomAura: {
     position: "absolute",
-    left: -40,
-    right: -40,
-    bottom: -180,
-    height: 340,
-    borderTopLeftRadius: 200,
-    borderTopRightRadius: 200,
-    opacity: 0.65,
-  },
-  topVeil: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    height: 120,
-    opacity: 0.9,
+    bottom: -260,
+    right: -170,
+    width: 620,
+    height: 620,
+    borderRadius: 320,
+    opacity: 0.64,
   },
   stage: {
     flex: 1,
