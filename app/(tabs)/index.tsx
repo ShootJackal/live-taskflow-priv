@@ -42,8 +42,6 @@ const LogEntryRow = React.memo(function LogEntryRow({ entry, statusColor, colors
   colors: any;
   isLast: boolean;
 }) {
-  const isActive = entry.status === "In Progress" || entry.status === "Partial";
-  const pct = entry.plannedHours > 0 ? Math.min(entry.loggedHours / entry.plannedHours, 1) : 0;
   const hasTaskProgress =
     typeof entry.taskCollectedHours === "number" ||
     typeof entry.taskGoodHours === "number" ||
@@ -74,22 +72,15 @@ const LogEntryRow = React.memo(function LogEntryRow({ entry, statusColor, colors
               {Number(entry.loggedHours).toFixed(2)}h / {Number(entry.plannedHours).toFixed(2)}h
             </Text>
           </View>
-          {isActive && (
-            <View style={[logStyles.progressTrack, { backgroundColor: colors.bgInput }]}>
-              <View style={[logStyles.progressFill, { backgroundColor: statusColor, width: `${Math.round(pct * 100)}%` as any }]} />
-            </View>
-          )}
           {hasTaskProgress && (
             <View style={[logStyles.taskSnapshot, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
               <View style={logStyles.taskSnapshotTop}>
                 <Text style={[logStyles.taskStat, { color: colors.complete }]}>
                   Good {taskGood.toFixed(2)}h
                 </Text>
-                {taskRemaining > 0 && (
-                  <Text style={[logStyles.taskStat, { color: colors.statusPending }]}>
-                    Missing {taskRemaining.toFixed(2)}h
-                  </Text>
-                )}
+                <Text style={[logStyles.taskStat, { color: colors.statusPending }]}>
+                  Missing {taskRemaining.toFixed(2)}h
+                </Text>
                 <Text style={[logStyles.taskPct, { color: colors.textSecondary }]}>{taskProgressPct}%</Text>
               </View>
               {taskTotal > 0 && (
@@ -116,8 +107,6 @@ const logStyles = StyleSheet.create({
   statusText: { fontSize: 10, fontWeight: "600" as const },
   hours: { fontSize: 11 },
   remaining: { fontSize: 11, fontWeight: "500" as const },
-  progressTrack: { height: 3, borderRadius: 2, marginTop: 6, overflow: "hidden" },
-  progressFill: { height: 3, borderRadius: 2 },
   taskSnapshot: { marginTop: 6, borderRadius: 7, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 4 },
   taskSnapshotTop: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
   taskStat: { fontSize: 10, fontWeight: "500" as const },

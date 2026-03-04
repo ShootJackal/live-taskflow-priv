@@ -53,8 +53,19 @@ import { useCollection } from "@/providers/CollectionProvider";
 import { DesignTokens } from "@/constants/colors";
 import ScreenContainer from "@/components/ScreenContainer";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchAdminDashboardData, fetchTaskActualsData, fetchFullLog, fetchLeaderboard, clearAllCaches, pushLiveAlert } from "@/services/googleSheets";
-import { AdminDashboardData, CollectorSummary, TaskActualRow, FullLogEntry, LeaderboardEntry } from "@/types";
+import {
+  fetchAdminDashboardData,
+  fetchTaskActualsData,
+  fetchFullLog,
+  fetchLeaderboard,
+  clearAllCaches,
+  pushLiveAlert,
+  adminAssignTask,
+  adminCancelTask,
+  adminEditHours,
+  grantCollectorAward,
+} from "@/services/googleSheets";
+import { AdminDashboardData, CollectorSummary, TaskActualRow, FullLogEntry, LeaderboardEntry, Collector, Task } from "@/types";
 import SelectPicker from "@/components/SelectPicker";
 import { Image } from "expo-image";
 
@@ -90,6 +101,15 @@ const TIMER_OPTIONS = [
   { mins: 30, label: "30 min", color: "#C53030" },
   { mins: 45, label: "45 min", color: "#6B21A8" },
   { mins: 60, label: "60 min", color: "#1D4ED8" },
+];
+
+const AWARD_OPTIONS = [
+  "Iron Consistency",
+  "Speed Runner",
+  "Long Session Pro",
+  "Zero Downtime",
+  "Quality King/Queen",
+  "Team MVP",
 ];
 
 const SectionHeader = React.memo(function SectionHeader({ label, icon }: { label: string; icon?: React.ReactNode }) {
@@ -717,12 +737,48 @@ const adminStyles = StyleSheet.create({
   loadingText: { fontSize: 12 },
 });
 
-function AdminToolsPanel({ colors }: { colors: ReturnType<typeof useTheme>["colors"] }) {
+function AdminToolsPanel({
+  colors,
+  collectors,
+  tasks,
+}: {
+  colors: ReturnType<typeof useTheme>["colors"];
+  collectors: Collector[];
+  tasks: Task[];
+}) {
   const { configured } = useCollection();
   const queryClient = useQueryClient();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [alertMessage, setAlertMessage] = useState("");
   const [isSendingAlert, setIsSendingAlert] = useState(false);
+  const [controlCollector, setControlCollector] = useState("");
+  const [controlTask, setControlTask] = useState("");
+  const [controlHours, setControlHours] = useState("0.50");
+  const [controlNotes, setControlNotes] = useState("");
+  const [isRunningTaskAction, setIsRunningTaskAction] = useState(false);
+  const [awardCollector, setAwardCollector] = useState("");
+  const [awardName, setAwardName] = useState(AWARD_OPTIONS[0]);
+  const [awardPinned, setAwardPinned] = useState(true);
+  const [awardNotes, setAwardNotes] = useState("");
+  const [isGrantingAward, setIsGrantingAward] = useState(false);
+
+  const collectorOptions = useMemo(
+    () => collectors.map((c) => ({ value: c.name, label: c.name })),
+    [collectors]
+  );
+  const taskOptions = useMemo(
+    () => tasks.map((t) => ({ value: t.name, label: t.label || t.name })),
+    [tasks]
+  );
+  const awardOptions = useMemo(
+    () => AWARD_OPTIONS.map((name) => ({ value: name, label: name })),
+    []
+  );
+
+  useEffect(() => {
+    if (!controlCollector && collectors.length > 0) setControlCollector(collectors[0].name);
+    if (!awardCollector && collectors.length > 0) setAwardCollector(collectors[0].name);
+  }, [collectors, controlCollector, awardCollector]);
 
   const fullLogQuery = useQuery<FullLogEntry[]>({
     queryKey: ["adminFullLog"],
@@ -806,6 +862,102 @@ function AdminToolsPanel({ colors }: { colors: ReturnType<typeof useTheme>["colo
     }
   }, [alertMessage, queryClient]);
 
+  const runTaskAction = useCallback(async (mode: "assign" | "cancel" | "edit") => {
+    const collector = controlCollector.trim();
+    const task = controlTask.trim();
+    if (!collector || !task) {
+      Alert.alert("Missing fields", "Select collector and task first.");
+      return;
+    }
+    const hours = Number(controlHours);
+    setIsRunningTaskAction(true);
+    try {
+      if (mode === "assign") {
+        await adminAssignTask({
+          collector,
+          task,
+          hours: Number.isFinite(hours) && hours > 0 ? hours : 0.5,
+          notes: controlNotes.trim() || "Admin assignment",
+        });
+        try {
+          await pushLiveAlert({
+            message: `${collector}: assigned ${task}`,
+            level: "INFO",
+            target: collector,
+            createdBy: "ADMIN",
+          });
+        } catch {}
+      } else if (mode === "cancel") {
+        await adminCancelTask({
+          collector,
+          task,
+          notes: controlNotes.trim() || "Admin canceled task",
+        });
+        try {
+          await pushLiveAlert({
+            message: `${collector}: task canceled ${task}`,
+            level: "WARN",
+            target: collector,
+            createdBy: "ADMIN",
+          });
+        } catch {}
+      } else {
+        if (!(Number.isFinite(hours) && hours >= 0)) {
+          Alert.alert("Invalid hours", "Enter a valid number for reported hours.");
+          return;
+        }
+        await adminEditHours({
+          collector,
+          task,
+          hours,
+          notes: controlNotes.trim() || "Admin adjusted reported hours",
+        });
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["todayLog", collector] });
+      queryClient.invalidateQueries({ queryKey: ["collectorStats", collector] });
+      queryClient.invalidateQueries({ queryKey: ["collectorProfile", collector] });
+      queryClient.invalidateQueries({ queryKey: ["adminFullLog"] });
+      queryClient.invalidateQueries({ queryKey: ["adminTaskActuals"] });
+      queryClient.invalidateQueries({ queryKey: ["adminLeaderboard"] });
+      queryClient.invalidateQueries({ queryKey: ["liveAlerts"] });
+      setControlNotes("");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      Alert.alert("Admin action failed", err instanceof Error ? err.message : "Unknown error");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsRunningTaskAction(false);
+    }
+  }, [controlCollector, controlTask, controlHours, controlNotes, queryClient]);
+
+  const handleGrantAward = useCallback(async () => {
+    const collector = awardCollector.trim();
+    const award = awardName.trim();
+    if (!collector || !award) {
+      Alert.alert("Missing fields", "Select collector and award.");
+      return;
+    }
+    setIsGrantingAward(true);
+    try {
+      await grantCollectorAward({
+        collector,
+        award,
+        pinned: awardPinned,
+        grantedBy: "ADMIN",
+        notes: awardNotes.trim(),
+      });
+      queryClient.invalidateQueries({ queryKey: ["collectorProfile", collector] });
+      setAwardNotes("");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      Alert.alert("Grant failed", err instanceof Error ? err.message : "Unknown error");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsGrantingAward(false);
+    }
+  }, [awardCollector, awardName, awardPinned, awardNotes, queryClient]);
+
   const getStatusIcon = useCallback((status: string) => {
     const st = normalizeTaskStatus(status);
     if (COMPLETED_TASK_STATUSES.has(st)) return <Check size={10} color={colors.complete} />;
@@ -823,6 +975,126 @@ function AdminToolsPanel({ colors }: { colors: ReturnType<typeof useTheme>["colo
         <RotateCcw size={13} color={colors.accent} />
         <Text style={[atStyles.toolBtnText, { color: colors.accent }]}>Force Resync All Data</Text>
       </TouchableOpacity>
+
+      <View style={[atStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+        <View style={atStyles.cardHeader}>
+          <Users size={12} color={colors.accent} />
+          <Text style={[atStyles.cardTitle, { color: colors.accent }]}>ADMIN TASK CONTROL</Text>
+        </View>
+        <SelectPicker
+          label="Collector"
+          options={collectorOptions}
+          selectedValue={controlCollector}
+          onValueChange={setControlCollector}
+          placeholder="Select collector..."
+          testID="admin-control-collector"
+        />
+        <View style={atStyles.controlSpacer} />
+        <SelectPicker
+          label="Task"
+          options={taskOptions}
+          selectedValue={controlTask}
+          onValueChange={setControlTask}
+          placeholder="Select task..."
+          testID="admin-control-task"
+        />
+        <View style={atStyles.controlRow}>
+          <TextInput
+            style={[atStyles.controlHoursInput, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bgInput }]}
+            value={controlHours}
+            onChangeText={setControlHours}
+            keyboardType="decimal-pad"
+            placeholder="Hours"
+            placeholderTextColor={colors.textMuted}
+          />
+          <TextInput
+            style={[atStyles.controlNotesInput, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bgInput }]}
+            value={controlNotes}
+            onChangeText={setControlNotes}
+            placeholder="Notes (optional)"
+            placeholderTextColor={colors.textMuted}
+          />
+        </View>
+        <View style={atStyles.controlActions}>
+          <TouchableOpacity
+            style={[atStyles.controlBtn, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}
+            onPress={() => runTaskAction("assign")}
+            disabled={isRunningTaskAction}
+            activeOpacity={0.8}
+          >
+            <Text style={[atStyles.controlBtnText, { color: colors.accent }]}>Assign</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[atStyles.controlBtn, { backgroundColor: colors.cancelBg, borderColor: colors.cancel + "40" }]}
+            onPress={() => runTaskAction("cancel")}
+            disabled={isRunningTaskAction}
+            activeOpacity={0.8}
+          >
+            <Text style={[atStyles.controlBtnText, { color: colors.cancel }]}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[atStyles.controlBtn, { backgroundColor: colors.completeBg, borderColor: colors.complete + "40" }]}
+            onPress={() => runTaskAction("edit")}
+            disabled={isRunningTaskAction}
+            activeOpacity={0.8}
+          >
+            <Text style={[atStyles.controlBtnText, { color: colors.complete }]}>Save Hours</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={[atStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+        <View style={atStyles.cardHeader}>
+          <Star size={12} color={colors.gold} />
+          <Text style={[atStyles.cardTitle, { color: colors.gold }]}>COLLECTOR MEDALS</Text>
+        </View>
+        <SelectPicker
+          label="Collector"
+          options={collectorOptions}
+          selectedValue={awardCollector}
+          onValueChange={setAwardCollector}
+          placeholder="Select collector..."
+          testID="award-collector"
+        />
+        <View style={atStyles.controlSpacer} />
+        <SelectPicker
+          label="Award"
+          options={awardOptions}
+          selectedValue={awardName}
+          onValueChange={setAwardName}
+          placeholder="Select award..."
+          testID="award-name"
+        />
+        <View style={atStyles.controlPinRow}>
+          <Text style={[atStyles.controlPinText, { color: colors.textSecondary }]}>Pin on profile (max 3)</Text>
+          <Switch
+            value={awardPinned}
+            onValueChange={setAwardPinned}
+            trackColor={{ false: colors.border, true: colors.gold + "55" }}
+            thumbColor={awardPinned ? colors.gold : colors.white}
+            ios_backgroundColor={colors.border}
+          />
+        </View>
+        <TextInput
+          style={[atStyles.alertInput, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bgInput }]}
+          placeholder="Award note (optional)"
+          placeholderTextColor={colors.textMuted}
+          value={awardNotes}
+          onChangeText={setAwardNotes}
+          multiline
+          numberOfLines={2}
+        />
+        <TouchableOpacity
+          style={[atStyles.alertSendBtn, { backgroundColor: colors.goldBg, borderColor: colors.gold, opacity: isGrantingAward ? 0.7 : 1 }]}
+          onPress={handleGrantAward}
+          disabled={isGrantingAward}
+          activeOpacity={0.8}
+        >
+          <Text style={[atStyles.alertSendText, { color: colors.gold }]}>
+            {isGrantingAward ? "Granting..." : "Grant Medal"}
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       <View style={[atStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
         <View style={atStyles.cardHeader}>
@@ -1028,6 +1300,36 @@ const atStyles = StyleSheet.create({
     justifyContent: "center",
   },
   alertSendText: { fontSize: 12, fontWeight: "700" as const, letterSpacing: 0.35 },
+  controlSpacer: { height: 8 },
+  controlRow: { flexDirection: "row", gap: 8, marginTop: 8 },
+  controlHoursInput: {
+    width: 92,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 12,
+  },
+  controlNotesInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 12,
+  },
+  controlActions: { flexDirection: "row", gap: 8, marginTop: 10 },
+  controlBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  controlBtnText: { fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.3 },
+  controlPinRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8, marginBottom: 8 },
+  controlPinText: { fontSize: 11, fontWeight: "500" as const },
   taskRow: { borderTopWidth: 1, paddingTop: DesignTokens.spacing.sm, marginTop: DesignTokens.spacing.sm },
   taskInfo: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
   taskName: { fontSize: 12, fontWeight: "500" as const, flex: 1 },
@@ -1075,7 +1377,7 @@ export default function ToolsScreen() {
   const { t, locale, setLocale } = useLocale();
   const { hideStatusBar, setHideStatusBar } = useUiPrefs();
   const {
-    collectors, selectedCollectorName, selectedRig,
+    collectors, tasks, selectedCollectorName, selectedRig,
     selectCollector, setSelectedRig, configured, isAdmin, authenticateAdmin, logoutAdmin,
   } = useCollection();
 
@@ -1380,7 +1682,7 @@ export default function ToolsScreen() {
           <>
             <View style={styles.sectionGap} />
             <SectionHeader label="Admin Tools" icon={<Activity size={11} color={colors.textMuted} />} />
-            <AdminToolsPanel colors={colors} />
+            <AdminToolsPanel colors={colors} collectors={collectors} tasks={tasks} />
           </>
         )}
 

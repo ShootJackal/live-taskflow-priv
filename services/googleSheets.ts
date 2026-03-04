@@ -1,5 +1,19 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Collector, Task, LogEntry, SubmitPayload, SubmitResponse, CollectorStats, TaskActualRow, FullLogEntry, AdminDashboardData, LeaderboardEntry, LiveAlert } from "@/types";
+import {
+  Collector,
+  Task,
+  LogEntry,
+  SubmitPayload,
+  SubmitResponse,
+  CollectorStats,
+  TaskActualRow,
+  FullLogEntry,
+  AdminDashboardData,
+  LeaderboardEntry,
+  LiveAlert,
+  CollectorProfile,
+  AdminStartPlanData,
+} from "@/types";
 
 const DEFAULT_SCRIPT_URL = "";
 const REQUEST_TIMEOUT_MS = 25000;
@@ -29,6 +43,8 @@ const CACHE_TTL_MS: Record<string, number> = {
   getTodayLog: 30 * 1000,
   getActiveRigsCount: 60 * 1000,
   getLiveAlerts: 20 * 1000,
+  getCollectorProfile: 60 * 1000,
+  getAdminStartPlan: 60 * 1000,
 };
 
 const STORAGE_TTL_MS: Record<string, number> = {
@@ -43,6 +59,8 @@ const STORAGE_TTL_MS: Record<string, number> = {
   getTodayLog: 2 * 60 * 1000,
   getActiveRigsCount: 2 * 60 * 1000,
   getLiveAlerts: 2 * 60 * 1000,
+  getCollectorProfile: 5 * 60 * 1000,
+  getAdminStartPlan: 5 * 60 * 1000,
 };
 
 function getCached<T>(key: string): T | null {
@@ -331,6 +349,41 @@ async function apiPost(payload: SubmitPayload): Promise<SubmitResponse> {
   throw new Error("Submit failed after retries");
 }
 
+async function apiMetaPost<T>(payload: Record<string, unknown>): Promise<T> {
+  const scriptUrl = getScriptUrl();
+  if (!scriptUrl) {
+    throw new Error("Google Script URL not configured. Set EXPO_PUBLIC_GOOGLE_SCRIPT_URL.");
+  }
+
+  const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(scriptUrl, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify(payload),
+      redirect: "follow",
+      signal: timeout.controller.signal,
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text || "Request failed"}`);
+    }
+
+    const json = await parseApiResponse<T>(response);
+    if (!json.success) {
+      throw new Error(json.error ?? json.message ?? "Request failed");
+    }
+
+    memoryCache.clear();
+    appCacheSnapshotMemo.clear();
+    return (json.data as T);
+  } finally {
+    timeout.cancel();
+  }
+}
+
 function normalizeCacheKeyList(keys?: string[]): string[] {
   if (!keys || keys.length === 0) return [];
   return Array.from(new Set(keys.map((k) => (k ?? "").trim()).filter(Boolean))).sort();
@@ -425,6 +478,30 @@ export async function fetchCollectorStats(collectorName: string): Promise<Collec
     const cacheKeys = [collectorCacheKey("collectorStats", collectorName)];
     const cache = await getAppCacheSnapshot(cacheKeys);
     const cached = readFirstCachedValue<CollectorStats>(cache, cacheKeys);
+    if (cached && typeof cached === "object") return cached;
+    throw err;
+  }
+}
+
+export async function fetchCollectorProfile(collectorName: string): Promise<CollectorProfile> {
+  try {
+    return await apiGet<CollectorProfile>("getCollectorProfile", { collector: collectorName }, false);
+  } catch (err) {
+    const cacheKeys = [collectorCacheKey("collectorProfile", collectorName)];
+    const cache = await getAppCacheSnapshot(cacheKeys);
+    const cached = readFirstCachedValue<CollectorProfile>(cache, cacheKeys);
+    if (cached && typeof cached === "object") return cached;
+    throw err;
+  }
+}
+
+export async function fetchAdminStartPlan(): Promise<AdminStartPlanData> {
+  try {
+    return await apiGet<AdminStartPlanData>("getAdminStartPlan");
+  } catch (err) {
+    const cacheKeys = ["adminStartPlan"];
+    const cache = await getAppCacheSnapshot(cacheKeys);
+    const cached = readFirstCachedValue<AdminStartPlanData>(cache, cacheKeys);
     if (cached && typeof cached === "object") return cached;
     throw err;
   }
@@ -603,6 +680,74 @@ export async function pushLiveAlert(payload: {
   } finally {
     timeout.cancel();
   }
+}
+
+export async function adminAssignTask(payload: {
+  collector: string;
+  task: string;
+  hours: number;
+  notes?: string;
+  rig?: string;
+}): Promise<SubmitResponse> {
+  return await apiMetaPost<SubmitResponse>({
+    metaAction: "ADMIN_ASSIGN_TASK",
+    collector: String(payload.collector ?? "").trim(),
+    task: String(payload.task ?? "").trim(),
+    hours: Number(payload.hours ?? 0),
+    notes: String(payload.notes ?? "").trim(),
+    rig: String(payload.rig ?? "").trim(),
+  });
+}
+
+export async function adminCancelTask(payload: {
+  collector: string;
+  task: string;
+  notes?: string;
+  rig?: string;
+}): Promise<SubmitResponse> {
+  return await apiMetaPost<SubmitResponse>({
+    metaAction: "ADMIN_CANCEL_TASK",
+    collector: String(payload.collector ?? "").trim(),
+    task: String(payload.task ?? "").trim(),
+    notes: String(payload.notes ?? "").trim(),
+    rig: String(payload.rig ?? "").trim(),
+  });
+}
+
+export async function adminEditHours(payload: {
+  collector: string;
+  task: string;
+  hours: number;
+  plannedHours?: number;
+  status?: string;
+  notes?: string;
+}): Promise<SubmitResponse> {
+  return await apiMetaPost<SubmitResponse>({
+    metaAction: "ADMIN_EDIT_HOURS",
+    collector: String(payload.collector ?? "").trim(),
+    task: String(payload.task ?? "").trim(),
+    hours: Number(payload.hours ?? 0),
+    plannedHours: Number(payload.plannedHours ?? 0),
+    status: String(payload.status ?? "").trim(),
+    notes: String(payload.notes ?? "").trim(),
+  });
+}
+
+export async function grantCollectorAward(payload: {
+  collector: string;
+  award: string;
+  pinned?: boolean;
+  grantedBy?: string;
+  notes?: string;
+}): Promise<void> {
+  await apiMetaPost<Record<string, unknown>>({
+    metaAction: "GRANT_AWARD",
+    collector: String(payload.collector ?? "").trim(),
+    award: String(payload.award ?? "").trim(),
+    pinned: !!payload.pinned,
+    grantedBy: String(payload.grantedBy ?? "").trim(),
+    notes: String(payload.notes ?? "").trim(),
+  });
 }
 
 export async function warmServerCache(collectorName?: string): Promise<void> {

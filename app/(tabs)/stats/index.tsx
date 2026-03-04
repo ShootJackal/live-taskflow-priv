@@ -15,8 +15,8 @@ import { useCollection } from "@/providers/CollectionProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { DesignTokens } from "@/constants/colors";
 import ScreenContainer from "@/components/ScreenContainer";
-import { fetchCollectorStats, fetchLeaderboard, fetchTaskActualsData, clearApiCache } from "@/services/googleSheets";
-import { CollectorStats, LeaderboardEntry, TaskActualRow } from "@/types";
+import { fetchCollectorStats, fetchCollectorProfile, fetchLeaderboard, fetchTaskActualsData, fetchAdminStartPlan, clearApiCache } from "@/services/googleSheets";
+import { CollectorStats, LeaderboardEntry, TaskActualRow, CollectorProfile, AdminStartPlanData } from "@/types";
 import { Image } from "expo-image";
 
 function normalizeCollectorName(name: string): string {
@@ -199,7 +199,7 @@ const compStyles = StyleSheet.create({
 export default function StatsScreen() {
   const { colors } = useTheme();
   const queryClient = useQueryClient();
-  const { selectedCollector, selectedCollectorName, selectedRig, todayLog, configured } = useCollection();
+  const { selectedCollector, selectedCollectorName, selectedRig, todayLog, configured, isAdmin } = useCollection();
   const [refreshing, setRefreshing] = useState(false);
   const [lbTab, setLbTab] = useState<LeaderboardTab>("combined");
   const [lbPeriod, setLbPeriod] = useState<LeaderboardPeriod>("thisWeek");
@@ -214,6 +214,24 @@ export default function StatsScreen() {
     enabled: configured && !!selectedCollectorName,
     staleTime: 60000,
     retry: 2,
+    refetchOnWindowFocus: false,
+  });
+
+  const profileQuery = useQuery<CollectorProfile>({
+    queryKey: ["collectorProfile", selectedCollectorName],
+    queryFn: () => fetchCollectorProfile(selectedCollectorName),
+    enabled: configured && !!selectedCollectorName,
+    staleTime: 60000,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+
+  const adminStartPlanQuery = useQuery<AdminStartPlanData>({
+    queryKey: ["adminStartPlan"],
+    queryFn: fetchAdminStartPlan,
+    enabled: configured && isAdmin,
+    staleTime: 90000,
+    retry: 1,
     refetchOnWindowFocus: false,
   });
 
@@ -303,15 +321,19 @@ export default function StatsScreen() {
     try {
       await Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] }),
+        queryClient.invalidateQueries({ queryKey: ["collectorProfile", selectedCollectorName] }),
         queryClient.invalidateQueries({ queryKey: ["leaderboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["adminStartPlan"] }),
       ]);
-      await Promise.allSettled([statsQuery.refetch(), leaderboardQuery.refetch()]);
+      await Promise.allSettled([statsQuery.refetch(), profileQuery.refetch(), leaderboardQuery.refetch(), adminStartPlanQuery.refetch()]);
     } finally {
       setRefreshing(false);
     }
-  }, [statsQuery, leaderboardQuery, queryClient, selectedCollectorName]);
+  }, [statsQuery, profileQuery, leaderboardQuery, adminStartPlanQuery, queryClient, selectedCollectorName]);
 
   const stats = statsQuery.data;
+  const profile = profileQuery.data;
+  const adminStartPlan = adminStartPlanQuery.data;
   const cardShadow = useMemo(() => ({
     shadowColor: colors.shadow,
     ...DesignTokens.shadow.elevated,
@@ -416,6 +438,92 @@ export default function StatsScreen() {
         <HeroStat label="Uploaded" value={`${localStats.totalLogged.toFixed(2)}h`} icon={<Upload size={18} color={colors.statusPending} />} color={colors.statusPending} index={2} />
         <HeroStat label="Active" value={String(localStats.active)} icon={<TrendingUp size={18} color={colors.accentLight} />} color={colors.accentLight} index={3} />
       </View>
+
+      {profile && (
+        <View style={[styles.profileCard, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
+          <View style={styles.profileTop}>
+            <View style={[styles.profileAvatar, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
+              <Text style={[styles.profileAvatarText, { color: colors.accent }]}>
+                {profile.collectorName.slice(0, 2).toUpperCase()}
+              </Text>
+            </View>
+            <View style={styles.profileMain}>
+              <Text style={[styles.profileName, { color: colors.textPrimary }]}>{profile.collectorName}</Text>
+              <Text style={[styles.profileMeta, { color: colors.textMuted }]}>
+                {profile.weeklyActualHours.toFixed(2)}h this week · {profile.totalActualHours.toFixed(2)}h all time
+              </Text>
+            </View>
+            <View style={[styles.profileMedalCount, { backgroundColor: colors.goldBg }]}>
+              <Text style={[styles.profileMedalText, { color: colors.gold }]}>{profile.medalsCount} medals</Text>
+            </View>
+          </View>
+
+          <View style={styles.profileStatsGrid}>
+            <View style={[styles.profileStatBox, { backgroundColor: colors.bgInput }]}>
+              <Text style={[styles.profileStatValue, { color: colors.complete }]}>{profile.completionRate}%</Text>
+              <Text style={[styles.profileStatLabel, { color: colors.textMuted }]}>Completion</Text>
+            </View>
+            <View style={[styles.profileStatBox, { backgroundColor: colors.bgInput }]}>
+              <Text style={[styles.profileStatValue, { color: colors.accent }]}>{profile.longestRecordingHours.toFixed(2)}h</Text>
+              <Text style={[styles.profileStatLabel, { color: colors.textMuted }]}>Longest Recording</Text>
+            </View>
+            <View style={[styles.profileStatBox, { backgroundColor: colors.bgInput }]}>
+              <Text style={[styles.profileStatValue, { color: colors.statusPending }]}>
+                {profile.shortestDowntimeMinutes > 0 ? `${profile.shortestDowntimeMinutes.toFixed(1)}m` : "--"}
+              </Text>
+              <Text style={[styles.profileStatLabel, { color: colors.textMuted }]}>Shortest Downtime</Text>
+            </View>
+          </View>
+
+          <View style={styles.awardsRow}>
+            {[0, 1, 2].map((slot) => {
+              const award = profile.pinnedAwards?.[slot];
+              return (
+                <View
+                  key={`award_slot_${slot}`}
+                  style={[styles.awardChip, {
+                    borderColor: award ? colors.gold + "44" : colors.border,
+                    backgroundColor: award ? colors.goldBg : colors.bgInput,
+                  }]}
+                >
+                  <Text
+                    style={[styles.awardChipText, { color: award ? colors.gold : colors.textMuted }]}
+                    numberOfLines={1}
+                  >
+                    {award ? award.award : "Empty Medal Slot"}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
+      {isAdmin && adminStartPlan && (
+        <View style={[styles.startPlanCard, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
+          <View style={styles.startPlanHeader}>
+            <Target size={12} color={colors.alertYellow} />
+            <Text style={[styles.startPlanTitle, { color: colors.alertYellow }]}>
+              START OF DAY PLAN ({adminStartPlan.yesterday})
+            </Text>
+          </View>
+          {(["SF", "MX"] as const).map((region) => (
+            <View key={`plan_${region}`} style={styles.startPlanRegion}>
+              <Text style={[styles.startPlanRegionLabel, { color: region === "SF" ? colors.sfBlue : colors.mxOrange }]}>
+                {region} TEAM
+              </Text>
+              {(adminStartPlan.regions?.[region] ?? []).slice(0, 8).map((entry, idx) => (
+                <View key={`plan_${region}_${idx}`} style={[styles.startPlanRow, { borderBottomColor: colors.border }]}>
+                  <Text style={[styles.startPlanCollector, { color: colors.textPrimary }]}>{entry.collector}</Text>
+                  <Text style={[styles.startPlanTasks, { color: colors.textSecondary }]} numberOfLines={2}>
+                    {(entry.suggested ?? []).length > 0 ? (entry.suggested ?? []).join(" · ") : "No task suggestion"}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ))}
+        </View>
+      )}
 
       {stats && stats.weeklyLoggedHours > 0 && (
         <>
@@ -730,6 +838,30 @@ const styles = StyleSheet.create({
   heroIconWrap: { width: 36, height: 36, borderRadius: DesignTokens.radius.md, alignItems: "center", justifyContent: "center", marginBottom: 10 },
   heroValue: { fontSize: 24, letterSpacing: -0.5, fontWeight: "700" as const },
   heroLabel: { fontSize: 11, marginTop: 2, fontWeight: "500" as const },
+  profileCard: { borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.lg, marginBottom: 14 },
+  profileTop: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
+  profileAvatar: { width: 44, height: 44, borderRadius: 14, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  profileAvatarText: { fontSize: 14, fontWeight: "800" as const, letterSpacing: 0.6 },
+  profileMain: { flex: 1 },
+  profileName: { fontSize: 15, fontWeight: "700" as const },
+  profileMeta: { fontSize: 11, marginTop: 2 },
+  profileMedalCount: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  profileMedalText: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 0.3 },
+  profileStatsGrid: { flexDirection: "row", gap: 8, marginBottom: 10 },
+  profileStatBox: { flex: 1, borderRadius: 10, paddingVertical: 8, alignItems: "center" },
+  profileStatValue: { fontSize: 13, fontWeight: "700" as const },
+  profileStatLabel: { fontSize: 9, marginTop: 2, letterSpacing: 0.2 },
+  awardsRow: { flexDirection: "row", gap: 8 },
+  awardChip: { flex: 1, borderRadius: 9, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 8 },
+  awardChipText: { fontSize: 10, fontWeight: "600" as const, textAlign: "center" },
+  startPlanCard: { borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.lg, marginBottom: 14 },
+  startPlanHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
+  startPlanTitle: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1.1 },
+  startPlanRegion: { marginTop: 8 },
+  startPlanRegionLabel: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 0.9, marginBottom: 4 },
+  startPlanRow: { borderBottomWidth: 1, paddingVertical: 8 },
+  startPlanCollector: { fontSize: 12, fontWeight: "700" as const, marginBottom: 2 },
+  startPlanTasks: { fontSize: 11, lineHeight: 15 },
   weekCard: { borderRadius: DesignTokens.radius.xl, padding: 18, marginBottom: DesignTokens.spacing.md, borderWidth: 1 },
   weekRow: { flexDirection: "row", alignItems: "center" },
   weekSep: { width: 1, height: 28 },

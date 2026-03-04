@@ -1,7 +1,6 @@
 import { Tabs } from "expo-router";
 import { Send, Wrench, BarChart3, Radio } from "lucide-react-native";
 import React, { useRef, useCallback, useMemo, useEffect, useState } from "react";
-import { BlurView } from "expo-blur";
 import {
   View,
   Text,
@@ -138,25 +137,11 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
   );
 
   const BOTTOM_PAD = insets.bottom > 0 ? insets.bottom : 10;
-  const FLOAT_OFFSET = 12;
-  const fadeBg = colors.bg;
+  const FLOAT_OFFSET = 10;
 
   return (
     <View style={[barStyles.outerWrap, { paddingBottom: BOTTOM_PAD + FLOAT_OFFSET }]}>
-      {/* Gradient fade layers - transparent at top, solid at bottom */}
-      <View style={[barStyles.fadeLayer1, { backgroundColor: fadeBg, opacity: 0 }]} pointerEvents="none" />
-      <View style={[barStyles.fadeLayer2, { backgroundColor: fadeBg, opacity: 0.4 }]} pointerEvents="none" />
-      <View style={[barStyles.fadeLayer3, { backgroundColor: fadeBg, opacity: 0.75 }]} pointerEvents="none" />
-      <View style={[barStyles.fadeLayer4, { backgroundColor: fadeBg, opacity: 0.95 }]} pointerEvents="none" />
-      <View style={barStyles.blurBand} pointerEvents="none">
-        <BlurView
-          intensity={isDark ? 32 : 56}
-          tint={isDark ? "dark" : "light"}
-          style={StyleSheet.absoluteFill}
-        />
-      </View>
-
-      <View style={[barStyles.islandWrap, { maxWidth: islandMaxWidth + 32 }]}>
+      <View style={[barStyles.islandWrap, { maxWidth: islandMaxWidth + 24 }]}>
         <View style={barStyles.navRow}>
           <Animated.View style={{ transform: [{ scale: liveScaleAnim }] }}>
             <TouchableOpacity
@@ -201,17 +186,6 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
           </Animated.View>
 
           <View style={[barStyles.mainIslandWrap, { width: islandWidth }]}>
-            <View style={[barStyles.tintTray, {
-              borderColor: isDark ? colors.accentDim + "60" : colors.borderLight,
-              backgroundColor: colors.bgElevated,
-            }]} pointerEvents="none">
-              <BlurView
-                intensity={isDark ? 20 : 28}
-                tint={isDark ? "dark" : "light"}
-                style={StyleSheet.absoluteFill}
-              />
-            </View>
-
             <View style={[barStyles.island, {
               backgroundColor: colors.tabBar,
               shadowColor: colors.shadow,
@@ -286,21 +260,7 @@ export default function TabLayout() {
 const barStyles = StyleSheet.create({
   outerWrap: {
     position: "absolute", bottom: 0, left: 0, right: 0,
-    alignItems: "center", paddingHorizontal: DesignTokens.spacing.lg,
-  },
-  fadeLayer1: { position: "absolute", bottom: -10, left: 0, right: 0, height: 150 },
-  fadeLayer2: { position: "absolute", bottom: -10, left: 0, right: 0, height: 110 },
-  fadeLayer3: { position: "absolute", bottom: -10, left: 0, right: 0, height: 80 },
-  fadeLayer4: { position: "absolute", bottom: -10, left: 0, right: 0, height: 55 },
-  blurBand: {
-    position: "absolute",
-    left: 10,
-    right: 10,
-    bottom: 8,
-    height: 74,
-    borderTopLeftRadius: DesignTokens.radius.xxl + 6,
-    borderTopRightRadius: DesignTokens.radius.xxl + 6,
-    overflow: "hidden",
+    alignItems: "center", paddingHorizontal: DesignTokens.spacing.lg + 2,
   },
   islandWrap: {
     width: "100%",
@@ -310,38 +270,28 @@ const barStyles = StyleSheet.create({
   navRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
   },
   liveOrb: {
-    width: 70,
-    height: 58,
+    width: 66,
+    height: 54,
     borderRadius: DesignTokens.radius.xl,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 20,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    elevation: 8,
   },
   liveIconWrap: { width: 36, height: 28, alignItems: "center", justifyContent: "center", position: "relative" },
-  tintTray: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: -7,
-    height: 46,
-    borderRadius: DesignTokens.radius.xxl,
-    borderWidth: 1,
-    overflow: "hidden",
-  },
   mainIslandWrap: {
     position: "relative",
     alignSelf: "center",
   },
   island: {
     flexDirection: "row", borderRadius: DesignTokens.radius.xxl + 4, borderWidth: 1, paddingVertical: 6,
-    shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 24, elevation: 16,
+    shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.16, shadowRadius: 16, elevation: 10,
     position: "relative", overflow: "hidden", width: "100%",
   },
   slider: { position: "absolute", bottom: 0, height: 2.5, borderTopLeftRadius: 2, borderTopRightRadius: 2 },

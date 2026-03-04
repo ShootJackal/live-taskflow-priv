@@ -171,3 +171,44 @@ export interface LiveAlert {
   createdAt: string;
   createdBy?: string;
 }
+
+export interface CollectorAward {
+  id: string;
+  award: string;
+  pinned: boolean;
+  grantedBy: string;
+  grantedAt: string;
+  notes?: string;
+}
+
+export interface CollectorProfile {
+  collectorName: string;
+  totalActualHours: number;
+  weeklyActualHours: number;
+  tasksAssigned: number;
+  tasksCompleted: number;
+  completionRate: number;
+  longestRecordingHours: number;
+  shortestDowntimeMinutes: number;
+  medalsCount: number;
+  pinnedAwards: CollectorAward[];
+  recentAwards: CollectorAward[];
+  topTasks: { taskName: string; hours: number }[];
+}
+
+export interface AdminStartPlanCollector {
+  collector: string;
+  carryOver: string[];
+  suggested: string[];
+  hadCarryOver: boolean;
+}
+
+export interface AdminStartPlanData {
+  generatedAt: string;
+  yesterday: string;
+  regions: {
+    SF: AdminStartPlanCollector[];
+    MX: AdminStartPlanCollector[];
+  };
+  globalSuggestedTasks: { taskName: string; taskKey: string; remainingHours: number }[];
+}
