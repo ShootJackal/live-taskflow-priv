@@ -1,5 +1,7 @@
 # TaskFlow Apps Script – Deploy & API Reference
 
+For split endpoint deployment (Core + Analytics), use `scripts/DEPLOY_SPLIT_APPSCRIPTS.md`.
+
 ## Full redeploy (replace existing script)
 
 1. Open your **Google Sheet** (the one connected to TaskFlow).
