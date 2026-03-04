@@ -532,19 +532,17 @@ function sanitizeLeaderboard(raw: LeaderboardEntry[]): LeaderboardEntry[] {
     const rawActual = toNumber((e as LeaderboardEntry).actualHours);
     const rawReported = toNumber((e as LeaderboardEntry).reportedHours);
     const fallbackHours = toNumber(e.hoursLogged);
-    const actualHours = rawActual > 0 ? rawActual : 0;
-    const reportedHours = rawReported > 0 ? rawReported : (actualHours > 0 ? 0 : fallbackHours);
-    const hoursLogged = actualHours > 0 ? actualHours : reportedHours;
-    const source = (e.hoursSource === "actual" || e.hoursSource === "reported")
-      ? e.hoursSource
-      : (actualHours > 0 ? "actual" : "reported");
+    const incomingSource = e.hoursSource === "reported" ? "reported" : "actual";
+    const actualHours = rawActual > 0 ? rawActual : (incomingSource === "actual" ? fallbackHours : 0);
+    const reportedHours = rawReported > 0 ? rawReported : (incomingSource === "reported" ? fallbackHours : 0);
+    const hoursLogged = actualHours > 0 ? actualHours : 0;
     return {
       ...e,
       collectorName: normalizeCollectorName(e.collectorName),
       hoursLogged,
       actualHours,
       reportedHours,
-      hoursSource: source,
+      hoursSource: "actual",
       tasksCompleted: toNumber(e.tasksCompleted),
       tasksAssigned: toNumber(e.tasksAssigned),
       completionRate: toNumber(e.completionRate),

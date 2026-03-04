@@ -10,7 +10,7 @@
  * REQUIRED SHEET TAB NAMES (must match your spreadsheet exactly):
  *   Collectors
  *   TASK_LIST
- *   CA_PLUS (preferred for live upload stats) or CA_TAGGED
+ *   CA_TAGGED (preferred for live upload stats) or CA_PLUS
  *   CA_INDEX
  *   Task Actuals | Redashpull   (or Collector Actuals | RedashPull — script tries both)
  *   Collector Task Assignments Log
@@ -20,7 +20,7 @@
  * SHEET MAPPINGS:
  *   Collectors:     A=Name B=Rig-ID C=Email D=WeeklyCap E=Active F=HoursUploaded G=Rating
  *   CA_PLUS:        A=Date B=RigID  C=TaskName D=Hours (extra columns allowed)
- *   CA_TAGGED:      A=Date B=RigID  C=Site  D=Collector E=TaskName F=Hours (fallback)
+ *   CA_TAGGED:      A=Date B=RigID  C=Site  D=Collector E=TaskName F=Hours (preferred)
  *   CA_INDEX:       A=Date B=RigID  C=TaskKey D=Hours
  *   TASK_LIST:      A=TaskName
  *   Task Actuals:   A=TaskID B=TaskName C=CollectedHrs D=GoodHrs E=Status F=RemainingHrs K=LastRedash
@@ -397,24 +397,36 @@ function getCollectorRows() {
 }
 
 function getCollectorRigMap() {
-  var map = {};
+  return getCollectorRigMaps().collectorToRig;
+}
+
+function getCollectorRigMaps() {
+  var collectorToRig = {};
+  var rigToCollectorName = {};
   var rows = getCollectorRows();
   for (var i = 0; i < rows.length; i++) {
-    var cName = normalizeCollectorKey(rows[i].name);
+    var collectorName = safeStr(rows[i].name);
+    var collectorKey = normalizeCollectorKey(collectorName);
     var rig = safeStr(rows[i].rigId).toLowerCase();
-    if (cName && rig) map[cName] = rig;
+    if (!collectorName || !collectorKey || !rig) continue;
+    collectorToRig[collectorKey] = rig;
+    rigToCollectorName[rig] = collectorName;
   }
-  return map;
+  return {
+    collectorToRig: collectorToRig,
+    rigToCollectorName: rigToCollectorName
+  };
 }
 
 /**
- * Returns normalized collector upload rows from CA_PLUS (preferred) or CA_TAGGED (fallback).
+ * Returns normalized collector upload rows from CA_TAGGED (preferred) or CA_PLUS (fallback).
  * Output row shape: { date: Date|null, rigId: string, collector: string, taskName: string, taskKey: string, hours: number, site: string }
  */
 function getCollectorActualRows() {
   var ss = getSS();
-  var sourceSheet = ss.getSheetByName(TASKFLOW_SHEETS.CA_PLUS) || ss.getSheetByName(TASKFLOW_SHEETS.CA_TAGGED);
+  var sourceSheet = ss.getSheetByName(TASKFLOW_SHEETS.CA_TAGGED) || ss.getSheetByName(TASKFLOW_SHEETS.CA_PLUS);
   if (!sourceSheet) return [];
+  var rigMaps = getCollectorRigMaps();
 
   var rows = sourceSheet.getDataRange().getValues();
   if (!rows || rows.length === 0) return [];
@@ -473,16 +485,22 @@ function getCollectorActualRows() {
     if (!r) continue;
     var rigId = safeStr(r[idxRig]).toLowerCase();
     var taskName = safeStr(r[idxTask]);
-    if (!rigId || !taskName) continue;
+    var hours = safeNum(r[idxHours]);
+    if (!rigId || !taskName || hours <= 0) continue;
+    var collectorFromRig = rigMaps.rigToCollectorName[rigId] || '';
+    var collectorRaw = safeStr(r[idxCollector]);
+    var collectorName = collectorFromRig || collectorRaw;
+    var site = idxSite >= 0 ? safeStr(r[idxSite]).toUpperCase() : '';
+    if (!site) site = getRegionFromRigId(rigId);
 
     out.push({
       date: toDateSafe(r[idxDate]),
       rigId: rigId,
-      collector: safeStr(r[idxCollector]),
+      collector: collectorName,
       taskName: taskName,
       taskKey: normalizeTaskKey(taskName),
-      hours: safeNum(r[idxHours]),
-      site: idxSite >= 0 ? safeStr(r[idxSite]).toUpperCase() : ''
+      hours: hours,
+      site: site
     });
   }
   return out;
@@ -663,10 +681,9 @@ function handleGetLeaderboard(period) {
   for (var i = 0; i < collectorsData.length; i++) {
     var cName = safeStr(collectorsData[i].name);
     var cRig = safeStr(collectorsData[i].rigId).toLowerCase();
-    var cHours = safeNum(collectorsData[i].hoursUploaded);
     if (cName) {
       var region = getRegionFromRigId(cRig);
-      collectorMeta[normalizeCollectorKey(cName)] = { name: cName, hoursUploaded: cHours, rig: cRig, region: region };
+      collectorMeta[normalizeCollectorKey(cName)] = { name: cName, rig: cRig, region: region };
       if (cRig) {
         rigToName[cRig] = cName;
       }
@@ -681,8 +698,8 @@ function handleGetLeaderboard(period) {
     var row = actualRows[j];
     var tRig = row.rigId;
     var tSite = row.site;
-    var tCol = row.collector;
-    if (!tCol && tRig) tCol = rigToName[tRig] || '';
+    var tCol = (tRig && rigToName[tRig]) ? rigToName[tRig] : safeStr(row.collector);
+    if (!tCol && tRig) tCol = tRig;
     if (!tCol) continue;
     var tKey = normalizeCollectorKey(tCol);
     if (!actualNameByCollector[tKey]) actualNameByCollector[tKey] = tCol;
@@ -751,7 +768,7 @@ function handleGetLeaderboard(period) {
         hoursLogged: 0,
         reportedHours: 0,
         actualHours: 0,
-        hoursSource: 'reported',
+        hoursSource: 'actual',
         tasksCompleted: 0,
         tasksAssigned: 0,
         completionRate: 0,
@@ -763,7 +780,7 @@ function handleGetLeaderboard(period) {
     if (isCompleted) map[key].tasksCompleted += 1;
   }
 
-  // Overlay upload-hours from collector actuals (CA_PLUS preferred). This keeps hours "live" from rig keyed ingest.
+  // Overlay upload-hours from collector actuals (CA_TAGGED preferred). This keeps hours "live" from rig keyed ingest.
   for (var ahKey in actualHoursByCollector) {
     if (!map[ahKey]) {
       var metaFromCollector = collectorMeta[ahKey];
@@ -775,7 +792,7 @@ function handleGetLeaderboard(period) {
         hoursLogged: 0,
         reportedHours: 0,
         actualHours: 0,
-        hoursSource: 'reported',
+        hoursSource: 'actual',
         tasksCompleted: 0,
         tasksAssigned: 0,
         completionRate: 0,
@@ -785,41 +802,13 @@ function handleGetLeaderboard(period) {
     map[ahKey].actualHours = Math.max(safeNum(map[ahKey].actualHours), safeNum(actualHoursByCollector[ahKey]));
   }
 
-  // For all‑time view (older clients), keep the fallback that uses collectors.hoursUploaded.
-  if (!useWeekly) {
-    for (var ck in collectorMeta) {
-      var meta = collectorMeta[ck];
-      if (map[ck]) {
-        map[ck].actualHours = Math.max(safeNum(map[ck].actualHours), safeNum(meta.hoursUploaded));
-      } else if (meta.hoursUploaded > 0) {
-        map[ck] = {
-          rank: 0,
-          collectorName: meta.name,
-          hoursLogged: 0,
-          reportedHours: 0,
-          actualHours: safeNum(meta.hoursUploaded),
-          hoursSource: 'actual',
-          tasksCompleted: 0,
-          tasksAssigned: 0,
-          completionRate: 0,
-          region: meta.region
-        };
-      }
-    }
-  }
-
   var entries = [];
   for (var k in map) {
     var en = map[k];
     var actual = safeNum(en.actualHours);
     var reported = safeNum(en.reportedHours);
-    if (actual > 0) {
-      en.hoursLogged = actual;
-      en.hoursSource = 'actual';
-    } else {
-      en.hoursLogged = reported;
-      en.hoursSource = 'reported';
-    }
+    en.hoursLogged = actual;
+    en.hoursSource = 'actual';
     if (en.hoursLogged <= 0 && en.tasksAssigned <= 0) continue;
     en.hoursLogged = Math.round(en.hoursLogged * 100) / 100;
     en.actualHours = Math.round(actual * 100) / 100;
@@ -849,11 +838,10 @@ function handleGetCollectorStats(collectorName) {
   var normName = normalizeCollectorKey(collectorName);
 
   var collectorsData = getCollectorRows();
-  var myRig = '', myHoursUploaded = 0;
+  var myRig = '';
   for (var c = 0; c < collectorsData.length; c++) {
     if (normalizeCollectorKey(collectorsData[c].name) === normName) {
       myRig = safeStr(collectorsData[c].rigId).toLowerCase();
-      myHoursUploaded = safeNum(collectorsData[c].hoursUploaded);
       break;
     }
   }
@@ -880,45 +868,71 @@ function handleGetCollectorStats(collectorName) {
     }
   }
 
+  var assignmentStatusByTask = {};
   for (var tk in latestByTask) {
     var row = latestByTask[tk].row;
     totalAssigned++;
     var st = safeStr(row[6]).toLowerCase();
-    var logged = safeNum(row[7]);
     var planned = safeNum(row[5]);
-    totalLoggedHours += logged;
     totalPlannedHours += planned;
+    var rowTaskKey = normalizeTaskKey(row[2]);
+    if (rowTaskKey) assignmentStatusByTask[rowTaskKey] = safeStr(row[6]) || 'In Progress';
     if (st === 'completed' || st === 'complete') totalCompleted++;
     else if (st === 'canceled' || st === 'cancelled') totalCanceled++;
     var eventDate = toDateSafe(row[9]) || toDateSafe(row[4]);
     if (eventDate && eventDate >= weekStart) {
-      weeklyLoggedHours += logged;
       if (st === 'completed' || st === 'complete') weeklyCompleted++;
     }
-    topTasks.push({ name: safeStr(row[2]), hours: Math.round(logged * 100) / 100, status: safeStr(row[6]) });
   }
 
   var actualRows = getCollectorActualRows();
   var actualHours = 0, actualWeeklyHours = 0;
   var actualTaskSet = {};
+  var actualTaskHoursByKey = {};
+  var actualTaskNameByKey = {};
   for (var t = 0; t < actualRows.length; t++) {
     var ar = actualRows[t];
     var aRig = ar.rigId;
     var aCol = normalizeCollectorKey(ar.collector);
-    if (aCol === normName || (myRig && aRig === myRig)) {
-      actualHours += safeNum(ar.hours);
-      if (ar.taskKey) actualTaskSet[ar.taskKey] = true;
+    var matchesCollector = (myRig && aRig === myRig) || aCol === normName;
+    if (matchesCollector) {
+      var hours = safeNum(ar.hours);
+      if (hours <= 0) continue;
+      actualHours += hours;
+      var arTaskKey = ar.taskKey || normalizeTaskKey(ar.taskName);
+      if (arTaskKey) {
+        actualTaskSet[arTaskKey] = true;
+        actualTaskHoursByKey[arTaskKey] = (actualTaskHoursByKey[arTaskKey] || 0) + hours;
+        if (!actualTaskNameByKey[arTaskKey]) actualTaskNameByKey[arTaskKey] = safeStr(ar.taskName);
+      }
       if (ar.date && ar.date >= weekStart) {
-        actualWeeklyHours += safeNum(ar.hours);
+        actualWeeklyHours += hours;
       }
     }
   }
 
   var actualTaskCount = Object.keys(actualTaskSet).length;
-  if (actualHours > totalLoggedHours) totalLoggedHours = actualHours;
-  if (actualWeeklyHours > weeklyLoggedHours) weeklyLoggedHours = actualWeeklyHours;
+  totalLoggedHours = actualHours;
+  weeklyLoggedHours = actualWeeklyHours;
   if (actualTaskCount > totalAssigned) totalAssigned = actualTaskCount;
-  if (myHoursUploaded > totalLoggedHours) totalLoggedHours = myHoursUploaded;
+
+  for (var ak in actualTaskHoursByKey) {
+    topTasks.push({
+      name: actualTaskNameByKey[ak] || ak,
+      hours: Math.round(safeNum(actualTaskHoursByKey[ak]) * 100) / 100,
+      status: assignmentStatusByTask[ak] || 'Actual Upload'
+    });
+  }
+  if (topTasks.length === 0) {
+    for (var fallbackKey in latestByTask) {
+      var fallbackRow = latestByTask[fallbackKey].row;
+      topTasks.push({
+        name: safeStr(fallbackRow[2]),
+        hours: 0,
+        status: safeStr(fallbackRow[6]) || 'In Progress'
+      });
+    }
+  }
 
   topTasks.sort(function(a, b) { return b.hours - a.hours; });
   var completionRate = totalAssigned > 0 ? Math.round(totalCompleted / totalAssigned * 100) : 0;
@@ -1118,23 +1132,19 @@ function handleGetFullLog(collectorFilter) {
 function handleGetTaskActuals() {
   var data = getTaskActualRows();
 
-  // Build collector data from CA_PLUS (preferred) or CA_TAGGED (fallback)
+  // Build collector data from CA_TAGGED (preferred) or CA_PLUS (fallback)
   var actualRows = getCollectorActualRows();
-  var rigToCollectorName = {};
-  var collectorsData = getCollectorRows();
-  for (var c = 0; c < collectorsData.length; c++) {
-    var rig = safeStr(collectorsData[c].rigId).toLowerCase();
-    var name = safeStr(collectorsData[c].name);
-    if (rig && name) rigToCollectorName[rig] = name;
-  }
+  var rigToCollectorName = getCollectorRigMaps().rigToCollectorName;
 
   // Map: taskName (lower) -> { collectors: { name -> totalHours }, totalUploaded }
   var taskCollectorMap = {};
   for (var t = 0; t < actualRows.length; t++) {
     var ar = actualRows[t];
     var tTask = ar.taskKey;
-    var tCollector = safeStr(ar.collector);
-    if (!tCollector && ar.rigId) tCollector = rigToCollectorName[ar.rigId] || ar.rigId;
+    var tCollector = '';
+    if (ar.rigId && rigToCollectorName[ar.rigId]) tCollector = rigToCollectorName[ar.rigId];
+    if (!tCollector) tCollector = safeStr(ar.collector);
+    if (!tCollector && ar.rigId) tCollector = ar.rigId;
     var tHours = safeNum(ar.hours);
     if (!tTask || !tCollector) continue;
     if (!taskCollectorMap[tTask]) taskCollectorMap[tTask] = { collectors: {}, totalUploaded: 0 };
@@ -1207,13 +1217,26 @@ function handleGetAdminDashboard() {
   }
 
   var collectorsData = getCollectorRows();
+  var rigMaps = getCollectorRigMaps();
+  var actualRows = getCollectorActualRows();
+  var actualHoursByCollector = {};
+  for (var ah = 0; ah < actualRows.length; ah++) {
+    var ar = actualRows[ah];
+    var rigId = safeStr(ar.rigId).toLowerCase();
+    var collectorName = (rigId && rigMaps.rigToCollectorName[rigId]) ? rigMaps.rigToCollectorName[rigId] : safeStr(ar.collector);
+    if (!collectorName && rigId) collectorName = rigId;
+    var collectorKey = normalizeCollectorKey(collectorName);
+    if (!collectorKey) continue;
+    actualHoursByCollector[collectorKey] = (actualHoursByCollector[collectorKey] || 0) + safeNum(ar.hours);
+  }
+
   var totalCollectors = 0, totalHoursUploaded = 0;
   var collectorSummary = [];
   for (var c = 0; c < collectorsData.length; c++) {
     var nm = safeStr(collectorsData[c].name);
     if (!nm) continue;
     totalCollectors++;
-    var hrs = safeNum(collectorsData[c].hoursUploaded);
+    var hrs = safeNum(actualHoursByCollector[normalizeCollectorKey(nm)]);
     totalHoursUploaded += hrs;
     collectorSummary.push({
       name: nm, rig: safeStr(collectorsData[c].rigId), email: safeStr(collectorsData[c].email),
@@ -1242,7 +1265,7 @@ function handleGetAdminDashboard() {
 }
 
 /**
- * Count unique rigs that have an upload today from CA_PLUS (preferred) or CA_TAGGED (fallback).
+ * Count unique rigs that have an upload today from CA_TAGGED (preferred) or CA_PLUS (fallback).
  */
 function getActiveRigsToday() {
   var actualRows = getCollectorActualRows();
