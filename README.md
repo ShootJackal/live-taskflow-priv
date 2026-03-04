@@ -24,6 +24,8 @@ cp .env.example .env.local
 # EXPO_PUBLIC_GAS_CORE_URL=<your core script /exec URL>
 # EXPO_PUBLIC_GAS_ANALYTICS_URL=<your analytics script /exec URL>
 # (optional fallback) EXPO_PUBLIC_GOOGLE_SCRIPT_URL=<single script /exec URL>
+# Split script sources are in:
+# scripts/appscript-core.gs and scripts/appscript-analytics.gs
 
 # Step 5: Start the instant web preview of your app in your browser, with auto-reloading of your changes
 npm run start-web
