@@ -318,7 +318,7 @@ export default function DashboardScreen() {
             <View style={[styles.notice, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
               <AlertCircle size={14} color={colors.statusPending} />
               <Text style={[styles.noticeText, { color: colors.textSecondary }]}>
-                Set EXPO_PUBLIC_GOOGLE_SCRIPT_URL to connect
+                Set EXPO_PUBLIC_GAS_CORE_URL and EXPO_PUBLIC_GAS_ANALYTICS_URL to connect
               </Text>
             </View>
           )}

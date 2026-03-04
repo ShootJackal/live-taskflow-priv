@@ -56,12 +56,15 @@ var CACHE_CELL_MAX_CHARS = 49000; // Sheets hard limit is ~50000 chars per cell.
 var SUBMIT_DEDUP_WINDOW_MS = 2 * 60 * 1000;
 var SUBMIT_REQUEST_TTL_SECONDS = 6 * 60 * 60;
 var SUBMIT_FINGERPRINT_TTL_SECONDS = 2 * 60;
+// Bump this when deploying logic/schema changes that alter derived metrics (reported vs actual, etc).
+var TASKFLOW_DEPLOY_EPOCH = '2026-03-04-cache-epoch-1';
 var GET_CACHE_TTL_MS = {
   collectors: 5 * 60 * 1000,
   tasks: 5 * 60 * 1000,
   leaderboard: 45 * 1000,
   collectorStats: 60 * 1000,
   todayLog: 20 * 1000,
+  dailyCarryover: 20 * 1000,
   recollections: 60 * 1000,
   fullLog: 30 * 1000,
   taskActuals: 60 * 1000,
@@ -101,6 +104,8 @@ function getDoGetCachePolicy(action, params) {
       return normCollector ? { key: 'collectorStats_' + normCollector, ttlMs: GET_CACHE_TTL_MS.collectorStats } : null;
     case 'getTodayLog':
       return normCollector ? { key: 'todayLog_' + normCollector, ttlMs: GET_CACHE_TTL_MS.todayLog } : null;
+    case 'getDailyCarryover':
+      return normCollector ? { key: 'dailyCarryover_' + normCollector, ttlMs: GET_CACHE_TTL_MS.dailyCarryover } : null;
     case 'getRecollections':
       return { key: 'recollections', ttlMs: GET_CACHE_TTL_MS.recollections };
     case 'getFullLog':
@@ -167,9 +172,58 @@ function readFreshCacheValue(key, ttlMs) {
   return entry.value;
 }
 
+function clearDerivedCaches_(reason) {
+  var rowsCleared = 0;
+  try {
+    var cacheSheet = getOrCreateCacheSheet();
+    var lastRow = cacheSheet.getLastRow();
+    if (lastRow >= 2) {
+      rowsCleared = lastRow - 1;
+      cacheSheet.getRange(2, 1, rowsCleared, 3).clearContent();
+    }
+  } catch (e) {}
+
+  _rigHistorySnapshot = null;
+
+  try {
+    var props = PropertiesService.getScriptProperties();
+    props.setProperty('TASKFLOW_CACHE_LAST_RESET_AT', new Date().toISOString());
+    props.setProperty('TASKFLOW_CACHE_LAST_RESET_REASON', safeStr(reason) || 'manual');
+  } catch (e2) {}
+
+  return {
+    clearedAppCacheRows: rowsCleared,
+    reason: safeStr(reason) || 'manual',
+    at: new Date().toISOString()
+  };
+}
+
+function ensureDeployEpoch_() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var appliedEpoch = safeStr(props.getProperty('TASKFLOW_DEPLOY_EPOCH'));
+    if (appliedEpoch === TASKFLOW_DEPLOY_EPOCH) return null;
+
+    var resetInfo = clearDerivedCaches_('deploy_epoch_change');
+    props.setProperty('TASKFLOW_DEPLOY_EPOCH', TASKFLOW_DEPLOY_EPOCH);
+    props.setProperty('TASKFLOW_DEPLOY_EPOCH_APPLIED_AT', new Date().toISOString());
+    return resetInfo;
+  } catch (e) {
+    return null;
+  }
+}
+
+function handleForceServerRepull(collectorName, scope, reason) {
+  var resetInfo = clearDerivedCaches_('manual_force_repull:' + safeStr(reason));
+  var warm = handleRefreshCache(collectorName || '', scope || 'full');
+  return { reset: resetInfo, warmed: warm };
+}
+
 function doGet(e) {
   try {
     assertSheetConfig_();
+    ensureDailyRollover_();
+    ensureDeployEpoch_();
     var action = (e.parameter.action || '').trim();
     var period = (e.parameter.period || '').trim();
 
@@ -188,6 +242,7 @@ function doGet(e) {
       case 'getLeaderboard':        result = handleGetLeaderboard(period); break;
       case 'getCollectorStats':     result = handleGetCollectorStats(e.parameter.collector || ''); break;
       case 'getTodayLog':           result = handleGetTodayLog(e.parameter.collector || ''); break;
+      case 'getDailyCarryover':     result = handleGetDailyCarryover(e.parameter.collector || ''); break;
       case 'getRecollections':      result = handleGetRecollections(); break;
       case 'getFullLog':            result = handleGetFullLog(e.parameter.collector || ''); break;
       case 'getTaskActualsSheet':   result = handleGetTaskActuals(); break;
@@ -198,6 +253,7 @@ function doGet(e) {
       case 'getAdminStartPlan':     result = handleGetAdminStartPlan(); break;
       case 'getAppCache':           result = handleGetAppCache(e.parameter.keys || ''); break;
       case 'refreshCache':          result = handleRefreshCache(e.parameter.collector || '', e.parameter.scope || ''); break;
+      case 'forceServerRepull':     result = handleForceServerRepull(e.parameter.collector || '', e.parameter.scope || 'full', e.parameter.reason || ''); break;
       default:
         return jsonOut({ success: false, error: 'Unknown action: ' + action });
     }
@@ -210,6 +266,8 @@ function doGet(e) {
 function doPost(e) {
   try {
     assertSheetConfig_();
+    ensureDailyRollover_();
+    ensureDeployEpoch_();
     var raw = '';
     if (e && e.postData && typeof e.postData.contents === 'string') {
       raw = e.postData.contents;
@@ -251,6 +309,18 @@ function doPost(e) {
     if (metaAction === 'GRANT_AWARD') {
       var awardResult = handleGrantAward(body);
       return jsonOut({ success: true, data: awardResult, message: awardResult.message || 'Award granted' });
+    }
+    if (metaAction === 'CARRYOVER_REPORT') {
+      var carryReport = handleCarryoverReport(body);
+      return jsonOut({ success: true, data: carryReport, message: carryReport.message || 'Carryover reported' });
+    }
+    if (metaAction === 'CARRYOVER_CANCEL') {
+      var carryCancel = handleCarryoverCancel(body);
+      return jsonOut({ success: true, data: carryCancel, message: carryCancel.message || 'Carryover canceled' });
+    }
+    if (metaAction === 'FORCE_SERVER_REPULL') {
+      var forceResult = handleForceServerRepull(body.collector || '', body.scope || 'full', body.reason || '');
+      return jsonOut({ success: true, data: forceResult, message: 'Server repull completed' });
     }
 
     var result = handleSubmit(body);
@@ -654,6 +724,161 @@ function getWeekStartDate(refDate) {
   var day = dt.getDay();
   dt.setDate(dt.getDate() - (day === 0 ? 6 : day - 1)); // Monday at 00:00
   return dt;
+}
+
+function dateKey_(d) {
+  var dt = (d instanceof Date) ? d : new Date();
+  if (isNaN(dt.getTime())) dt = new Date();
+  return Utilities.formatDate(dt, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+function isCompletedStatus_(status) {
+  var s = safeStr(status).toLowerCase();
+  return s === 'completed' || s === 'complete' || s === 'done' || s === 'finished';
+}
+
+function isCanceledStatus_(status) {
+  var s = safeStr(status).toLowerCase();
+  return s === 'canceled' || s === 'cancelled' || s === 'cancel';
+}
+
+function isIncompleteStatus_(status) {
+  return safeStr(status).toLowerCase() === 'incomplete';
+}
+
+function ensureDailyRollover_() {
+  ensureEndOfDayTrigger_();
+  var today = getScriptTodayDate();
+  var target = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  runDailyRolloverForDateIfNeeded_(target);
+}
+
+function ensureEndOfDayTrigger_() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    if (safeStr(props.getProperty('TASKFLOW_EOD_TRIGGER_READY')) === '1') return;
+
+    var existing = ScriptApp.getProjectTriggers();
+    for (var i = 0; i < existing.length; i++) {
+      if (existing[i].getHandlerFunction && existing[i].getHandlerFunction() === 'runEndOfDayRollover') {
+        props.setProperty('TASKFLOW_EOD_TRIGGER_READY', '1');
+        return;
+      }
+    }
+
+    ScriptApp.newTrigger('runEndOfDayRollover')
+      .timeBased()
+      .everyDays(1)
+      .atHour(23)
+      .nearMinute(59)
+      .create();
+
+    props.setProperty('TASKFLOW_EOD_TRIGGER_READY', '1');
+  } catch (e) {
+    // Trigger creation can fail in limited contexts; rollover still runs on next-day first request.
+  }
+}
+
+function runDailyRolloverForDateIfNeeded_(targetDate) {
+  var targetKey = dateKey_(targetDate);
+  var props = PropertiesService.getScriptProperties();
+  var doneTarget = safeStr(props.getProperty('TASKFLOW_LAST_ROLLOVER_TARGET'));
+  if (doneTarget === targetKey) return false;
+
+  var lock = LockService.getScriptLock();
+  var lockAcquired = false;
+  try {
+    try {
+      lock.waitLock(3000);
+      lockAcquired = true;
+    } catch (e) {}
+
+    doneTarget = safeStr(props.getProperty('TASKFLOW_LAST_ROLLOVER_TARGET'));
+    if (doneTarget === targetKey) return false;
+
+    runDailyRolloverForDate_(targetDate);
+    props.setProperty('TASKFLOW_LAST_ROLLOVER_TARGET', targetKey);
+    props.setProperty('TASKFLOW_LAST_ROLLOVER_DAY', dateKey_(getScriptTodayDate()));
+    return true;
+  } finally {
+    if (lockAcquired) {
+      try { lock.releaseLock(); } catch (e2) {}
+    }
+  }
+}
+
+function runEndOfDayRollover() {
+  var today = getScriptTodayDate();
+  return runDailyRolloverForDateIfNeeded_(today);
+}
+
+function runDailyRolloverForDate_(targetDate) {
+  var sheet;
+  try { sheet = getSheet(TASKFLOW_SHEETS.ASSIGNMENTS); } catch (e) { return; }
+  var data = sheet.getDataRange().getValues();
+  if (!data || data.length < 2) return;
+
+  var targetKey = dateKey_(targetDate);
+  var latestByCollectorTask = {};
+
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    var collector = safeStr(row[3]);
+    var collectorKey = normalizeCollectorKey(collector);
+    if (!collectorKey) continue;
+
+    var assignDate = toDateSafe(row[4]);
+    if (!assignDate || dateKey_(assignDate) !== targetKey) continue;
+
+    var taskName = safeStr(row[2]);
+    var taskKey = normalizeTaskKey(taskName);
+    if (!taskKey) continue;
+
+    var dedupeKey = collectorKey + '|' + taskKey;
+    var eventTs = Math.max(toTimestampMs(row[9]), toTimestampMs(row[4]));
+    var existing = latestByCollectorTask[dedupeKey];
+    if (!existing || eventTs > existing._ts || (eventTs === existing._ts && i < existing._order)) {
+      latestByCollectorTask[dedupeKey] = {
+        row: row,
+        collector: collector,
+        taskName: taskName,
+        _ts: eventTs,
+        _order: i
+      };
+    }
+  }
+
+  var rowsToInsert = [];
+  for (var key in latestByCollectorTask) {
+    var state = latestByCollectorTask[key];
+    var row = state.row;
+    var status = safeStr(row[6]);
+    if (isCompletedStatus_(status) || isCanceledStatus_(status) || isIncompleteStatus_(status)) continue;
+
+    var now = new Date();
+    var planned = Math.max(0, safeNum(row[5]));
+    var note = 'AUTO_EOD_INCOMPLETE ' + targetKey + ' | prior_status=' + (status || 'In Progress');
+    rowsToInsert.push([
+      'A-' + now.getTime() + '-I' + rowsToInsert.length,
+      safeStr(row[1]),
+      safeStr(row[2]),
+      safeStr(row[3]),
+      row[4] || targetDate,
+      planned,
+      'Incomplete',
+      0,
+      planned,
+      '',
+      note,
+      safeStr(row[11]) || getWeekStart(row[4] || targetDate)
+    ]);
+  }
+
+  if (rowsToInsert.length === 0) return;
+  // Keep newest rollover rows at the top, preserving the same top-insert behavior used by assignments.
+  for (var r = rowsToInsert.length - 1; r >= 0; r--) {
+    insertAssignmentLogRow(sheet, rowsToInsert[r]);
+  }
 }
 
 function safeStr(v) { return String(v == null ? '' : v).trim(); }
@@ -1415,6 +1640,7 @@ function handleGetCollectorStats(collectorName) {
     return {
       collectorName: '',
       totalAssigned: 0, totalCompleted: 0, totalCanceled: 0,
+      todayActualHours: 0,
       totalLoggedHours: 0, totalPlannedHours: 0,
       weeklyLoggedHours: 0, weeklyCompleted: 0,
       activeTasks: 0, completionRate: 0, avgHoursPerTask: 0,
@@ -1473,7 +1699,8 @@ function handleGetCollectorStats(collectorName) {
 
   var actualRows = getCollectorActualRows();
   var collectorRigSet = getCollectorRigSet(normName, myRig);
-  var actualHours = 0, actualWeeklyHours = 0;
+  var actualHours = 0, actualWeeklyHours = 0, todayActualHours = 0;
+  var todayKey = dateKey_(getScriptTodayDate());
   var actualTaskSet = {};
   var actualTaskHoursByKey = {};
   var actualTaskNameByKey = {};
@@ -1491,6 +1718,9 @@ function handleGetCollectorStats(collectorName) {
         actualTaskSet[arTaskKey] = true;
         actualTaskHoursByKey[arTaskKey] = (actualTaskHoursByKey[arTaskKey] || 0) + hours;
         if (!actualTaskNameByKey[arTaskKey]) actualTaskNameByKey[arTaskKey] = safeStr(ar.taskName);
+      }
+      if (ar.date && dateKey_(ar.date) === todayKey) {
+        todayActualHours += hours;
       }
       if (ar.date && ar.date >= weekStart) {
         actualWeeklyHours += hours;
@@ -1528,6 +1758,7 @@ function handleGetCollectorStats(collectorName) {
   var result = {
     collectorName: collectorName,
     totalAssigned: totalAssigned, totalCompleted: totalCompleted, totalCanceled: totalCanceled,
+    todayActualHours: Math.round(todayActualHours * 100) / 100,
     totalLoggedHours: Math.round(totalLoggedHours * 100) / 100,
     totalPlannedHours: Math.round(totalPlannedHours * 100) / 100,
     weeklyLoggedHours: Math.round(weeklyLoggedHours * 100) / 100,
@@ -1780,6 +2011,251 @@ function handleGetAdminStartPlan() {
   };
   writeCache('adminStartPlan', output);
   return output;
+}
+
+function getAssignmentStateById_(data, assignmentId) {
+  var targetId = safeStr(assignmentId);
+  if (!targetId) return null;
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (safeStr(row[0]) !== targetId) continue;
+    return {
+      assignmentId: safeStr(row[0]),
+      taskId: safeStr(row[1]),
+      taskName: safeStr(row[2]),
+      collector: safeStr(row[3]),
+      assignedDate: row[4],
+      planned: safeNum(row[5]),
+      status: safeStr(row[6]),
+      logged: safeNum(row[7]),
+      remaining: safeNum(row[8]),
+      completedDate: row[9],
+      notes: safeStr(row[10]),
+      weekStart: safeStr(row[11])
+    };
+  }
+  return null;
+}
+
+function getActualHoursForCollectorTaskOnDate_(actualRows, collectorRigSet, normCollector, taskKey, targetDate) {
+  if (!taskKey || !targetDate) return 0;
+  var targetKey = dateKey_(targetDate);
+  var sum = 0;
+  for (var i = 0; i < actualRows.length; i++) {
+    var row = actualRows[i];
+    if (!row) continue;
+    if (!row.date || dateKey_(row.date) !== targetKey) continue;
+    var rowTaskKey = row.taskKey || normalizeTaskKey(row.taskName);
+    if (rowTaskKey !== taskKey) continue;
+
+    var rowCollectorKey = normalizeCollectorKey(row.collector);
+    var byCollector = rowCollectorKey && rowCollectorKey === normCollector;
+    var byRig = row.rigId && collectorRigSet[row.rigId];
+    if (!byCollector && !byRig) continue;
+
+    sum += safeNum(row.hours);
+  }
+  return Math.round(sum * 100) / 100;
+}
+
+function handleGetDailyCarryover(collectorName) {
+  if (!collectorName) return [];
+  var normName = normalizeCollectorKey(collectorName);
+  if (!normName) return [];
+
+  var assignData;
+  try { assignData = getSheetData(TASKFLOW_SHEETS.ASSIGNMENTS); } catch (e) { return []; }
+  var todayKey = dateKey_(getScriptTodayDate());
+  var latestByTask = {};
+  for (var i = 1; i < assignData.length; i++) {
+    var row = assignData[i];
+    if (normalizeCollectorKey(row[3]) !== normName) continue;
+    var taskKey = normalizeTaskKey(row[2]);
+    if (!taskKey) continue;
+    var eventTs = Math.max(toTimestampMs(row[9]), toTimestampMs(row[4]));
+    var existing = latestByTask[taskKey];
+    if (!existing || eventTs > existing._ts || (eventTs === existing._ts && i < existing._order)) {
+      latestByTask[taskKey] = { row: row, _ts: eventTs, _order: i };
+    }
+  }
+
+  var collectorRigMap = getCollectorRigMap();
+  var collectorRigSet = getCollectorRigSet(normName, collectorRigMap[normName] || '');
+  var actualRows = getCollectorActualRows();
+  var output = [];
+  for (var key in latestByTask) {
+    var state = latestByTask[key].row;
+    var status = safeStr(state[6]);
+    if (!isIncompleteStatus_(status)) continue;
+    var assignedDate = toDateSafe(state[4]);
+    if (!assignedDate) continue;
+    var assignedDateKey = dateKey_(assignedDate);
+    if (assignedDateKey === todayKey) continue;
+
+    var actualHours = getActualHoursForCollectorTaskOnDate_(actualRows, collectorRigSet, normName, key, assignedDate);
+    output.push({
+      assignmentId: safeStr(state[0]),
+      collector: safeStr(state[3]),
+      taskName: safeStr(state[2]),
+      assignedDate: assignedDateKey,
+      plannedHours: Math.round(safeNum(state[5]) * 100) / 100,
+      actualHours: Math.round(actualHours * 100) / 100,
+      status: 'Incomplete'
+    });
+  }
+
+  output.sort(function(a, b) {
+    if (a.assignedDate === b.assignedDate) return safeStr(a.taskName).localeCompare(safeStr(b.taskName));
+    return safeStr(a.assignedDate) < safeStr(b.assignedDate) ? 1 : -1;
+  });
+  writeCache('dailyCarryover_' + normName, output);
+  return output;
+}
+
+function handleCarryoverReport(body) {
+  var collector = safeStr(body && body.collector);
+  var task = safeStr(body && body.task);
+  var assignmentId = safeStr(body && body.assignmentId);
+  var notes = safeStr(body && body.notes);
+  if (!collector) throw new Error('Missing collector');
+  if (!task) throw new Error('Missing task');
+  if (!assignmentId) throw new Error('Missing assignmentId');
+
+  var sheet = getSheet(TASKFLOW_SHEETS.ASSIGNMENTS);
+  var data = sheet.getDataRange().getValues();
+  var normCol = normalizeCollectorKey(collector);
+  var normTask = normalizeTaskKey(task);
+  var state = getAssignmentStateById_(data, assignmentId);
+  if (!state) state = getLatestAssignmentState(data, normCol, normTask);
+  if (!state) throw new Error('Carryover assignment not found');
+  if (normalizeCollectorKey(state.collector) !== normCol) throw new Error('Collector mismatch for carryover assignment');
+  if (normalizeTaskKey(state.taskName) !== normTask) throw new Error('Task mismatch for carryover assignment');
+
+  var statusLower = safeStr(state.status).toLowerCase();
+  if (isCompletedStatus_(statusLower) || isCanceledStatus_(statusLower)) {
+    return {
+      success: true,
+      duplicate: true,
+      message: 'Carryover already resolved',
+      assignmentId: state.assignmentId,
+      status: safeStr(state.status)
+    };
+  }
+
+  var actualHours = Math.max(0, safeNum(body && body.actualHours));
+  if (!(actualHours > 0)) {
+    var collectorRigMap = getCollectorRigMap();
+    var collectorRigSet = getCollectorRigSet(normCol, collectorRigMap[normCol] || '');
+    var actualRows = getCollectorActualRows();
+    var assignedDate = toDateSafe(state.assignedDate) || getScriptTodayDate();
+    actualHours = getActualHoursForCollectorTaskOnDate_(actualRows, collectorRigSet, normCol, normTask, assignedDate);
+  }
+
+  var planned = Math.max(0, safeNum(state.planned));
+  if (planned <= 0) planned = actualHours;
+  var logged = Math.round(actualHours * 100) / 100;
+  var remaining = Math.max(0, Math.round((planned - logged) * 100) / 100);
+  var now = new Date();
+  var nextId = 'A-' + now.getTime();
+  var reportNote = 'CARRYOVER_REPORT ' + Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') + ' | actual=' + logged.toFixed(2) + 'h';
+  if (notes) reportNote += ' | ' + notes;
+
+  insertAssignmentLogRow(sheet, [
+    nextId,
+    safeStr(state.taskId),
+    safeStr(state.taskName) || task,
+    safeStr(state.collector) || collector,
+    state.assignedDate || now,
+    planned,
+    'Completed',
+    logged,
+    remaining,
+    now,
+    reportNote,
+    safeStr(state.weekStart) || getWeekStart(state.assignedDate || now)
+  ]);
+
+  refreshPostSubmitCaches(collector);
+  return {
+    success: true,
+    message: 'Carryover reported: ' + task,
+    assignmentId: nextId,
+    collector: collector,
+    task: task,
+    hours: logged,
+    planned: planned,
+    remaining: remaining,
+    status: 'Completed'
+  };
+}
+
+function handleCarryoverCancel(body) {
+  var collector = safeStr(body && body.collector);
+  var task = safeStr(body && body.task);
+  var assignmentId = safeStr(body && body.assignmentId);
+  var notes = safeStr(body && body.notes);
+  if (!collector) throw new Error('Missing collector');
+  if (!task) throw new Error('Missing task');
+  if (!assignmentId) throw new Error('Missing assignmentId');
+
+  var sheet = getSheet(TASKFLOW_SHEETS.ASSIGNMENTS);
+  var data = sheet.getDataRange().getValues();
+  var normCol = normalizeCollectorKey(collector);
+  var normTask = normalizeTaskKey(task);
+  var state = getAssignmentStateById_(data, assignmentId);
+  if (!state) state = getLatestAssignmentState(data, normCol, normTask);
+  if (!state) throw new Error('Carryover assignment not found');
+  if (normalizeCollectorKey(state.collector) !== normCol) throw new Error('Collector mismatch for carryover assignment');
+  if (normalizeTaskKey(state.taskName) !== normTask) throw new Error('Task mismatch for carryover assignment');
+
+  var statusLower = safeStr(state.status).toLowerCase();
+  if (isCanceledStatus_(statusLower)) {
+    return {
+      success: true,
+      duplicate: true,
+      message: 'Carryover already canceled',
+      assignmentId: state.assignmentId,
+      status: 'Canceled'
+    };
+  }
+  if (isCompletedStatus_(statusLower)) {
+    return {
+      success: true,
+      duplicate: true,
+      message: 'Carryover already completed',
+      assignmentId: state.assignmentId,
+      status: 'Completed'
+    };
+  }
+
+  var now = new Date();
+  var cancelId = 'A-' + now.getTime();
+  var cancelNote = 'CARRYOVER_CANCEL ' + Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+  if (notes) cancelNote += ' | ' + notes;
+  insertAssignmentLogRow(sheet, [
+    cancelId,
+    safeStr(state.taskId),
+    safeStr(state.taskName) || task,
+    safeStr(state.collector) || collector,
+    state.assignedDate || now,
+    Math.max(0, safeNum(state.planned)),
+    'Canceled',
+    0,
+    Math.max(0, safeNum(state.planned)),
+    now,
+    cancelNote,
+    safeStr(state.weekStart) || getWeekStart(state.assignedDate || now)
+  ]);
+
+  refreshPostSubmitCaches(collector);
+  return {
+    success: true,
+    message: 'Carryover canceled: ' + task,
+    assignmentId: cancelId,
+    collector: collector,
+    task: task,
+    status: 'Canceled'
+  };
 }
 
 function handleGetTodayLog(collectorName) {
@@ -2256,6 +2732,7 @@ function handleRefreshCache(collectorName, scope) {
       handleGetCollectorStats(collectorName);
       handleGetCollectorProfile(collectorName);
       handleGetTodayLog(collectorName);
+      handleGetDailyCarryover(collectorName);
       handleGetFullLog(collectorName);
       collectorCached = true;
       collectorProfileCached = true;
@@ -2283,6 +2760,7 @@ function handleRefreshCache(collectorName, scope) {
 function refreshPostSubmitCaches(collectorName) {
   try {
     handleGetTodayLog(collectorName);
+    handleGetDailyCarryover(collectorName);
     handleGetCollectorStats(collectorName);
     handleGetCollectorProfile(collectorName);
     handleGetFullLog(collectorName);

@@ -86,6 +86,7 @@ export interface CollectorStats {
   totalAssigned: number;
   totalCompleted: number;
   totalCanceled: number;
+  todayActualHours?: number;
   totalLoggedHours: number;
   totalPlannedHours: number;
   weeklyLoggedHours: number;
@@ -211,4 +212,14 @@ export interface AdminStartPlanData {
     MX: AdminStartPlanCollector[];
   };
   globalSuggestedTasks: { taskName: string; taskKey: string; remainingHours: number }[];
+}
+
+export interface DailyCarryoverItem {
+  assignmentId: string;
+  collector: string;
+  taskName: string;
+  assignedDate: string;
+  plannedHours: number;
+  actualHours: number;
+  status: string;
 }

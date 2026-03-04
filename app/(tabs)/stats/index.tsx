@@ -8,16 +8,28 @@ import {
   Animated,
   TouchableOpacity,
   Platform,
+  Alert,
 } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { TrendingUp, CheckCircle, Target, Inbox, Calendar, Trophy, Medal, Crown, Upload } from "lucide-react-native";
+import { TrendingUp, CheckCircle, Target, Inbox, Calendar, Trophy, Medal, Crown, Upload, AlertTriangle, XCircle } from "lucide-react-native";
 import { useCollection } from "@/providers/CollectionProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { DesignTokens } from "@/constants/colors";
 import ScreenContainer from "@/components/ScreenContainer";
-import { fetchCollectorStats, fetchCollectorProfile, fetchLeaderboard, fetchTaskActualsData, fetchAdminStartPlan, clearApiCache } from "@/services/googleSheets";
-import { CollectorStats, LeaderboardEntry, TaskActualRow, CollectorProfile, AdminStartPlanData } from "@/types";
+import {
+  fetchCollectorStats,
+  fetchCollectorProfile,
+  fetchLeaderboard,
+  fetchTaskActualsData,
+  fetchAdminStartPlan,
+  fetchDailyCarryover,
+  reportDailyCarryover,
+  cancelDailyCarryover,
+  clearApiCache,
+} from "@/services/googleSheets";
+import { CollectorStats, LeaderboardEntry, TaskActualRow, CollectorProfile, AdminStartPlanData, DailyCarryoverItem } from "@/types";
 import { Image } from "expo-image";
+import * as Haptics from "expo-haptics";
 
 function normalizeCollectorName(name: string): string {
   return name.replace(/\s*\(.*?\)\s*$/g, "").trim();
@@ -70,11 +82,8 @@ const LeaderboardRow = React.memo(function LeaderboardRow({ entry, index, isCurr
   const rankColor = entry.rank === 1 ? colors.gold : entry.rank === 2 ? colors.silver : entry.rank === 3 ? colors.bronze : colors.textMuted;
   const rankBg = entry.rank === 1 ? colors.goldBg : entry.rank === 2 ? colors.silverBg : entry.rank === 3 ? colors.bronzeBg : colors.bgInput;
   const regionColor = entry.region === "MX" ? colors.mxOrange : entry.region === "SF" ? colors.sfBlue : colors.accent;
-  const source = entry.hoursSource === "actual" ? "ACTUAL" : "REPORTED";
-  const sourceColor = source === "ACTUAL" ? colors.terminalGreen : colors.alertYellow;
-  const actual = Number(entry.actualHours) || 0;
-  const reported = Number(entry.reportedHours) || 0;
-  const showBreakdown = actual > 0 && reported > 0 && Math.abs(actual - reported) >= 0.01;
+  const source = "ACTUAL";
+  const sourceColor = colors.terminalGreen;
 
   return (
     <View style={[lbStyles.row, {
@@ -109,11 +118,6 @@ const LeaderboardRow = React.memo(function LeaderboardRow({ entry, index, isCurr
           <Text style={[lbStyles.statSep, { color: colors.border }]}>|</Text>
           <Text style={[lbStyles.statVal, { color: colors.textMuted }]}>{entry.completionRate.toFixed(0)}%</Text>
         </View>
-        {showBreakdown && (
-          <Text style={[lbStyles.metaText, { color: colors.textMuted }]}>
-            Actual {actual.toFixed(2)}h | Reported {reported.toFixed(2)}h
-          </Text>
-        )}
       </View>
       <AnimatedBar value={entry.hoursLogged} maxValue={80} color={rankColor} delay={index * 50 + 200} />
     </View>
@@ -204,6 +208,7 @@ export default function StatsScreen() {
   const [lbTab, setLbTab] = useState<LeaderboardTab>("combined");
   const [lbPeriod, setLbPeriod] = useState<LeaderboardPeriod>("thisWeek");
   const [lbVisibleCount, setLbVisibleCount] = useState(10);
+  const [carryoverPendingId, setCarryoverPendingId] = useState<string | null>(null);
   const syncPulse = useRef(new Animated.Value(0)).current;
 
   const normalizedName = useMemo(() => normalizeCollectorName(selectedCollectorName), [selectedCollectorName]);
@@ -249,6 +254,15 @@ export default function StatsScreen() {
     queryFn: fetchTaskActualsData,
     enabled: configured,
     staleTime: 120000,
+    retry: 1,
+    refetchOnWindowFocus: false,
+  });
+
+  const dailyCarryoverQuery = useQuery<DailyCarryoverItem[]>({
+    queryKey: ["dailyCarryover", selectedCollectorName],
+    queryFn: () => fetchDailyCarryover(selectedCollectorName),
+    enabled: configured && !!selectedCollectorName,
+    staleTime: 20000,
     retry: 1,
     refetchOnWindowFocus: false,
   });
@@ -315,6 +329,42 @@ export default function StatsScreen() {
       .slice(0, 6);
   }, [taskActualsQuery.data]);
 
+  const dailyCarryover = useMemo(() => dailyCarryoverQuery.data ?? [], [dailyCarryoverQuery.data]);
+
+  const handleCarryoverAction = useCallback(async (mode: "report" | "cancel", item: DailyCarryoverItem) => {
+    if (!selectedCollectorName) return;
+    setCarryoverPendingId(item.assignmentId);
+    try {
+      if (mode === "report") {
+        await reportDailyCarryover({
+          collector: selectedCollectorName,
+          task: item.taskName,
+          assignmentId: item.assignmentId,
+          actualHours: Number(item.actualHours) || 0,
+        });
+      } else {
+        await cancelDailyCarryover({
+          collector: selectedCollectorName,
+          task: item.taskName,
+          assignmentId: item.assignmentId,
+        });
+      }
+      await Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ["dailyCarryover", selectedCollectorName] }),
+        queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] }),
+        queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] }),
+        queryClient.invalidateQueries({ queryKey: ["collectorProfile", selectedCollectorName] }),
+        queryClient.invalidateQueries({ queryKey: ["leaderboard"] }),
+      ]);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      Alert.alert("Carryover update failed", err instanceof Error ? err.message : "Unknown error");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setCarryoverPendingId(null);
+    }
+  }, [queryClient, selectedCollectorName]);
+
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     clearApiCache();
@@ -322,18 +372,29 @@ export default function StatsScreen() {
       await Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] }),
         queryClient.invalidateQueries({ queryKey: ["collectorProfile", selectedCollectorName] }),
+        queryClient.invalidateQueries({ queryKey: ["dailyCarryover", selectedCollectorName] }),
         queryClient.invalidateQueries({ queryKey: ["leaderboard"] }),
         queryClient.invalidateQueries({ queryKey: ["adminStartPlan"] }),
       ]);
-      await Promise.allSettled([statsQuery.refetch(), profileQuery.refetch(), leaderboardQuery.refetch(), adminStartPlanQuery.refetch()]);
+      await Promise.allSettled([
+        statsQuery.refetch(),
+        profileQuery.refetch(),
+        dailyCarryoverQuery.refetch(),
+        leaderboardQuery.refetch(),
+        adminStartPlanQuery.refetch(),
+      ]);
     } finally {
       setRefreshing(false);
     }
-  }, [statsQuery, profileQuery, leaderboardQuery, adminStartPlanQuery, queryClient, selectedCollectorName]);
+  }, [statsQuery, profileQuery, dailyCarryoverQuery, leaderboardQuery, adminStartPlanQuery, queryClient, selectedCollectorName]);
 
   const stats = statsQuery.data;
   const profile = profileQuery.data;
   const adminStartPlan = adminStartPlanQuery.data;
+  const todayActualUploaded = useMemo(() => {
+    const n = Number(stats?.todayActualHours);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }, [stats?.todayActualHours]);
   const cardShadow = useMemo(() => ({
     shadowColor: colors.shadow,
     ...DesignTokens.shadow.elevated,
@@ -435,9 +496,51 @@ export default function StatsScreen() {
       <View style={styles.heroGrid}>
         <HeroStat label="Assigned" value={String(localStats.total)} icon={<Target size={18} color={colors.accent} />} color={colors.accent} index={0} />
         <HeroStat label="Completed" value={String(localStats.completed)} icon={<CheckCircle size={18} color={colors.complete} />} color={colors.complete} index={1} />
-        <HeroStat label="Uploaded" value={`${localStats.totalLogged.toFixed(2)}h`} icon={<Upload size={18} color={colors.statusPending} />} color={colors.statusPending} index={2} />
+        <HeroStat label="Actual Uploaded" value={`${todayActualUploaded.toFixed(2)}h`} icon={<Upload size={18} color={colors.statusPending} />} color={colors.statusPending} index={2} />
         <HeroStat label="Active" value={String(localStats.active)} icon={<TrendingUp size={18} color={colors.accentLight} />} color={colors.accentLight} index={3} />
       </View>
+
+      {dailyCarryover.length > 0 && (
+        <View style={[styles.carryoverCard, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
+          <View style={styles.carryoverHeader}>
+            <AlertTriangle size={12} color={colors.alertYellow} />
+            <Text style={[styles.carryoverTitle, { color: colors.alertYellow }]}>INCOMPLETE FROM YESTERDAY</Text>
+          </View>
+          {dailyCarryover.map((item, idx) => {
+            const pending = carryoverPendingId === item.assignmentId;
+            return (
+              <View
+                key={`carry_${item.assignmentId}_${idx}`}
+                style={[styles.carryoverRow, { borderBottomColor: colors.border }, idx === dailyCarryover.length - 1 && styles.carryoverLast]}
+              >
+                <Text style={[styles.carryoverTask, { color: colors.textPrimary }]} numberOfLines={1}>{item.taskName}</Text>
+                <Text style={[styles.carryoverMeta, { color: colors.textMuted }]}>
+                  {item.assignedDate} · Actual {Number(item.actualHours || 0).toFixed(2)}h
+                </Text>
+                <View style={styles.carryoverActions}>
+                  <TouchableOpacity
+                    style={[styles.carryoverBtn, { backgroundColor: colors.completeBg, borderColor: colors.complete + "40", opacity: pending ? 0.7 : 1 }]}
+                    onPress={() => handleCarryoverAction("report", item)}
+                    disabled={pending}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.carryoverBtnText, { color: colors.complete }]}>Report - {Number(item.actualHours || 0).toFixed(2)}h</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.carryoverBtn, { backgroundColor: colors.cancelBg, borderColor: colors.cancel + "40", opacity: pending ? 0.7 : 1 }]}
+                    onPress={() => handleCarryoverAction("cancel", item)}
+                    disabled={pending}
+                    activeOpacity={0.8}
+                  >
+                    <XCircle size={12} color={colors.cancel} />
+                    <Text style={[styles.carryoverBtnText, { color: colors.cancel }]}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      )}
 
       {profile && (
         <View style={[styles.profileCard, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
@@ -838,6 +941,25 @@ const styles = StyleSheet.create({
   heroIconWrap: { width: 36, height: 36, borderRadius: DesignTokens.radius.md, alignItems: "center", justifyContent: "center", marginBottom: 10 },
   heroValue: { fontSize: 24, letterSpacing: -0.5, fontWeight: "700" as const },
   heroLabel: { fontSize: 11, marginTop: 2, fontWeight: "500" as const },
+  carryoverCard: { borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.lg, marginBottom: 14 },
+  carryoverHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
+  carryoverTitle: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1.1 },
+  carryoverRow: { borderBottomWidth: 1, paddingVertical: 10 },
+  carryoverLast: { borderBottomWidth: 0, paddingBottom: 2 },
+  carryoverTask: { fontSize: 12, fontWeight: "700" as const },
+  carryoverMeta: { fontSize: 10, marginTop: 2, marginBottom: 8 },
+  carryoverActions: { flexDirection: "row", gap: 8 },
+  carryoverBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  carryoverBtnText: { fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.2 },
   profileCard: { borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.lg, marginBottom: 14 },
   profileTop: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
   profileAvatar: { width: 44, height: 44, borderRadius: 14, borderWidth: 1, alignItems: "center", justifyContent: "center" },

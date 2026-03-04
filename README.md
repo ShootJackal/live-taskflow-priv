@@ -18,9 +18,12 @@ cd <YOUR_PROJECT_NAME>
 # Step 3: Install the necessary dependencies.
 npm install
 
-# Step 4: Configure your Google Apps Script URL.
+# Step 4: Configure your Google Apps Script URL(s).
 cp .env.example .env.local
-# Then edit `.env.local` and set EXPO_PUBLIC_GOOGLE_SCRIPT_URL to your deployed /exec URL.
+# Then edit `.env.local` and set:
+# EXPO_PUBLIC_GAS_CORE_URL=<your core script /exec URL>
+# EXPO_PUBLIC_GAS_ANALYTICS_URL=<your analytics script /exec URL>
+# (optional fallback) EXPO_PUBLIC_GOOGLE_SCRIPT_URL=<single script /exec URL>
 
 # Step 5: Start the instant web preview of your app in your browser, with auto-reloading of your changes
 npm run start-web
