@@ -415,17 +415,36 @@ function DisplaySettingsModal({
   ];
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
+      presentationStyle="overFullScreen"
+    >
       <View style={displayModalStyles.overlay}>
-        <View style={[displayModalStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+        <View
+          style={[displayModalStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}
+          accessible
+          accessibilityViewIsModal
+          accessibilityLabel={t("display_settings", "Display Settings")}
+          accessibilityHint="Adjust app theme, language, and visual behavior."
+        >
           <View style={displayModalStyles.header}>
             <Text style={[displayModalStyles.title, { color: colors.textPrimary }]}>{t("display_settings", "Display Settings")}</Text>
-            <TouchableOpacity style={[displayModalStyles.closeBtn, { borderColor: colors.border }]} onPress={onClose} activeOpacity={0.75}>
+            <TouchableOpacity
+              style={[displayModalStyles.closeBtn, { borderColor: colors.border }]}
+              onPress={onClose}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Close display settings"
+            >
               <X size={14} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
 
-          <Text style={[displayModalStyles.sectionLabel, { color: colors.textMuted }]}>{t("theme", "Theme")}</Text>
+          <Text accessibilityRole="header" style={[displayModalStyles.sectionLabel, { color: colors.textMuted }]}>{t("theme", "Theme")}</Text>
           <View style={[displayModalStyles.listCard, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
             {themeEntries.map(([key, meta], idx) => (
               <View key={key}>
@@ -434,6 +453,10 @@ function DisplaySettingsModal({
                   style={displayModalStyles.row}
                   onPress={() => onSelectTheme(key)}
                   activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Theme ${meta.label}`}
+                  accessibilityHint={resolvedMode === key ? "Currently selected." : "Double tap to apply this theme."}
+                  accessibilityState={{ selected: resolvedMode === key }}
                 >
                   <Text style={[displayModalStyles.rowLabel, { color: colors.textPrimary }]}>{meta.label}</Text>
                   <Switch
@@ -444,13 +467,14 @@ function DisplaySettingsModal({
                     trackColor={{ false: colors.border, true: colors.accent + "66" }}
                     thumbColor={resolvedMode === key ? colors.accent : colors.white}
                     ios_backgroundColor={colors.border}
+                    accessible={false}
                   />
                 </TouchableOpacity>
               </View>
             ))}
           </View>
 
-          <Text style={[displayModalStyles.sectionLabel, { color: colors.textMuted, marginTop: 14 }]}>{t("language", "Language")}</Text>
+          <Text accessibilityRole="header" style={[displayModalStyles.sectionLabel, { color: colors.textMuted, marginTop: 14 }]}>{t("language", "Language")}</Text>
           <View style={[displayModalStyles.listCard, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
             {languageEntries.map((entry, idx) => (
               <View key={entry.code}>
@@ -459,6 +483,10 @@ function DisplaySettingsModal({
                   style={displayModalStyles.row}
                   onPress={() => onSelectLocale(entry.code)}
                   activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Language ${entry.label}`}
+                  accessibilityHint={locale === entry.code ? "Currently selected." : "Double tap to switch language."}
+                  accessibilityState={{ selected: locale === entry.code }}
                 >
                   <Text style={[displayModalStyles.rowLabel, { color: colors.textPrimary }]}>{entry.label}</Text>
                   <Switch
@@ -469,15 +497,24 @@ function DisplaySettingsModal({
                     trackColor={{ false: colors.border, true: colors.accent + "66" }}
                     thumbColor={locale === entry.code ? colors.accent : colors.white}
                     ios_backgroundColor={colors.border}
+                    accessible={false}
                   />
                 </TouchableOpacity>
               </View>
             ))}
           </View>
 
-          <Text style={[displayModalStyles.sectionLabel, { color: colors.textMuted, marginTop: 14 }]}>System</Text>
+          <Text accessibilityRole="header" style={[displayModalStyles.sectionLabel, { color: colors.textMuted, marginTop: 14 }]}>System</Text>
           <View style={[displayModalStyles.listCard, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
-            <View style={displayModalStyles.row}>
+            <TouchableOpacity
+              style={displayModalStyles.row}
+              onPress={() => onToggleStatusBar(!hideStatusBar)}
+              activeOpacity={0.75}
+              accessibilityRole="switch"
+              accessibilityLabel={t("hide_status_bar", "Hide Status Bar")}
+              accessibilityState={{ checked: hideStatusBar }}
+              accessibilityHint="Controls whether the phone status bar is hidden while using TaskFlow."
+            >
               <Text style={[displayModalStyles.rowLabel, { color: colors.textPrimary }]}>{t("hide_status_bar", "Hide Status Bar")}</Text>
               <Switch
                 value={hideStatusBar}
@@ -485,8 +522,9 @@ function DisplaySettingsModal({
                 trackColor={{ false: colors.border, true: colors.accent + "66" }}
                 thumbColor={hideStatusBar ? colors.accent : colors.white}
                 ios_backgroundColor={colors.border}
+                accessible={false}
               />
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
       </View>
@@ -1551,7 +1589,7 @@ export default function ToolsScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={[styles.pageHeader, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-          <View pointerEvents="none" style={[styles.headerGlow, { backgroundColor: colors.accentSoft }]} />
+          <View pointerEvents="none" accessible={false} style={[styles.headerGlow, { backgroundColor: colors.accentSoft }]} />
           <View>
             <View style={[styles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
               <Text style={[styles.headerTagText, { color: colors.accent }]}>SETTINGS</Text>
@@ -1646,6 +1684,9 @@ export default function ToolsScreen() {
           onPress={() => setShowDisplayModal(true)}
           activeOpacity={0.75}
           testID="theme-toggle"
+          accessibilityRole="button"
+          accessibilityLabel="Open display settings"
+          accessibilityHint="Change theme, language, and status bar options."
         >
           <View style={[styles.settingIconWrap, { backgroundColor: colors.accentSoft }]}>
             <Palette size={16} color={colors.accent} />

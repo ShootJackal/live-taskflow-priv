@@ -165,8 +165,8 @@ const NewsTicker = React.memo(function NewsTicker({ segments }: { segments: Tick
         >
           {tickerText}
         </Animated.Text>
-        <View style={[tickerStyles.fadeEdgeLeft, { backgroundColor: colors.bgSecondary }]} pointerEvents="none" />
-        <View style={[tickerStyles.fadeEdgeRight, { backgroundColor: colors.bgSecondary }]} pointerEvents="none" />
+        <View style={[tickerStyles.fadeEdgeLeft, { backgroundColor: colors.bgSecondary }]} pointerEvents="none" accessible={false} />
+        <View style={[tickerStyles.fadeEdgeRight, { backgroundColor: colors.bgSecondary }]} pointerEvents="none" accessible={false} />
       </View>
     </View>
   );
@@ -721,7 +721,7 @@ export default function LiveScreen() {
   return (
     <ScreenContainer>
       <View style={[liveStyles.topBar, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-        <View pointerEvents="none" style={[liveStyles.headerGlow, { backgroundColor: colors.accentSoft }]} />
+        <View pointerEvents="none" accessible={false} style={[liveStyles.headerGlow, { backgroundColor: colors.accentSoft }]} />
         <View style={liveStyles.topBarLeft}>
           <View style={[liveStyles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
             <Text style={[liveStyles.headerTagText, { color: colors.accent }]}>{`${t("live", "Live").toUpperCase()} MONITOR`}</Text>
@@ -761,6 +761,7 @@ export default function LiveScreen() {
             }]}>
               <Animated.View
                 pointerEvents="none"
+                accessible={false}
                 style={[liveStyles.liveGlow, {
                   backgroundColor: isOnline ? livePillColor : colors.cancel,
                   opacity: livePulse.interpolate({ inputRange: [0, 1], outputRange: [0.1, 0.28] }),

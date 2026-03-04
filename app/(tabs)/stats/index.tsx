@@ -407,7 +407,7 @@ export default function StatsScreen() {
       refreshControl={refreshControl}
     >
       <View style={[styles.pageHeader, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-        <View pointerEvents="none" style={[styles.headerGlow, { backgroundColor: colors.accentSoft }]} />
+        <View pointerEvents="none" accessible={false} style={[styles.headerGlow, { backgroundColor: colors.accentSoft }]} />
         <View>
           <View style={[styles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
             <Text style={[styles.headerTagText, { color: colors.accent }]}>PERFORMANCE</Text>

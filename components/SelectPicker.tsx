@@ -3,6 +3,7 @@ import {
   View,
   Text,
   TouchableOpacity,
+  Pressable,
   Modal,
   FlatList,
   StyleSheet,
@@ -77,6 +78,9 @@ export default React.memo(function SelectPicker({
           ]}
           onPress={() => handleSelect(item.value)}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={item.label}
+          accessibilityState={{ selected: isSelected }}
         >
           <Text
             style={[
@@ -113,6 +117,10 @@ export default React.memo(function SelectPicker({
           style={[styles.trigger, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
           onPress={open}
           activeOpacity={0.92}
+          accessibilityRole="button"
+          accessibilityLabel={label ? `${label}. ${selectedOption?.label ?? placeholder}` : `Picker. ${selectedOption?.label ?? placeholder}`}
+          accessibilityHint="Double tap to open options."
+          accessibilityState={{ expanded: visible }}
         >
           <View
             pointerEvents="none"
@@ -140,12 +148,14 @@ export default React.memo(function SelectPicker({
         animationType="none"
         onRequestClose={close}
         statusBarTranslucent
+        presentationStyle="overFullScreen"
       >
         <Animated.View style={[styles.overlay, { opacity: fadeAnim, backgroundColor: colors.overlay }]}>
-          <TouchableOpacity
+          <Pressable
             style={styles.overlayTouch}
-            activeOpacity={1}
             onPress={close}
+            accessible={false}
+            {...(Platform.OS === "web" ? ({ "aria-hidden": true, focusable: false } as any) : {})}
           />
           <Animated.View
             style={[
@@ -164,8 +174,15 @@ export default React.memo(function SelectPicker({
                 ],
               },
             ]}
+            accessible
+            accessibilityViewIsModal
+            accessibilityLabel={label || "Select Option"}
           >
-            <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
+            <View
+              style={[styles.sheetHandle, { backgroundColor: colors.border }]}
+              accessible={false}
+              {...(Platform.OS === "web" ? ({ "aria-hidden": true, focusable: false } as any) : {})}
+            />
             <Text style={[styles.sheetTitle, { color: colors.textPrimary }]}>
               {label || "Select Option"}
             </Text>

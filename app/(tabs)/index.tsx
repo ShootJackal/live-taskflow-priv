@@ -286,7 +286,7 @@ export default function DashboardScreen() {
           }
         >
           <View style={[styles.header, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-            <View pointerEvents="none" style={[styles.headerGlow, { backgroundColor: colors.accentSoft }]} />
+            <View pointerEvents="none" accessible={false} style={[styles.headerGlow, { backgroundColor: colors.accentSoft }]} />
             <View style={styles.headerLeft}>
               <View style={[styles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
                 <Text style={[styles.headerTagText, { color: colors.accent }]}>COLLECT HUB</Text>

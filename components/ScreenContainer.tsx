@@ -22,6 +22,43 @@ export default React.memo(function ScreenContainer({
   const { width: windowWidth } = useWindowDimensions();
   const isWide = Platform.OS === "web" && windowWidth > maxWidth + 80;
 
+  const decorativeProps = useMemo(
+    () =>
+      Platform.OS === "web"
+        ? ({ "aria-hidden": true, focusable: false } as any)
+        : ({ accessible: false } as any),
+    []
+  );
+
+  const mainLandmarkProps = useMemo(
+    () =>
+      Platform.OS === "web"
+        ? ({ role: "main", "aria-label": "TaskFlow main content" } as any)
+        : {},
+    []
+  );
+
+  const auraTones = useMemo(() => {
+    if (isDark) {
+      return {
+        top: "rgba(124,94,255,0.26)",
+        mid: "rgba(80,198,163,0.16)",
+        left: "rgba(95,124,255,0.16)",
+        right: "rgba(244,144,206,0.13)",
+        bottom: "rgba(35,58,132,0.20)",
+        veil: "rgba(255,255,255,0.035)",
+      };
+    }
+    return {
+      top: "rgba(126,86,255,0.20)",
+      mid: "rgba(96,180,240,0.12)",
+      left: "rgba(112,152,255,0.10)",
+      right: "rgba(236,126,190,0.11)",
+      bottom: "rgba(119,168,255,0.10)",
+      veil: "rgba(255,255,255,0.34)",
+    };
+  }, [isDark]);
+
   const containerStyle = useMemo(
     () => [
       styles.root,
@@ -50,27 +87,54 @@ export default React.memo(function ScreenContainer({
 
   if (isWide) {
     return (
-      <View style={containerStyle}>
+      <View style={containerStyle} {...mainLandmarkProps}>
         <View
           pointerEvents="none"
           style={[
-            styles.gradientTop,
-            { backgroundColor: isDark ? "rgba(167,139,250,0.18)" : "rgba(124,58,237,0.13)" },
+            styles.topAura,
+            { backgroundColor: auraTones.top },
           ]}
+          {...decorativeProps}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            styles.midAura,
+            { backgroundColor: auraTones.mid },
+          ]}
+          {...decorativeProps}
         />
         <View
           pointerEvents="none"
           style={[
             styles.gradientBlobLeft,
-            { backgroundColor: isDark ? "rgba(96,165,250,0.13)" : "rgba(96,165,250,0.10)" },
+            { backgroundColor: auraTones.left },
           ]}
+          {...decorativeProps}
         />
         <View
           pointerEvents="none"
           style={[
             styles.gradientBlobRight,
-            { backgroundColor: isDark ? "rgba(236,72,153,0.10)" : "rgba(236,72,153,0.08)" },
+            { backgroundColor: auraTones.right },
           ]}
+          {...decorativeProps}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            styles.bottomAura,
+            { backgroundColor: auraTones.bottom },
+          ]}
+          {...decorativeProps}
+        />
+        <View
+          pointerEvents="none"
+          style={[
+            styles.topVeil,
+            { backgroundColor: auraTones.veil, top: insets.top ? insets.top - 10 : 0 },
+          ]}
+          {...decorativeProps}
         />
         <View style={[styles.stage, { backgroundColor: colors.bgSecondary }]}>
           <View style={bezelStyle}>
@@ -80,6 +144,7 @@ export default React.memo(function ScreenContainer({
                 styles.bezelHighlight,
                 { backgroundColor: isDark ? "rgba(255,255,255,0.03)" : colors.cardDepth },
               ]}
+              {...decorativeProps}
             />
             {children}
           </View>
@@ -89,27 +154,54 @@ export default React.memo(function ScreenContainer({
   }
 
   return (
-    <View style={containerStyle}>
+    <View style={containerStyle} {...mainLandmarkProps}>
       <View
         pointerEvents="none"
         style={[
-          styles.gradientTop,
-          { backgroundColor: isDark ? "rgba(167,139,250,0.18)" : "rgba(124,58,237,0.13)" },
+          styles.topAura,
+          { backgroundColor: auraTones.top },
         ]}
+        {...decorativeProps}
+      />
+      <View
+        pointerEvents="none"
+        style={[
+          styles.midAura,
+          { backgroundColor: auraTones.mid },
+        ]}
+        {...decorativeProps}
       />
       <View
         pointerEvents="none"
         style={[
           styles.gradientBlobLeft,
-          { backgroundColor: isDark ? "rgba(96,165,250,0.13)" : "rgba(96,165,250,0.10)" },
+          { backgroundColor: auraTones.left },
         ]}
+        {...decorativeProps}
       />
       <View
         pointerEvents="none"
         style={[
           styles.gradientBlobRight,
-          { backgroundColor: isDark ? "rgba(236,72,153,0.10)" : "rgba(236,72,153,0.08)" },
+          { backgroundColor: auraTones.right },
         ]}
+        {...decorativeProps}
+      />
+      <View
+        pointerEvents="none"
+        style={[
+          styles.bottomAura,
+          { backgroundColor: auraTones.bottom },
+        ]}
+        {...decorativeProps}
+      />
+      <View
+        pointerEvents="none"
+        style={[
+          styles.topVeil,
+          { backgroundColor: auraTones.veil, top: insets.top ? insets.top - 10 : 0 },
+        ]}
+        {...decorativeProps}
       />
       {children}
     </View>
@@ -120,33 +212,59 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  gradientTop: {
+  topAura: {
     position: "absolute",
-    top: -120,
+    top: -140,
     left: -20,
     right: -20,
-    height: 300,
-    borderBottomLeftRadius: 160,
-    borderBottomRightRadius: 160,
-    opacity: 0.9,
+    height: 330,
+    borderBottomLeftRadius: 180,
+    borderBottomRightRadius: 180,
+    opacity: 0.95,
+  },
+  midAura: {
+    position: "absolute",
+    top: 150,
+    left: 10,
+    right: 10,
+    height: 360,
+    borderRadius: 220,
+    opacity: 0.72,
   },
   gradientBlobLeft: {
     position: "absolute",
-    top: 110,
-    left: -90,
-    width: 220,
-    height: 220,
-    borderRadius: 120,
-    opacity: 0.55,
+    top: 96,
+    left: -110,
+    width: 250,
+    height: 250,
+    borderRadius: 140,
+    opacity: 0.6,
   },
   gradientBlobRight: {
     position: "absolute",
-    top: 180,
-    right: -110,
-    width: 250,
-    height: 250,
-    borderRadius: 130,
-    opacity: 0.45,
+    top: 190,
+    right: -126,
+    width: 280,
+    height: 280,
+    borderRadius: 150,
+    opacity: 0.58,
+  },
+  bottomAura: {
+    position: "absolute",
+    left: -40,
+    right: -40,
+    bottom: -180,
+    height: 340,
+    borderTopLeftRadius: 200,
+    borderTopRightRadius: 200,
+    opacity: 0.65,
+  },
+  topVeil: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: 120,
+    opacity: 0.9,
   },
   stage: {
     flex: 1,

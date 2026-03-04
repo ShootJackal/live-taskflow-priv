@@ -163,7 +163,7 @@ export const LightTheme: ThemeColors = {
   sheets: '#2D8A56',
   sheetsBg: '#E4F4EB',
 
-  tabBar: '#EAF0F8',
+  tabBar: 'rgba(237,243,252,0.92)',
   tabBarBorder: 'transparent',
 
   skeleton: '#CDD6E4',
@@ -241,7 +241,7 @@ export const DarkTheme: ThemeColors = {
   sheets: '#5EBD8A',
   sheetsBg: '#0E1A12',
 
-  tabBar: '#202839',
+  tabBar: 'rgba(34,42,61,0.90)',
   tabBarBorder: 'transparent',
 
   skeleton: '#2F394D',
@@ -280,7 +280,7 @@ export const DarkTheme: ThemeColors = {
 export const FrostedGlassTheme: ThemeColors = {
   bg: '#EAEEF6',
   bgSecondary: '#E2E7F1',
-  bgCard: 'rgba(255, 255, 255, 0.90)',
+  bgCard: 'rgba(255, 255, 255, 0.93)',
   bgInput: 'rgba(236, 241, 249, 0.94)',
   bgElevated: 'rgba(248, 250, 255, 0.82)',
   border: 'rgba(180, 185, 210, 0.46)',
@@ -319,7 +319,7 @@ export const FrostedGlassTheme: ThemeColors = {
   sheets: '#2D8A56',
   sheetsBg: 'rgba(228, 244, 235, 0.60)',
 
-  tabBar: 'rgba(241, 245, 252, 0.92)',
+  tabBar: 'rgba(241, 245, 252, 0.95)',
   tabBarBorder: 'transparent',
 
   skeleton: 'rgba(194, 202, 224, 0.42)',
@@ -358,7 +358,7 @@ export const FrostedGlassTheme: ThemeColors = {
 export const TintedGlassTheme: ThemeColors = {
   bg: '#18132F',
   bgSecondary: '#1E1940',
-  bgCard: 'rgba(50, 41, 98, 0.84)',
+  bgCard: 'rgba(50, 41, 98, 0.90)',
   bgInput: 'rgba(44, 36, 87, 0.88)',
   bgElevated: 'rgba(72, 56, 132, 0.66)',
   border: 'rgba(146, 116, 228, 0.34)',
@@ -397,7 +397,7 @@ export const TintedGlassTheme: ThemeColors = {
   sheets: '#6ECC9A',
   sheetsBg: 'rgba(30, 80, 50, 0.35)',
 
-  tabBar: 'rgba(36, 29, 72, 0.92)',
+  tabBar: 'rgba(36, 29, 72, 0.95)',
   tabBarBorder: 'transparent',
 
   skeleton: 'rgba(100, 80, 160, 0.30)',

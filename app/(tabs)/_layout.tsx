@@ -14,19 +14,18 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Haptics from "expo-haptics";
 import { useTheme } from "@/providers/ThemeProvider";
 import { useLocale } from "@/providers/LocaleProvider";
 import { useCollection } from "@/providers/CollectionProvider";
 import { DesignTokens } from "@/constants/colors";
 import { fetchLiveAlerts } from "@/services/googleSheets";
 import type { LiveAlert } from "@/types";
-import * as Haptics from "expo-haptics";
 
 const { width: FALLBACK_SCREEN_WIDTH } = Dimensions.get("window");
 const ALERT_LAST_SEEN_KEY = "ci_live_alert_seen_ts";
 
 const TAB_ORDER = ["live", "index", "stats", "tools"] as const;
-const MAIN_TAB_ORDER = ["index", "stats", "tools"] as const;
 type TabName = (typeof TAB_ORDER)[number];
 
 const TAB_CONFIG: Record<TabName, { titleKey: string; fallback: string; icon: (color: string, size: number) => React.ReactNode }> = {
@@ -43,7 +42,7 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const sliderAnim = useRef(new Animated.Value(0)).current;
-  const liveScaleAnim = useRef(new Animated.Value(1)).current;
+  const unreadPulse = useRef(new Animated.Value(0)).current;
   const [lastSeenAlertTs, setLastSeenAlertTs] = useState(0);
 
   const alertsQuery = useQuery<LiveAlert[]>({
@@ -89,80 +88,155 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
 
   const unreadCount = latestAlertTs > lastSeenAlertTs ? 1 : 0;
 
-  const { TAB_WIDTH, islandMaxWidth, islandWidth } = useMemo(() => {
+  useEffect(() => {
+    if (unreadCount <= 0) {
+      unreadPulse.stopAnimation();
+      unreadPulse.setValue(0);
+      return;
+    }
+
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(unreadPulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(unreadPulse, { toValue: 0, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [unreadCount, unreadPulse]);
+
+  const { TAB_WIDTH, islandWidth } = useMemo(() => {
     const safeWidth = windowWidth > 0 ? windowWidth : FALLBACK_SCREEN_WIDTH;
-    const ISLAND_MARGIN = DesignTokens.spacing.lg;
-    const maxW = Platform.OS === "web" ? Math.min(safeWidth, DesignTokens.maxContentWidth) : safeWidth;
-    const usableWidth = Math.max(300, maxW - ISLAND_MARGIN * 2);
-    const liveButtonWidth = 70;
-    const interGap = 10;
-    const mainIslandWidth = Math.max(220, usableWidth - liveButtonWidth - interGap);
+    const islandMargin = DesignTokens.spacing.lg;
+    const maxW = Platform.OS === "web" ? Math.min(safeWidth, DesignTokens.maxContentWidth + 44) : safeWidth;
+    const usableWidth = Math.max(290, maxW - islandMargin * 2);
     return {
-      TAB_WIDTH: mainIslandWidth / MAIN_TAB_ORDER.length,
-      islandMaxWidth: usableWidth,
-      islandWidth: mainIslandWidth,
+      TAB_WIDTH: usableWidth / TAB_ORDER.length,
+      islandWidth: usableWidth,
     };
   }, [windowWidth]);
 
   const focusedRouteName = state.routes[state.index]?.name as TabName | undefined;
-  const focusedMainIndex = MAIN_TAB_ORDER.findIndex((name) => name === focusedRouteName);
+  const focusedTabIndex = TAB_ORDER.findIndex((name) => name === focusedRouteName);
 
   useEffect(() => {
     Animated.spring(sliderAnim, {
-      toValue: Math.max(0, focusedMainIndex) * TAB_WIDTH,
-      useNativeDriver: true, speed: 28, bounciness: 5,
-    }).start();
-  }, [focusedMainIndex, TAB_WIDTH, sliderAnim]);
-
-  useEffect(() => {
-    Animated.spring(liveScaleAnim, {
-      toValue: isLiveFocused ? 1.06 : 1,
-      speed: 24,
-      bounciness: 7,
+      toValue: Math.max(0, focusedTabIndex) * TAB_WIDTH,
       useNativeDriver: true,
+      speed: 26,
+      bounciness: 7,
     }).start();
-  }, [isLiveFocused, liveScaleAnim]);
+  }, [focusedTabIndex, TAB_WIDTH, sliderAnim]);
 
   const handlePressRoute = useCallback(
     (index: number) => {
       const route = state.routes[index];
       const isFocused = state.index === index;
       const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
-      if (!isFocused && !event.defaultPrevented) {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      if (event.defaultPrevented) return;
+
+      if (!isFocused) {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
         navigation.navigate(route.name);
+        return;
       }
+
+      Haptics.selectionAsync();
     },
     [state, navigation]
   );
 
-  const BOTTOM_PAD = insets.bottom > 0 ? insets.bottom : 10;
-  const FLOAT_OFFSET = 10;
+  const bottomPad = insets.bottom > 0 ? insets.bottom : 10;
 
   return (
-    <View style={[barStyles.outerWrap, { paddingBottom: BOTTOM_PAD + FLOAT_OFFSET }]}>
-      <View style={[barStyles.islandWrap, { maxWidth: islandMaxWidth + 24 }]}>
-        <View style={barStyles.navRow}>
-          <Animated.View style={{ transform: [{ scale: liveScaleAnim }] }}>
+    <View style={[barStyles.outerWrap, { paddingBottom: bottomPad + 8 }]}>
+      <View
+        style={[
+          barStyles.island,
+          {
+            width: islandWidth,
+            backgroundColor: colors.tabBar,
+            borderColor: isDark ? colors.border : colors.borderLight,
+            shadowColor: colors.shadow,
+          },
+        ]}
+        {...(Platform.OS === "web" ? ({ role: "tablist", "aria-label": "TaskFlow navigation" } as any) : {})}
+      >
+        <View
+          pointerEvents="none"
+          accessible={false}
+          style={[
+            barStyles.glassSheen,
+            { backgroundColor: isDark ? "rgba(255,255,255,0.05)" : colors.cardDepth },
+          ]}
+          {...(Platform.OS === "web" ? ({ "aria-hidden": true, focusable: false } as any) : {})}
+        />
+
+        <Animated.View
+          pointerEvents="none"
+          accessible={false}
+          style={[
+            barStyles.activePill,
+            {
+              width: TAB_WIDTH - 10,
+              backgroundColor: colors.accent + "20",
+              borderColor: colors.accent + "42",
+              transform: [{ translateX: sliderAnim }],
+            },
+          ]}
+          {...(Platform.OS === "web" ? ({ "aria-hidden": true, focusable: false } as any) : {})}
+        />
+
+        {TAB_ORDER.map((tabName) => {
+          const routeIndex = getRouteIndexByName(tabName);
+          if (routeIndex < 0) return null;
+
+          const isFocused = state.index === routeIndex;
+          const cfg = TAB_CONFIG[tabName];
+          const iconColor = isFocused ? colors.accent : colors.textMuted;
+          const label = t(cfg.titleKey, cfg.fallback);
+
+          return (
             <TouchableOpacity
-              style={[
-                barStyles.liveOrb,
-                {
-                  backgroundColor: isLiveFocused ? colors.complete + "18" : colors.tabBar,
-                  borderColor: isLiveFocused ? colors.complete + "45" : (isDark ? colors.border : colors.borderLight),
-                  shadowColor: colors.shadow,
-                },
-              ]}
-              onPress={() => {
-                if (liveRouteIndex >= 0) handlePressRoute(liveRouteIndex);
-              }}
-              activeOpacity={0.78}
-              testID="tab-live"
+              key={tabName}
+              style={[barStyles.tab, { width: TAB_WIDTH }]}
+              onPress={() => handlePressRoute(routeIndex)}
+              activeOpacity={0.8}
+              testID={`tab-${tabName}`}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isFocused }}
+              accessibilityLabel={`${label} tab`}
             >
-              <View style={barStyles.liveIconWrap}>
-                {TAB_CONFIG.live.icon(isLiveFocused ? colors.complete : colors.textMuted, 20)}
-                <View style={[barStyles.liveBlip, { backgroundColor: colors.complete }]} />
-                {unreadCount > 0 && (
+              <View
+                style={[
+                  barStyles.iconWrap,
+                  isFocused && {
+                    backgroundColor: colors.accent + "14",
+                    borderRadius: 14,
+                  },
+                ]}
+              >
+                {cfg.icon(iconColor, tabName === "live" ? 20 : 19)}
+                {tabName === "live" && (
+                  <Animated.View
+                    style={[
+                      barStyles.liveDot,
+                      {
+                        backgroundColor: unreadCount > 0 ? colors.cancel : colors.complete,
+                        opacity: unreadCount > 0
+                          ? unreadPulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] })
+                          : 0.85,
+                        transform: [{
+                          scale: unreadCount > 0
+                            ? unreadPulse.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.18] })
+                            : 1,
+                        }],
+                      },
+                    ]}
+                    pointerEvents="none"
+                  />
+                )}
+                {tabName === "live" && unreadCount > 0 && (
                   <View style={[barStyles.alertBadge, { backgroundColor: colors.cancel }]}>
                     <Text style={barStyles.alertBadgeText}>+{unreadCount}</Text>
                   </View>
@@ -172,69 +246,19 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
                 style={[
                   barStyles.label,
                   {
-                    color: isLiveFocused ? colors.complete : colors.textMuted,
-                    fontWeight: isLiveFocused ? ("700" as const) : ("500" as const),
-                    fontSize: 8,
-                    letterSpacing: 1.5,
-                    fontFamily: isLiveFocused ? "Lexend_700Bold" : "Lexend_500Medium",
+                    color: iconColor,
+                    fontWeight: isFocused ? ("700" as const) : ("500" as const),
+                    fontSize: tabName === "live" ? 9 : 9,
+                    letterSpacing: tabName === "live" ? 1.2 : 0.6,
+                    fontFamily: isFocused ? "Lexend_700Bold" : "Lexend_500Medium",
                   },
                 ]}
               >
-                {t(TAB_CONFIG.live.titleKey, TAB_CONFIG.live.fallback).toUpperCase()}
+                {tabName === "live" ? label.toUpperCase() : label}
               </Text>
             </TouchableOpacity>
-          </Animated.View>
-
-          <View style={[barStyles.mainIslandWrap, { width: islandWidth }]}>
-            <View style={[barStyles.island, {
-              backgroundColor: colors.tabBar,
-              shadowColor: colors.shadow,
-              borderColor: isDark ? colors.border : colors.borderLight,
-            }]}>
-              <Animated.View style={[barStyles.slider, {
-                backgroundColor: colors.accent,
-                width: TAB_WIDTH * 0.5,
-                left: TAB_WIDTH * 0.25,
-                opacity: focusedMainIndex >= 0 ? 1 : 0,
-                transform: [{ translateX: sliderAnim }],
-              }]} />
-
-              {MAIN_TAB_ORDER.map((tabName) => {
-                const routeIndex = getRouteIndexByName(tabName);
-                if (routeIndex < 0) return null;
-                const isFocused = state.index === routeIndex;
-                const cfg = TAB_CONFIG[tabName];
-                const iconColor = isFocused ? colors.accent : colors.textMuted;
-
-                return (
-                  <TouchableOpacity
-                    key={tabName}
-                    style={[barStyles.tab, { width: TAB_WIDTH }]}
-                    onPress={() => handlePressRoute(routeIndex)}
-                    activeOpacity={0.74}
-                    testID={`tab-${tabName}`}
-                  >
-                    <View style={[barStyles.iconWrap, isFocused && {
-                      backgroundColor: colors.accent + "12",
-                      borderRadius: 14,
-                    }]}>
-                      {cfg.icon(iconColor, 19)}
-                    </View>
-                    <Text style={[barStyles.label, {
-                      color: iconColor,
-                      fontWeight: isFocused ? ("700" as const) : ("500" as const),
-                      fontSize: 9,
-                      letterSpacing: 0.5,
-                      fontFamily: isFocused ? "Lexend_700Bold" : "Lexend_500Medium",
-                    }]}>
-                      {t(cfg.titleKey, cfg.fallback)}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
-        </View>
+          );
+        })}
       </View>
     </View>
   );
@@ -247,7 +271,11 @@ export default function TabLayout() {
     <Tabs
       initialRouteName="live"
       tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{ headerShown: false, tabBarActiveTintColor: colors.accent, tabBarInactiveTintColor: colors.textMuted }}
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.textMuted,
+      }}
     >
       <Tabs.Screen name="live" options={{ title: t("live", "LIVE").toUpperCase() }} />
       <Tabs.Screen name="index" options={{ title: t("collect", "Collect"), headerShown: false }} />
@@ -259,49 +287,69 @@ export default function TabLayout() {
 
 const barStyles = StyleSheet.create({
   outerWrap: {
-    position: "absolute", bottom: 0, left: 0, right: 0,
-    alignItems: "center", paddingHorizontal: DesignTokens.spacing.lg + 2,
-  },
-  islandWrap: {
-    width: "100%",
-    position: "relative",
-    alignSelf: "center",
-  },
-  navRow: {
-    flexDirection: "row",
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
     alignItems: "center",
-    gap: 8,
-  },
-  liveOrb: {
-    width: 66,
-    height: 54,
-    borderRadius: DesignTokens.radius.xl,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.16,
-    shadowRadius: 14,
-    elevation: 8,
-  },
-  liveIconWrap: { width: 36, height: 28, alignItems: "center", justifyContent: "center", position: "relative" },
-  mainIslandWrap: {
-    position: "relative",
-    alignSelf: "center",
+    paddingHorizontal: DesignTokens.spacing.lg,
   },
   island: {
-    flexDirection: "row", borderRadius: DesignTokens.radius.xxl + 4, borderWidth: 1, paddingVertical: 6,
-    shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.16, shadowRadius: 16, elevation: 10,
-    position: "relative", overflow: "hidden", width: "100%",
+    borderRadius: 30,
+    borderWidth: 1,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 18,
+    elevation: 11,
+    overflow: "hidden",
+    position: "relative",
   },
-  slider: { position: "absolute", bottom: 0, height: 2.5, borderTopLeftRadius: 2, borderTopRightRadius: 2 },
-  tab: { alignItems: "center", justifyContent: "center", paddingVertical: 6, gap: 3 },
-  iconWrap: { width: 40, height: 32, alignItems: "center", justifyContent: "center", position: "relative" },
-  liveBlip: { position: "absolute", top: 1, right: 5, width: 5, height: 5, borderRadius: 3 },
+  glassSheen: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "48%",
+    opacity: 0.9,
+  },
+  activePill: {
+    position: "absolute",
+    top: 4,
+    bottom: 4,
+    left: 5,
+    borderRadius: 24,
+    borderWidth: 1,
+  },
+  tab: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 6,
+    gap: 3,
+  },
+  iconWrap: {
+    width: 40,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  liveDot: {
+    position: "absolute",
+    top: 1,
+    right: 5,
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+  },
   alertBadge: {
     position: "absolute",
-    top: -4,
-    right: -7,
+    top: -5,
+    right: -6,
     minWidth: 18,
     height: 18,
     borderRadius: 10,
@@ -309,6 +357,13 @@ const barStyles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 4,
   },
-  alertBadgeText: { color: "#FFFFFF", fontSize: 9, fontWeight: "700" as const, letterSpacing: 0.2 },
-  label: { textTransform: "uppercase" },
+  alertBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 9,
+    fontWeight: "700" as const,
+    letterSpacing: 0.2,
+  },
+  label: {
+    textTransform: "uppercase",
+  },
 });
