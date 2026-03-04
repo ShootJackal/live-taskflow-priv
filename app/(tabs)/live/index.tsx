@@ -505,7 +505,7 @@ export default function LiveScreen() {
   const totalRigCount = activeRigsQuery.data != null
     ? activeRigsQuery.data.activeRigsToday
     : totalRigCountFallback;
-  const liveAlerts = alertsQuery.data ?? [];
+  const liveAlerts = useMemo(() => alertsQuery.data ?? [], [alertsQuery.data]);
 
   const stats = statsQuery.data;
   const isSyncing = isFeeding || statsQuery.isFetching || leaderboardQuery.isFetching || todayLogQuery.isFetching || recollectionsQuery.isFetching || activeRigsQuery.isFetching || alertsQuery.isFetching;
