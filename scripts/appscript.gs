@@ -188,7 +188,23 @@ function doGet(e) {
 function doPost(e) {
   try {
     assertSheetConfig_();
-    var body = JSON.parse(e.postData.contents);
+    var raw = '';
+    if (e && e.postData && typeof e.postData.contents === 'string') {
+      raw = e.postData.contents;
+    } else if (e && e.parameter && typeof e.parameter.payload === 'string') {
+      // Fallback path for clients sending payload in query param.
+      raw = e.parameter.payload;
+    }
+    if (!raw) throw new Error('Missing POST payload');
+
+    var body;
+    try {
+      body = JSON.parse(raw);
+    } catch (parseErr) {
+      throw new Error('Invalid JSON payload');
+    }
+    body = unwrapSubmitBody(body);
+
     var result = handleSubmit(body);
     return jsonOut({ success: true, data: result, message: result.message || 'OK' });
   } catch (err) {
@@ -199,6 +215,28 @@ function doPost(e) {
 function jsonOut(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+function unwrapSubmitBody(body) {
+  var current = body;
+  for (var i = 0; i < 2; i++) {
+    if (!current || typeof current !== 'object' || current instanceof Date || Array.isArray(current)) break;
+    if (typeof current.collector !== 'undefined' || typeof current.task !== 'undefined' || typeof current.actionType !== 'undefined') break;
+    if (current.payload && typeof current.payload === 'object' && !Array.isArray(current.payload)) {
+      current = current.payload;
+      continue;
+    }
+    if (current.data && typeof current.data === 'object' && !Array.isArray(current.data)) {
+      current = current.data;
+      continue;
+    }
+    if (current.body && typeof current.body === 'object' && !Array.isArray(current.body)) {
+      current = current.body;
+      continue;
+    }
+    break;
+  }
+  return current;
 }
 
 function getSS() { return SpreadsheetApp.getActiveSpreadsheet(); }
@@ -1632,6 +1670,9 @@ function handleSubmitCore(collector, task, hours, actionType, notes, normCol, no
 }
 
 function handleSubmit(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new Error('Invalid submit payload: expected JSON object with collector/task/actionType');
+  }
   var collector = safeStr(body.collector);
   var task = safeStr(body.task);
   var hours = safeNum(body.hours);
