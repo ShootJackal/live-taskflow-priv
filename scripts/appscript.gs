@@ -76,6 +76,37 @@ var GET_CACHE_TTL_MS = {
 };
 var _rigHistorySnapshot = null;
 
+// MONOLITH STABILITY MAP
+// FOUNDATION (stable, write-critical): these should change rarely.
+// - doPost submit/write path (ASSIGN/COMPLETE/CANCEL/NOTE_ONLY)
+// - admin write actions: ADMIN_ASSIGN_TASK, ADMIN_CANCEL_TASK, ADMIN_EDIT_HOURS
+// - rig history + collector/task base reads: getCollectors, getTasks, getTodayLog, getFullLog
+// - carryover resolution writes: CARRYOVER_REPORT, CARRYOVER_CANCEL
+//
+// VOLATILE (derived analytics/cached): safe iteration zone.
+// - getLeaderboard, getCollectorStats, getCollectorProfile
+// - getTaskActualsSheet, getAdminDashboardData, getAdminStartPlan
+// - recollection/active-rig counts and cache warming/force repull
+var FOUNDATION_ACTIONS = {
+  getCollectors: true,
+  getTasks: true,
+  getTodayLog: true,
+  getFullLog: true,
+  getDailyCarryover: true
+};
+var VOLATILE_ACTIONS = {
+  getLeaderboard: true,
+  getCollectorStats: true,
+  getCollectorProfile: true,
+  getTaskActualsSheet: true,
+  getAdminDashboardData: true,
+  getAdminStartPlan: true,
+  getRecollections: true,
+  getActiveRigsCount: true,
+  refreshCache: true,
+  forceServerRepull: true
+};
+
 function assertSheetConfig_() {
   var required = ['COLLECTORS', 'TASK_LIST', 'ASSIGNMENTS', 'RS_TASK_REQ', 'APP_CACHE'];
   for (var i = 0; i < required.length; i++) {
