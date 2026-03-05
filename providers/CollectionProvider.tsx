@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { Alert } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import createContextHook from "@nkzw/create-context-hook";
@@ -9,6 +10,7 @@ import {
   ActivityEntry,
   ActionType,
   SubmitPayload,
+  AssignmentStatus,
 } from "@/types";
 import {
   fetchCollectors,
@@ -19,6 +21,8 @@ import {
   warmServerCache,
   logCollectorRigSelection,
 } from "@/services/googleSheets";
+import { normalizeCollectorName } from "@/utils/normalize";
+import { log } from "@/utils/logger";
 
 const STORAGE_KEYS = {
   SELECTED_COLLECTOR: "ci_selected_collector",
@@ -27,11 +31,11 @@ const STORAGE_KEYS = {
   ADMIN_AUTH: "ci_admin_auth",
 };
 
-const ADMIN_PASSWORD = "3121";
-
-function normalizeCollectorName(name: string): string {
-  return name.replace(/\s*\(.*?\)\s*$/g, "").trim();
-}
+// WARNING: Client-side password check is not secure. Anyone can inspect the
+// JS bundle and extract this value. For production use, validate the password
+// server-side (e.g. inside your Google Apps Script doPost handler) and return
+// a signed session token.
+const ADMIN_PASSWORD = process.env.EXPO_PUBLIC_ADMIN_PASSWORD ?? "";
 
 function mergeCollectors(raw: Collector[]): Collector[] {
   const map = new Map<string, Collector>();
@@ -183,7 +187,7 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   );
 
   const authenticateAdmin = useCallback(async (password: string): Promise<boolean> => {
-    console.log("[Provider] authenticateAdmin attempt");
+    log("[Provider] authenticateAdmin attempt");
     if (password === ADMIN_PASSWORD) {
       setIsAdmin(true);
       await AsyncStorage.setItem(
@@ -196,13 +200,13 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   }, []);
 
   const logoutAdmin = useCallback(async () => {
-    console.log("[Provider] logoutAdmin");
+    log("[Provider] logoutAdmin");
     setIsAdmin(false);
     await AsyncStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
   }, []);
 
   const selectCollector = useCallback(async (name: string) => {
-    console.log("[Provider] selectCollector:", name);
+    log("[Provider] selectCollector:", name);
     setSelectedCollectorName(name);
     setSelectedTaskName("");
     setSelectedRigState("");
@@ -211,7 +215,7 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   }, []);
 
   const setSelectedRig = useCallback(async (rig: string) => {
-    console.log("[Provider] setSelectedRig:", rig);
+    log("[Provider] setSelectedRig:", rig);
     setSelectedRigState(rig);
     await AsyncStorage.setItem(STORAGE_KEYS.SELECTED_RIG, rig);
     if (selectedCollectorName && rig) {
@@ -246,28 +250,100 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     [selectedCollectorName, activity]
   );
 
+  const buildOptimisticLogEntry = useCallback((payload: SubmitPayload): LogEntry => {
+    const today = new Date().toISOString().split("T")[0];
+    const status: AssignmentStatus =
+      payload.actionType === "COMPLETE" ? "Completed"
+      : payload.actionType === "CANCEL" ? "Canceled"
+      : "In Progress";
+    return {
+      assignmentId: `optimistic_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      taskId: "",
+      taskName: payload.task,
+      status,
+      loggedHours: payload.hours,
+      plannedHours: payload.hours,
+      remainingHours: 0,
+      notes: payload.notes,
+      assignedDate: today,
+      completedDate: payload.actionType === "COMPLETE" ? today : "",
+    };
+  }, []);
+
+  const applyOptimisticUpdate = useCallback(
+    (log: LogEntry[], payload: SubmitPayload, entry: LogEntry): LogEntry[] => {
+      if (payload.actionType === "ASSIGN") {
+        return [entry, ...log];
+      }
+      return log.map((e) => {
+        if (e.taskName !== payload.task) return e;
+        if (e.status !== "In Progress" && e.status !== "Partial") return e;
+        switch (payload.actionType) {
+          case "COMPLETE":
+            return { ...e, status: "Completed" as AssignmentStatus, loggedHours: payload.hours, completedDate: entry.completedDate };
+          case "CANCEL":
+            return { ...e, status: "Canceled" as AssignmentStatus };
+          case "NOTE_ONLY":
+            return { ...e, notes: payload.notes };
+          default:
+            return e;
+        }
+      });
+    },
+    []
+  );
+
   const submitMutation = useMutation({
     mutationFn: async (payload: SubmitPayload) => {
-      console.log("[Provider] submitAction:", payload.actionType, payload.task);
+      log("[Provider] submitAction:", payload.actionType, payload.task);
       const result = await submitAction(payload);
       return { payload, result };
     },
+    onMutate: async (payload) => {
+      const collector = payload.collector;
+      await queryClient.cancelQueries({ queryKey: ["todayLog", collector] });
+
+      const previousLog = queryClient.getQueryData<LogEntry[]>(["todayLog", collector]);
+      const optimistic = buildOptimisticLogEntry(payload);
+      queryClient.setQueryData<LogEntry[]>(
+        ["todayLog", collector],
+        (old) => applyOptimisticUpdate(old ?? [], payload, optimistic),
+      );
+
+      setHoursToLog("");
+      setNotes("");
+      if (payload.actionType === "ASSIGN") {
+        setSelectedTaskName("");
+      }
+
+      return { previousLog, collector };
+    },
+    onError: (err, payload, context) => {
+      if (context?.previousLog !== undefined) {
+        queryClient.setQueryData(["todayLog", context.collector], context.previousLog);
+      }
+      const message = err instanceof Error ? err.message : "Sync failed";
+      Alert.alert(
+        "Sync Failed",
+        `Could not ${payload.actionType.toLowerCase()} "${payload.task}". ${message}`,
+      );
+    },
     onSuccess: async ({ payload, result }) => {
-      console.log("[Provider] Submit success:", result.message);
+      log("[Provider] Submit synced:", result.message);
       await addActivityEntry(
         payload.actionType,
         payload.task,
         result.hours ?? payload.hours,
         result.planned ?? 0,
         result.status ?? "",
-        payload.notes
+        payload.notes,
       );
-      queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] });
-      queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] });
-      setHoursToLog("");
-      setNotes("");
-      if (payload.actionType === "ASSIGN") {
-        setSelectedTaskName("");
+    },
+    onSettled: (_data, _err, payload) => {
+      submitInFlightRef.current = false;
+      if (payload) {
+        queryClient.invalidateQueries({ queryKey: ["todayLog", payload.collector] });
+        queryClient.invalidateQueries({ queryKey: ["collectorStats", payload.collector] });
       }
     },
   });
@@ -294,21 +370,15 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   );
 
   const submitOnce = useCallback(
-    async (payload: SubmitPayload) => {
-      if (submitInFlightRef.current) {
-        throw new Error("Submit already in progress");
-      }
+    (payload: SubmitPayload) => {
+      if (submitInFlightRef.current) return;
       submitInFlightRef.current = true;
-      try {
-        return await submitMutation.mutateAsync(payload);
-      } finally {
-        submitInFlightRef.current = false;
-      }
+      submitMutation.mutate(payload);
     },
     [submitMutation]
   );
 
-  const assignTask = useCallback(async () => {
+  const assignTask = useCallback(() => {
     if (!selectedCollectorName || !selectedTaskName) {
       throw new Error("Select collector and task first");
     }
@@ -316,7 +386,7 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     if (!hours || hours <= 0) {
       throw new Error("Enter hours to log before assigning");
     }
-    await submitOnce({
+    submitOnce({
       collector: selectedCollectorName,
       task: selectedTaskName,
       hours,
@@ -328,13 +398,13 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   }, [selectedCollectorName, selectedTaskName, hoursToLog, notes, selectedRig, createRequestId, submitOnce]);
 
   const completeTask = useCallback(
-    async (taskName: string) => {
+    (taskName: string) => {
       if (!selectedCollectorName) throw new Error("No collector selected");
       const hours = hoursToLog ? parseFloat(hoursToLog) : 0;
       if (!hours || hours <= 0) {
         throw new Error("Enter hours to log before completing");
       }
-      await submitOnce({
+      submitOnce({
         collector: selectedCollectorName,
         task: taskName,
         hours,
@@ -348,9 +418,9 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   );
 
   const cancelTask = useCallback(
-    async (taskName: string) => {
+    (taskName: string) => {
       if (!selectedCollectorName) throw new Error("No collector selected");
-      await submitOnce({
+      submitOnce({
         collector: selectedCollectorName,
         task: taskName,
         hours: 0,
@@ -364,11 +434,11 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   );
 
   const addNote = useCallback(
-    async (taskName: string) => {
+    (taskName: string) => {
       if (!selectedCollectorName || !notes.trim()) {
         throw new Error("Select collector and enter notes");
       }
-      await submitOnce({
+      submitOnce({
         collector: selectedCollectorName,
         task: taskName,
         hours: 0,
@@ -381,12 +451,14 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     [selectedCollectorName, notes, selectedRig, createRequestId, submitOnce]
   );
 
-  const refreshData = useCallback(() => {
-    console.log("[Provider] Refreshing all data");
-    queryClient.invalidateQueries({ queryKey: ["collectors"] });
-    queryClient.invalidateQueries({ queryKey: ["tasks"] });
-    queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] });
-    queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] });
+  const refreshData = useCallback(async () => {
+    log("[Provider] Refreshing all data");
+    await Promise.allSettled([
+      queryClient.invalidateQueries({ queryKey: ["collectors"] }),
+      queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+      queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] }),
+      queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] }),
+    ]);
   }, [queryClient, selectedCollectorName]);
 
   return {
@@ -407,7 +479,8 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     isLoadingCollectors: collectorQuery.isLoading,
     isLoadingTasks: taskQuery.isLoading,
     isLoadingLog: todayLogQuery.isLoading,
-    isSubmitting: submitMutation.isPending,
+    isSubmitting: false,
+    isSyncing: submitMutation.isPending,
     submitError: submitMutation.error?.message ?? null,
 
     selectCollector,

@@ -5,9 +5,9 @@ import {
   StyleSheet,
   ScrollView,
   Animated,
-  Dimensions,
   TouchableOpacity,
   Modal,
+  useWindowDimensions,
 } from "react-native";
 import { RefreshCw, Sun, Moon, Snowflake, Glasses, BookOpen, X, User, Clock3 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
@@ -19,15 +19,11 @@ import ScreenContainer from "@/components/ScreenContainer";
 import { useQuery } from "@tanstack/react-query";
 import { fetchTodayLog, fetchCollectorStats, fetchRecollections, fetchActiveRigsCount, fetchLeaderboard, fetchLiveAlerts } from "@/services/googleSheets";
 import { Image } from "expo-image";
+import { normalizeCollectorName } from "@/utils/normalize";
 import type { LiveAlert } from "@/types";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const FONT_MONO = DesignTokens.fontMono;
 const SF_RIG_NUMBERS = new Set(["2", "3", "4", "5", "6", "9", "11"]);
-
-function normalizeCollectorName(name: string): string {
-  return name.replace(/\s*\(.*?\)\s*$/g, "").trim();
-}
 
 function getRigRegion(rig: unknown): "SF" | "MX" {
   const key = String(rig ?? "").trim().toUpperCase();
@@ -62,8 +58,9 @@ interface RegionSnapshot {
 
 const NewsTicker = React.memo(function NewsTicker({ segments }: { segments: TickerSegment[] }) {
   const { colors, isDark } = useTheme();
+  const { width: screenWidth } = useWindowDimensions();
   const [activeIndex, setActiveIndex] = useState(0);
-  const scrollX = useRef(new Animated.Value(SCREEN_WIDTH)).current;
+  const scrollX = useRef(new Animated.Value(screenWidth)).current;
   const pillSlide = useRef(new Animated.Value(0)).current;
   const animRef = useRef<Animated.CompositeAnimation | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -75,16 +72,16 @@ const NewsTicker = React.memo(function NewsTicker({ segments }: { segments: Tick
     if (!segment) return;
 
     const tickerText = segment.items.join("     |     ");
-    const textWidth = tickerText.length * 7 + SCREEN_WIDTH;
+    const textWidth = tickerText.length * 7 + screenWidth;
     const charSpeed = segment.speed || 28;
     const duration = Math.max(textWidth * charSpeed, 10000);
 
-    scrollX.setValue(SCREEN_WIDTH * 1.2);
+    scrollX.setValue(screenWidth * 1.2);
 
     if (animRef.current) animRef.current.stop();
 
     const scrollAnim = Animated.timing(scrollX, {
-      toValue: -textWidth + SCREEN_WIDTH * 0.3,
+      toValue: -textWidth + screenWidth * 0.3,
       duration,
       useNativeDriver: true,
     });
@@ -113,7 +110,7 @@ const NewsTicker = React.memo(function NewsTicker({ segments }: { segments: Tick
         }, 2000);
       }
     });
-  }, [segments, scrollX, pillSlide]);
+  }, [segments, scrollX, pillSlide, screenWidth]);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -131,7 +128,7 @@ const NewsTicker = React.memo(function NewsTicker({ segments }: { segments: Tick
   const tickerText = seg.items.join("   |   ");
 
   const fadeOpacity = scrollX.interpolate({
-    inputRange: [SCREEN_WIDTH * 0.8, SCREEN_WIDTH * 1.2],
+    inputRange: [screenWidth * 0.8, screenWidth * 1.2],
     outputRange: [1, 0],
     extrapolate: 'clamp',
   });
@@ -364,6 +361,7 @@ export default function LiveScreen() {
   const [showGuide, setShowGuide] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
   const lineIndexRef = useRef(0);
+  const hasBootedRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const livePulse = useRef(new Animated.Value(0)).current;
   const brandWave = useRef(new Animated.Value(0)).current;
@@ -629,6 +627,13 @@ export default function LiveScreen() {
 
   useEffect(() => {
     setIsOnline(configured);
+
+    if (hasBootedRef.current) {
+      setLiveLines(allLines);
+      setIsFeeding(false);
+      return;
+    }
+
     setLiveLines([]);
     setIsFeeding(true);
     lineIndexRef.current = 0;
@@ -638,6 +643,7 @@ export default function LiveScreen() {
       if (lineIndexRef.current >= allLines.length) {
         if (intervalRef.current) clearInterval(intervalRef.current);
         setIsFeeding(false);
+        hasBootedRef.current = true;
         return;
       }
       const next = allLines[lineIndexRef.current];
@@ -679,6 +685,7 @@ export default function LiveScreen() {
 
   const handleResync = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    hasBootedRef.current = false;
     statsQuery.refetch();
     leaderboardQuery.refetch();
     todayLogQuery.refetch();
