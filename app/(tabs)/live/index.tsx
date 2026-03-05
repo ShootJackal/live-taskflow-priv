@@ -34,6 +34,16 @@ function getRigRegion(rig: unknown): "SF" | "MX" {
   return "MX";
 }
 
+function formatFeedError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error ?? "unknown error");
+  const clean = raw
+    .replace(/^Request failed:\s*/i, "")
+    .replace(/^Leaderboard feed unavailable:\s*/i, "")
+    .trim();
+  if (!clean) return "unknown error";
+  return clean.length > 68 ? `${clean.slice(0, 65)}...` : clean;
+}
+
 interface TerminalLine {
   id: string;
   text: string;
@@ -211,7 +221,7 @@ const CmdTerminal = React.memo(function CmdTerminal({ lines, isLoading, activeRi
     if (line.type === "cmd") return colors.terminalGreen;
     if (line.type === "prompt") return colors.terminalDim;
     if (line.type === "divider") return colors.terminalDim;
-    if (line.type === "label") return colors.mxOrange;
+    if (line.type === "label") return line.color ?? colors.mxOrange;
     if (line.type === "empty") return "transparent";
     return line.color ?? colors.textPrimary;
   }, [colors]);
@@ -452,6 +462,11 @@ export default function LiveScreen() {
   }, [collectors]);
 
   const leaderboardEntries = useMemo(() => leaderboardQuery.data ?? [], [leaderboardQuery.data]);
+  const hasLeaderboardError = leaderboardQuery.isError && leaderboardEntries.length === 0;
+  const leaderboardErrorText = useMemo(
+    () => (hasLeaderboardError ? formatFeedError(leaderboardQuery.error) : ""),
+    [hasLeaderboardError, leaderboardQuery.error]
+  );
 
   const regionOverview = useMemo(() => {
     const base: Record<"MX" | "SF", RegionSnapshot> = {
@@ -529,7 +544,9 @@ export default function LiveScreen() {
         `SF ${regionOverview.sf.hoursLogged.toFixed(2)}h · ${regionOverview.sf.tasksCompleted}/${regionOverview.sf.tasksAssigned} done`,
         `Combined ${regionOverview.totalHoursLogged.toFixed(2)}h · ${regionOverview.combinedCompletionRate.toFixed(1)}%`,
       ]
-      : ["Waiting for weekly leaderboard feed..."];
+      : (hasLeaderboardError
+        ? [`Leaderboard feed error: ${leaderboardErrorText}`]
+        : ["Waiting for weekly leaderboard feed..."]);
     segs.push({ label: "REGIONS", color: colors.mxOrange, items: regionItems, speed: 34 });
     const statsItems: string[] = [];
     if (stats) {
@@ -546,7 +563,7 @@ export default function LiveScreen() {
     }
     segs.push({ label: "STATS", color: colors.statsGreen, items: statsItems, speed: 36 });
     return segs;
-  }, [colors, recollectItems, stats, regionOverview, liveAlerts]);
+  }, [colors, recollectItems, stats, regionOverview, liveAlerts, hasLeaderboardError, leaderboardErrorText]);
 
   const buildTerminalLines = useCallback((): TerminalLine[] => {
     const lines: TerminalLine[] = [];
@@ -570,6 +587,8 @@ export default function LiveScreen() {
       lines.push({ id: `mx_t_${ts}`, text: `Tasks Logged:       ${regionOverview.mx.tasksAssigned}`, type: "data", color: colors.mxOrange });
       lines.push({ id: `mx_h2_${ts}`, text: `Hours Captured (wk): ${regionOverview.mx.hoursLogged.toFixed(2)}h`, type: "data", color: colors.mxOrange });
       lines.push({ id: `mx_r2_${ts}`, text: `Completion Rate:    ${regionOverview.mx.completionRate.toFixed(1)}%`, type: "data", color: colors.terminalGreen });
+    } else if (hasLeaderboardError) {
+      lines.push({ id: `mx_w_${ts}`, text: `Leaderboard error: ${leaderboardErrorText}`, type: "label", color: colors.cancel });
     } else {
       lines.push({ id: `mx_w_${ts}`, text: "Awaiting data feed...", type: "label" });
     }
@@ -583,6 +602,8 @@ export default function LiveScreen() {
       lines.push({ id: `sf_t_${ts}`, text: `Tasks Logged:       ${regionOverview.sf.tasksAssigned}`, type: "data", color: colors.sfBlue });
       lines.push({ id: `sf_h2_${ts}`, text: `Hours Captured (wk): ${regionOverview.sf.hoursLogged.toFixed(2)}h`, type: "data", color: colors.sfBlue });
       lines.push({ id: `sf_r2_${ts}`, text: `Completion Rate:    ${regionOverview.sf.completionRate.toFixed(1)}%`, type: "data", color: colors.terminalGreen });
+    } else if (hasLeaderboardError) {
+      lines.push({ id: `sf_w_${ts}`, text: `Leaderboard error: ${leaderboardErrorText}`, type: "label", color: colors.cancel });
     } else {
       lines.push({ id: `sf_w_${ts}`, text: "Awaiting data feed...", type: "label" });
     }
@@ -597,6 +618,8 @@ export default function LiveScreen() {
       lines.push({ id: `cb_3_${ts}`, text: `Weekly Hours:       ${regionOverview.totalHoursLogged.toFixed(2)}h`, type: "data", color: colors.accentLight });
       lines.push({ id: `cb_4_${ts}`, text: `Weekly Completed:   ${regionOverview.totalTasksCompleted}`, type: "data", color: colors.terminalGreen });
       lines.push({ id: `cb_5_${ts}`, text: `Total Rigs Active:  ${totalRigCount} (mapped MX: ${mxRigs} | SF: ${sfRigs})`, type: "data", color: colors.textPrimary });
+    } else if (hasLeaderboardError) {
+      lines.push({ id: `cb_w_${ts}`, text: "Leaderboard sync failed. Check endpoint config.", type: "label", color: colors.cancel });
     } else {
       lines.push({ id: `cb_w_${ts}`, text: "Syncing with server...", type: "label" });
     }
@@ -621,7 +644,7 @@ export default function LiveScreen() {
     lines.push({ id: `rdy_${ts}`, text: "Ready for commands.", type: "cmd" });
 
     return lines;
-  }, [mappedRigCounts, fallbackCollectorCounts, regionOverview, colors, recollectItems, totalRigCount]);
+  }, [mappedRigCounts, fallbackCollectorCounts, regionOverview, colors, recollectItems, totalRigCount, hasLeaderboardError, leaderboardErrorText]);
 
   const allLines = useMemo(() => buildTerminalLines(), [buildTerminalLines]);
 
