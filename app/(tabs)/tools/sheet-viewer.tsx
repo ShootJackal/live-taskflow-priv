@@ -10,6 +10,7 @@ import {
 import { useLocalSearchParams, Stack } from "expo-router";
 import { RefreshCw, AlertCircle, Clock, RotateCcw } from "lucide-react-native";
 import { useTheme } from "@/providers/ThemeProvider";
+import type { ThemeColors } from "@/constants/colors";
 import { useCollection } from "@/providers/CollectionProvider";
 import MarqueeText from "@/components/MarqueeText";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -31,7 +32,7 @@ function formatCount(value: number): string {
   return String(Math.max(0, Math.trunc(Number(value) || 0)));
 }
 
-function StatusBadge({ status, colors }: { status: string; colors: any }) {
+function StatusBadge({ status, colors }: { status: string; colors: ThemeColors }) {
   const upper = status.toUpperCase();
   const isComplete = upper === "COMPLETED" || upper === "DONE";
   const isCanceled = upper === "CANCELED";
@@ -65,7 +66,7 @@ const badgeStyles = StyleSheet.create({
   text: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 0.3 },
 });
 
-function LoadingState({ colors, message }: { colors: any; message: string }) {
+function LoadingState({ colors, message }: { colors: ThemeColors; message: string }) {
   return (
     <View style={viewStyles.center}>
       <ActivityIndicator color={colors.accent} size="large" />
@@ -74,7 +75,7 @@ function LoadingState({ colors, message }: { colors: any; message: string }) {
   );
 }
 
-function ErrorState({ colors, message, onRetry }: { colors: any; message: string; onRetry: () => void }) {
+function ErrorState({ colors, message, onRetry }: { colors: ThemeColors; message: string; onRetry: () => void }) {
   return (
     <View style={viewStyles.center}>
       <AlertCircle size={32} color={colors.cancel} />
@@ -92,7 +93,7 @@ function ErrorState({ colors, message, onRetry }: { colors: any; message: string
   );
 }
 
-function EmptyState({ colors, message }: { colors: any; message: string }) {
+function EmptyState({ colors, message }: { colors: ThemeColors; message: string }) {
   return (
     <View style={viewStyles.center}>
       <Text style={[viewStyles.emptyText, { color: colors.textMuted }]}>{message}</Text>
@@ -322,7 +323,7 @@ function TaskActualsView({ configured }: { configured: boolean }) {
   );
 }
 
-function TaskRow({ task, colors, showRecollectTime }: { task: TaskActualRow; colors: any; showRecollectTime?: boolean }) {
+function TaskRow({ task, colors, showRecollectTime }: { task: TaskActualRow; colors: ThemeColors; showRecollectTime?: boolean }) {
   const isRecollect = task.status.toUpperCase() === "RECOLLECT";
   const remainingRaw = Number(task.remainingHours) || 0;
   const remaining = Math.abs(remainingRaw) > 10000 ? 0 : Math.round(remainingRaw * 100) / 100;

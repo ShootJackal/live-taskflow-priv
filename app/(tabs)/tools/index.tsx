@@ -149,7 +149,7 @@ export default function ToolsScreen() {
     } catch {
       try {
         await Linking.openURL(webUrl);
-      } catch {}
+      } catch (_ignored) { /* best-effort link open */ }
     }
   }, []);
 
