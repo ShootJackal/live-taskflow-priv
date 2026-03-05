@@ -20,14 +20,11 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchTodayLog, fetchCollectorStats, fetchRecollections, fetchActiveRigsCount, fetchLeaderboard, fetchLiveAlerts } from "@/services/googleSheets";
 import { Image } from "expo-image";
 import type { LiveAlert } from "@/types";
+import { normalizeCollectorName } from "@/utils/strings";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const FONT_MONO = DesignTokens.fontMono;
 const SF_RIG_NUMBERS = new Set(["2", "3", "4", "5", "6", "9", "11"]);
-
-function normalizeCollectorName(name: string): string {
-  return name.replace(/\s*\(.*?\)\s*$/g, "").trim();
-}
 
 function getRigRegion(rig: unknown): "SF" | "MX" {
   const key = String(rig ?? "").trim().toUpperCase();
@@ -569,7 +566,7 @@ export default function LiveScreen() {
     lines.push({ id: `mx_c_${ts}`, text: `Collectors Online:  ${mxCount}`, type: "data", color: colors.textPrimary });
     lines.push({ id: `mx_r_${ts}`, text: `Mapped Rigs:        ${mxRigs}`, type: "data", color: colors.textPrimary });
     if (regionOverview.hasLeaderboardData) {
-      lines.push({ id: `mx_t_${ts}`, text: `Tasks Logged:       ${regionOverview.mx.tasksAssigned}`, type: "data", color: colors.mxOrange });
+      lines.push({ id: `mx_t_${ts}`, text: `Tasks Assigned (wk): ${regionOverview.mx.tasksAssigned}`, type: "data", color: colors.mxOrange });
       lines.push({ id: `mx_h2_${ts}`, text: `Hours Captured (wk): ${regionOverview.mx.hoursLogged.toFixed(2)}h`, type: "data", color: colors.mxOrange });
       lines.push({ id: `mx_r2_${ts}`, text: `Completion Rate:    ${regionOverview.mx.completionRate.toFixed(1)}%`, type: "data", color: colors.terminalGreen });
     } else {
@@ -582,7 +579,7 @@ export default function LiveScreen() {
     lines.push({ id: `sf_c_${ts}`, text: `Collectors Online:  ${sfCount}`, type: "data", color: colors.textPrimary });
     lines.push({ id: `sf_r_${ts}`, text: `Mapped Rigs:        ${sfRigs}`, type: "data", color: colors.textPrimary });
     if (regionOverview.hasLeaderboardData) {
-      lines.push({ id: `sf_t_${ts}`, text: `Tasks Logged:       ${regionOverview.sf.tasksAssigned}`, type: "data", color: colors.sfBlue });
+      lines.push({ id: `sf_t_${ts}`, text: `Tasks Assigned (wk): ${regionOverview.sf.tasksAssigned}`, type: "data", color: colors.sfBlue });
       lines.push({ id: `sf_h2_${ts}`, text: `Hours Captured (wk): ${regionOverview.sf.hoursLogged.toFixed(2)}h`, type: "data", color: colors.sfBlue });
       lines.push({ id: `sf_r2_${ts}`, text: `Completion Rate:    ${regionOverview.sf.completionRate.toFixed(1)}%`, type: "data", color: colors.terminalGreen });
     } else {
@@ -701,7 +698,7 @@ export default function LiveScreen() {
       { id: `ps_2_${ts}`, text: `Total Completed:    ${stats.totalCompleted}`, type: "data", color: colors.terminalGreen },
       { id: `ps_3_${ts}`, text: `Hours Logged (wk):  ${stats.weeklyLoggedHours.toFixed(2)}h`, type: "data", color: colors.accentLight },
       { id: `ps_4_${ts}`, text: `Completion Rate:    ${stats.completionRate.toFixed(0)}%`, type: "data", color: colors.terminalGreen },
-      { id: `ps_5_${ts}`, text: `Weekly Hours:       ${stats.weeklyLoggedHours.toFixed(2)}h`, type: "data", color: colors.accent },
+      { id: `ps_5_${ts}`, text: `Avg Hours/Task:     ${stats.avgHoursPerTask.toFixed(2)}h`, type: "data", color: colors.accent },
       { id: `ps_d_${ts}`, text: "\u2500".repeat(44), type: "divider" },
     ];
     setLiveLines(prev => [...prev, ...personalLines].slice(-50));

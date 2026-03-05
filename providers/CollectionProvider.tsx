@@ -19,6 +19,7 @@ import {
   warmServerCache,
   logCollectorRigSelection,
 } from "@/services/googleSheets";
+import { normalizeCollectorName } from "@/utils/strings";
 
 const STORAGE_KEYS = {
   SELECTED_COLLECTOR: "ci_selected_collector",
@@ -28,10 +29,6 @@ const STORAGE_KEYS = {
 };
 
 const ADMIN_PASSWORD = "3121";
-
-function normalizeCollectorName(name: string): string {
-  return name.replace(/\s*\(.*?\)\s*$/g, "").trim();
-}
 
 function mergeCollectors(raw: Collector[]): Collector[] {
   const map = new Map<string, Collector>();
