@@ -28,8 +28,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   label: {
-    fontSize: 11,
-    letterSpacing: 1.2,
+    fontSize: 10,
+    letterSpacing: 1.4,
     textTransform: "uppercase",
     fontWeight: "700" as const,
   },

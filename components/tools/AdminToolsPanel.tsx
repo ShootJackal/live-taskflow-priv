@@ -220,7 +220,7 @@ export function AdminToolsPanel({
   });
 
   const leaderboardQuery = useQuery<LeaderboardEntry[]>({
-    queryKey: ["leaderboard", "thisWeek"],
+    queryKey: ["adminLeaderboard"],
     queryFn: () => fetchLeaderboard("thisWeek"),
     enabled: configured,
     staleTime: 120000,
@@ -355,7 +355,7 @@ export function AdminToolsPanel({
       queryClient.invalidateQueries({ queryKey: ["collectorProfile", collector] });
       queryClient.invalidateQueries({ queryKey: ["adminFullLog"] });
       queryClient.invalidateQueries({ queryKey: ["adminTaskActuals"] });
-      queryClient.invalidateQueries({ queryKey: ["leaderboard"] });
+      queryClient.invalidateQueries({ queryKey: ["adminLeaderboard"] });
       queryClient.invalidateQueries({ queryKey: ["liveAlerts"] });
       setControlNotes("");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
