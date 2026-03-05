@@ -304,6 +304,9 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
       await queryClient.cancelQueries({ queryKey: ["todayLog", collector] });
 
       const previousLog = queryClient.getQueryData<LogEntry[]>(["todayLog", collector]);
+      const previousHoursToLog = hoursToLog;
+      const previousNotes = notes;
+      const previousTaskName = selectedTaskName;
       const optimistic = buildOptimisticLogEntry(payload);
       queryClient.setQueryData<LogEntry[]>(
         ["todayLog", collector],
@@ -316,11 +319,20 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
         setSelectedTaskName("");
       }
 
-      return { previousLog, collector };
+      return { previousLog, collector, previousHoursToLog, previousNotes, previousTaskName };
     },
     onError: (err, payload, context) => {
       if (context?.previousLog !== undefined) {
         queryClient.setQueryData(["todayLog", context.collector], context.previousLog);
+      }
+      if (context?.previousHoursToLog !== undefined) {
+        setHoursToLog((current) => (current.trim().length > 0 ? current : context.previousHoursToLog));
+      }
+      if (context?.previousNotes !== undefined) {
+        setNotes((current) => (current.trim().length > 0 ? current : context.previousNotes));
+      }
+      if (payload.actionType === "ASSIGN" && context?.previousTaskName) {
+        setSelectedTaskName((current) => (current.trim().length > 0 ? current : context.previousTaskName));
       }
       const message = err instanceof Error ? err.message : "Sync failed";
       Alert.alert(
@@ -479,7 +491,7 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     isLoadingCollectors: collectorQuery.isLoading,
     isLoadingTasks: taskQuery.isLoading,
     isLoadingLog: todayLogQuery.isLoading,
-    isSubmitting: false,
+    isSubmitting: submitMutation.isPending,
     isSyncing: submitMutation.isPending,
     submitError: submitMutation.error?.message ?? null,
 
