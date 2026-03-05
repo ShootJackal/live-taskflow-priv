@@ -31,15 +31,21 @@ export function AdminPasswordModal({
     if (!password.trim()) return;
     setLoading(true);
     setError(false);
-    const success = await onAuthenticate(password.trim());
-    setLoading(false);
-    if (success) {
-      setPassword("");
-      onClose();
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } else {
+    try {
+      const success = await onAuthenticate(password.trim());
+      if (success) {
+        setPassword("");
+        onClose();
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else {
+        setError(true);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+    } catch {
       setError(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setLoading(false);
     }
   }, [password, onAuthenticate, onClose]);
 
