@@ -3,6 +3,7 @@ import {
   View,
   Text,
   ScrollView,
+  FlatList,
   StyleSheet,
   TextInput,
   Alert,
@@ -30,16 +31,18 @@ import { useTheme } from "@/providers/ThemeProvider";
 import { useLocale } from "@/providers/LocaleProvider";
 import { DesignTokens } from "@/constants/colors";
 import ScreenContainer from "@/components/ScreenContainer";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import SelectPicker from "@/components/SelectPicker";
 import ActionButton from "@/components/ActionButton";
 import MarqueeText from "@/components/MarqueeText";
 import type { LogEntry } from "@/types";
+import type { ThemeColors } from "@/constants/colors";
 import { Image } from "expo-image";
 
 const LogEntryRow = React.memo(function LogEntryRow({ entry, statusColor, colors, isLast }: {
   entry: LogEntry;
   statusColor: string;
-  colors: any;
+  colors: ThemeColors;
   isLast: boolean;
 }) {
   const hasTaskProgress =
@@ -104,13 +107,13 @@ const logStyles = StyleSheet.create({
   taskName: { fontSize: 13, fontWeight: "600" as const, marginBottom: 2 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   statusBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  statusText: { fontSize: 10, fontWeight: "600" as const },
-  hours: { fontSize: 11 },
-  remaining: { fontSize: 11, fontWeight: "500" as const },
+  statusText: { fontSize: 11, fontWeight: "600" as const },
+  hours: { fontSize: 12 },
+  remaining: { fontSize: 12, fontWeight: "500" as const },
   taskSnapshot: { marginTop: 6, borderRadius: 7, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 4 },
   taskSnapshotTop: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
-  taskStat: { fontSize: 10, fontWeight: "500" as const },
-  taskPct: { marginLeft: "auto", fontSize: 10, fontWeight: "700" as const },
+  taskStat: { fontSize: 11, fontWeight: "500" as const },
+  taskPct: { marginLeft: "auto", fontSize: 11, fontWeight: "700" as const },
   taskTrack: { marginTop: 6, height: 3, borderRadius: 2, overflow: "hidden" },
   taskFill: { height: 3, borderRadius: 2 },
 });
@@ -133,7 +136,7 @@ export default function DashboardScreen() {
     isLoadingCollectors,
     isLoadingTasks,
     isLoadingLog,
-    isSubmitting,
+    isSyncing,
     submitError,
     selectCollector,
     setSelectedTaskName,
@@ -153,7 +156,6 @@ export default function DashboardScreen() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
   const searchAnim = useRef(new Animated.Value(0)).current;
-  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     Animated.parallel([
@@ -192,48 +194,41 @@ export default function DashboardScreen() {
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    refreshData();
-    if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
-    refreshTimeoutRef.current = setTimeout(() => setRefreshing(false), 1200);
+    try {
+      await refreshData();
+    } finally {
+      setRefreshing(false);
+    }
   }, [refreshData]);
 
-  useEffect(() => {
-    return () => {
-      if (refreshTimeoutRef.current) {
-        clearTimeout(refreshTimeoutRef.current);
-        refreshTimeoutRef.current = null;
-      }
-    };
-  }, []);
-
-  const handleAssign = useCallback(async () => {
-    try { await assignTask(); } catch (e: unknown) {
+  const handleAssign = useCallback(() => {
+    try { assignTask(); } catch (e: unknown) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed to assign task");
     }
   }, [assignTask]);
 
-  const handleComplete = useCallback(async () => {
+  const handleComplete = useCallback(() => {
     if (!latestOpenTask) return;
-    try { await completeTask(latestOpenTask.taskName); } catch (e: unknown) {
+    try { completeTask(latestOpenTask.taskName); } catch (e: unknown) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed to complete task");
     }
   }, [completeTask, latestOpenTask]);
 
-  const handleCancel = useCallback(async () => {
+  const handleCancel = useCallback(() => {
     if (!latestOpenTask) return;
     Alert.alert("Cancel Task", `Cancel "${latestOpenTask.taskName}"?`, [
       { text: "No", style: "cancel" },
-      { text: "Yes", style: "destructive", onPress: async () => {
-        try { await cancelTask(latestOpenTask.taskName); } catch (e: unknown) {
+      { text: "Yes", style: "destructive", onPress: () => {
+        try { cancelTask(latestOpenTask.taskName); } catch (e: unknown) {
           Alert.alert("Error", e instanceof Error ? e.message : "Failed to cancel");
         }
       }},
     ]);
   }, [cancelTask, latestOpenTask]);
 
-  const handleAddNote = useCallback(async () => {
+  const handleAddNote = useCallback(() => {
     if (!latestOpenTask || !notes.trim()) return;
-    try { await addNote(latestOpenTask.taskName); } catch (e: unknown) {
+    try { addNote(latestOpenTask.taskName); } catch (e: unknown) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed to save note");
     }
   }, [addNote, latestOpenTask, notes]);
@@ -270,6 +265,7 @@ export default function DashboardScreen() {
   }), [colors]);
 
   return (
+    <ErrorBoundary fallbackMessage="Something went wrong loading the Collect screen.">
     <ScreenContainer>
       <KeyboardAvoidingView
         style={styles.flex}
@@ -420,6 +416,7 @@ export default function DashboardScreen() {
                 placeholder="Enter hours (e.g. 1.5)"
                 placeholderTextColor={colors.textMuted}
                 keyboardType="decimal-pad"
+                returnKeyType="done"
                 testID="hours-input"
               />
               {!hoursToLog.trim() && (
@@ -468,8 +465,7 @@ export default function DashboardScreen() {
               color={colors.assign}
               bgColor={colors.assignBg}
               onPress={handleAssign}
-              disabled={!canSubmitWithHours || isSubmitting}
-              loading={isSubmitting}
+              disabled={!canSubmitWithHours}
               testID="assign-btn"
             />
             <ActionButton
@@ -478,8 +474,7 @@ export default function DashboardScreen() {
               color={colors.complete}
               bgColor={colors.completeBg}
               onPress={handleComplete}
-              disabled={!latestOpenTask || !hasValidHours || isSubmitting}
-              loading={isSubmitting}
+              disabled={!latestOpenTask || !hasValidHours}
               testID="complete-btn"
             />
             <ActionButton
@@ -488,11 +483,17 @@ export default function DashboardScreen() {
               color={colors.cancel}
               bgColor={colors.cancelBg}
               onPress={handleCancel}
-              disabled={!latestOpenTask || isSubmitting}
-              loading={isSubmitting}
+              disabled={!latestOpenTask}
               testID="cancel-btn"
             />
           </View>
+
+          {isSyncing && (
+            <View style={styles.syncBadge}>
+              <ActivityIndicator size={10} color={colors.accent} />
+              <Text style={[styles.syncText, { color: colors.textMuted }]}>Syncing...</Text>
+            </View>
+          )}
 
           {latestOpenTask !== null && notes.trim().length > 0 && (
             <ActionButton
@@ -501,8 +502,6 @@ export default function DashboardScreen() {
               color={colors.accent}
               bgColor={colors.accentSoft}
               onPress={handleAddNote}
-              disabled={isSubmitting}
-              loading={isSubmitting}
               fullWidth
               testID="note-btn"
             />
@@ -556,6 +555,7 @@ export default function DashboardScreen() {
         </Animated.View>
       </KeyboardAvoidingView>
     </ScreenContainer>
+    </ErrorBoundary>
   );
 }
 
@@ -645,6 +645,8 @@ const styles = StyleSheet.create({
   hintRow: { flexDirection: "row", alignItems: "flex-start", gap: 5, marginTop: 6 },
   hintText: { flex: 1, fontSize: 11, lineHeight: 15, fontWeight: "500" as const },
   actionsRow: { flexDirection: "row", gap: DesignTokens.spacing.sm, marginBottom: 10 },
+  syncBadge: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 8 },
+  syncText: { fontSize: 11, fontWeight: "500" as const },
   logCard: { borderRadius: DesignTokens.radius.xl, padding: DesignTokens.spacing.lg, marginTop: DesignTokens.spacing.md, borderWidth: 1 },
   logHeader: {
     flexDirection: "row",
@@ -656,10 +658,10 @@ const styles = StyleSheet.create({
     borderBottomColor: "rgba(128,128,128,0.08)",
   },
   logHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 5 },
-  logTitle: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1, textTransform: "uppercase" },
+  logTitle: { fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.8, textTransform: "uppercase" },
   logStats: { flexDirection: "row", alignItems: "center", gap: 6 },
-  logStatText: { fontSize: 11, fontWeight: "600" as const },
-  logStatDivider: { fontSize: 10 },
+  logStatText: { fontSize: 12, fontWeight: "600" as const },
+  logStatDivider: { fontSize: 11 },
   logMoreBtn: {
     marginTop: 8,
     borderWidth: 1,
@@ -668,6 +670,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  logMoreText: { fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.4 },
+  logMoreText: { fontSize: 12, fontWeight: "700" as const, letterSpacing: 0.3 },
   spacer: { height: DesignTokens.spacing.xl },
 });
