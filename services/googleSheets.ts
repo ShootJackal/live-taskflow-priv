@@ -974,12 +974,14 @@ export function isApiConfigured(): boolean {
 export function clearApiCache(): void {
   memoryCache.clear();
   appCacheSnapshotMemo.clear();
+  _resolvedUrls = null;
   log("[API] Memory cache cleared");
 }
 
 export async function clearAllCaches(): Promise<void> {
   memoryCache.clear();
   appCacheSnapshotMemo.clear();
+  _resolvedUrls = null;
   try {
     await clearStorageApiCache();
     log("[API] All caches cleared (memory + storage)");
