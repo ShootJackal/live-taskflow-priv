@@ -1,1 +1,0 @@
-export { normalizeCollectorName } from "./normalize";
