@@ -11,7 +11,7 @@ import {
   Alert,
 } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { TrendingUp, CheckCircle, Target, Inbox, Calendar, Trophy, Medal, Crown, Upload, AlertTriangle, XCircle } from "lucide-react-native";
+import { TrendingUp, CheckCircle, Target, Inbox, Calendar, Trophy, Medal, Crown, Upload, AlertTriangle, XCircle, RefreshCw } from "lucide-react-native";
 import { useCollection } from "@/providers/CollectionProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { DesignTokens } from "@/constants/colors";
@@ -28,9 +28,9 @@ import {
   clearApiCache,
 } from "@/services/googleSheets";
 import { CollectorStats, LeaderboardEntry, TaskActualRow, CollectorProfile, AdminStartPlanData, DailyCarryoverItem } from "@/types";
+import { normalizeCollectorName } from "@/utils/normalize";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
-import { normalizeCollectorName } from "@/utils/strings";
 
 type LeaderboardTab = "combined" | "sf" | "mx";
 type LeaderboardPeriod = "thisWeek" | "lastWeek";
@@ -373,17 +373,10 @@ export default function StatsScreen() {
         queryClient.invalidateQueries({ queryKey: ["leaderboard"] }),
         queryClient.invalidateQueries({ queryKey: ["adminStartPlan"] }),
       ]);
-      await Promise.allSettled([
-        statsQuery.refetch(),
-        profileQuery.refetch(),
-        dailyCarryoverQuery.refetch(),
-        leaderboardQuery.refetch(),
-        adminStartPlanQuery.refetch(),
-      ]);
     } finally {
       setRefreshing(false);
     }
-  }, [statsQuery, profileQuery, dailyCarryoverQuery, leaderboardQuery, adminStartPlanQuery, queryClient, selectedCollectorName]);
+  }, [queryClient, selectedCollectorName]);
 
   const stats = statsQuery.data;
   const profile = profileQuery.data;
@@ -486,6 +479,16 @@ export default function StatsScreen() {
         <View style={styles.pageHeaderRight}>
           {selectedRig !== "" && (
             <Text style={[styles.rigBadge, { color: colors.textMuted }]}>{selectedRig}</Text>
+          )}
+          {Platform.OS === "web" && (
+            <TouchableOpacity
+              style={[styles.webRefreshBtn, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}
+              onPress={handleRefresh}
+              activeOpacity={0.7}
+              disabled={refreshing}
+            >
+              <RefreshCw size={13} color={colors.accent} />
+            </TouchableOpacity>
           )}
         </View>
       </View>
@@ -914,7 +917,11 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 70,
     borderBottomRightRadius: 70,
   },
-  pageHeaderRight: { alignItems: "flex-end", gap: DesignTokens.spacing.xs },
+  pageHeaderRight: { alignItems: "flex-end", gap: DesignTokens.spacing.xs + 2 },
+  webRefreshBtn: {
+    width: 34, height: 34, borderRadius: 10, borderWidth: 1,
+    alignItems: "center", justifyContent: "center",
+  },
   headerTag: {
     alignSelf: "flex-start",
     borderRadius: DesignTokens.radius.xs,
