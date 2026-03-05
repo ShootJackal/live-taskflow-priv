@@ -945,7 +945,11 @@ function toDateSafe(cell) {
 }
 
 function normalizeCollectorKey(name) {
-  return safeStr(name).toLowerCase().replace(/\s+/g, ' ').trim();
+  // Strip parenthetical suffixes (e.g. "(MX)", "(SF)") to match client-side
+  // normalizeCollectorName() behavior. Without this, lookups for collectors
+  // whose names are stored with region tags in the sheet (e.g. "Jane Smith (MX)")
+  // would fail to match requests sent by the client as "Jane Smith".
+  return safeStr(name).replace(/\s*\(.*?\)\s*$/, '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 function normalizeTaskKey(name) {
