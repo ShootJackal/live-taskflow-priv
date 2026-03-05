@@ -177,12 +177,12 @@ function resolveScriptUrls(): { legacy: string; core: string; analytics: string 
 
 function getScriptUrlForRole(role: ScriptRole): string {
   const { legacy, core, analytics } = resolveScriptUrls();
-  // Monolith-first mode: if legacy URL is set, always use it for all actions.
-  if (legacy) return legacy;
+  // Split-first mode: if any split endpoint is configured, prefer split routing.
+  const splitEnabled = Boolean(core || analytics);
   if (role === "analytics") {
-    return analytics || core;
+    return splitEnabled ? (analytics || core) : legacy;
   }
-  return core || analytics;
+  return splitEnabled ? (core || analytics) : legacy;
 }
 
 function getScriptUrlForAction(action: string): string {
