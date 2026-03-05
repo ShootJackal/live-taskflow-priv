@@ -136,7 +136,7 @@ export default function DashboardScreen() {
     isLoadingCollectors,
     isLoadingTasks,
     isLoadingLog,
-    isSubmitting,
+    isSyncing,
     submitError,
     selectCollector,
     setSelectedTaskName,
@@ -201,34 +201,34 @@ export default function DashboardScreen() {
     }
   }, [refreshData]);
 
-  const handleAssign = useCallback(async () => {
-    try { await assignTask(); } catch (e: unknown) {
+  const handleAssign = useCallback(() => {
+    try { assignTask(); } catch (e: unknown) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed to assign task");
     }
   }, [assignTask]);
 
-  const handleComplete = useCallback(async () => {
+  const handleComplete = useCallback(() => {
     if (!latestOpenTask) return;
-    try { await completeTask(latestOpenTask.taskName); } catch (e: unknown) {
+    try { completeTask(latestOpenTask.taskName); } catch (e: unknown) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed to complete task");
     }
   }, [completeTask, latestOpenTask]);
 
-  const handleCancel = useCallback(async () => {
+  const handleCancel = useCallback(() => {
     if (!latestOpenTask) return;
     Alert.alert("Cancel Task", `Cancel "${latestOpenTask.taskName}"?`, [
       { text: "No", style: "cancel" },
-      { text: "Yes", style: "destructive", onPress: async () => {
-        try { await cancelTask(latestOpenTask.taskName); } catch (e: unknown) {
+      { text: "Yes", style: "destructive", onPress: () => {
+        try { cancelTask(latestOpenTask.taskName); } catch (e: unknown) {
           Alert.alert("Error", e instanceof Error ? e.message : "Failed to cancel");
         }
       }},
     ]);
   }, [cancelTask, latestOpenTask]);
 
-  const handleAddNote = useCallback(async () => {
+  const handleAddNote = useCallback(() => {
     if (!latestOpenTask || !notes.trim()) return;
-    try { await addNote(latestOpenTask.taskName); } catch (e: unknown) {
+    try { addNote(latestOpenTask.taskName); } catch (e: unknown) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed to save note");
     }
   }, [addNote, latestOpenTask, notes]);
@@ -465,8 +465,7 @@ export default function DashboardScreen() {
               color={colors.assign}
               bgColor={colors.assignBg}
               onPress={handleAssign}
-              disabled={!canSubmitWithHours || isSubmitting}
-              loading={isSubmitting}
+              disabled={!canSubmitWithHours}
               testID="assign-btn"
             />
             <ActionButton
@@ -475,8 +474,7 @@ export default function DashboardScreen() {
               color={colors.complete}
               bgColor={colors.completeBg}
               onPress={handleComplete}
-              disabled={!latestOpenTask || !hasValidHours || isSubmitting}
-              loading={isSubmitting}
+              disabled={!latestOpenTask || !hasValidHours}
               testID="complete-btn"
             />
             <ActionButton
@@ -485,11 +483,17 @@ export default function DashboardScreen() {
               color={colors.cancel}
               bgColor={colors.cancelBg}
               onPress={handleCancel}
-              disabled={!latestOpenTask || isSubmitting}
-              loading={isSubmitting}
+              disabled={!latestOpenTask}
               testID="cancel-btn"
             />
           </View>
+
+          {isSyncing && (
+            <View style={styles.syncBadge}>
+              <ActivityIndicator size={10} color={colors.accent} />
+              <Text style={[styles.syncText, { color: colors.textMuted }]}>Syncing...</Text>
+            </View>
+          )}
 
           {latestOpenTask !== null && notes.trim().length > 0 && (
             <ActionButton
@@ -498,8 +502,6 @@ export default function DashboardScreen() {
               color={colors.accent}
               bgColor={colors.accentSoft}
               onPress={handleAddNote}
-              disabled={isSubmitting}
-              loading={isSubmitting}
               fullWidth
               testID="note-btn"
             />
@@ -643,6 +645,8 @@ const styles = StyleSheet.create({
   hintRow: { flexDirection: "row", alignItems: "flex-start", gap: 5, marginTop: 6 },
   hintText: { flex: 1, fontSize: 11, lineHeight: 15, fontWeight: "500" as const },
   actionsRow: { flexDirection: "row", gap: DesignTokens.spacing.sm, marginBottom: 10 },
+  syncBadge: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 8 },
+  syncText: { fontSize: 11, fontWeight: "500" as const },
   logCard: { borderRadius: DesignTokens.radius.xl, padding: DesignTokens.spacing.lg, marginTop: DesignTokens.spacing.md, borderWidth: 1 },
   logHeader: {
     flexDirection: "row",
