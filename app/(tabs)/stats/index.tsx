@@ -75,7 +75,7 @@ const HeroStat = React.memo(function HeroStat({ label, value, icon, color, index
   );
 });
 
-const LeaderboardRow = React.memo(function LeaderboardRow({ entry, index, isCurrentUser, maxHours, colors }: { entry: LeaderboardEntry; index: number; isCurrentUser: boolean; maxHours: number; colors: ReturnType<typeof useTheme>["colors"] }) {
+const LeaderboardRow = React.memo(function LeaderboardRow({ entry, index, isCurrentUser, colors }: { entry: LeaderboardEntry; index: number; isCurrentUser: boolean; colors: ReturnType<typeof useTheme>["colors"] }) {
   const rankColor = entry.rank === 1 ? colors.gold : entry.rank === 2 ? colors.silver : entry.rank === 3 ? colors.bronze : colors.textMuted;
   const rankBg = entry.rank === 1 ? colors.goldBg : entry.rank === 2 ? colors.silverBg : entry.rank === 3 ? colors.bronzeBg : colors.bgInput;
   const regionColor = entry.region === "MX" ? colors.mxOrange : entry.region === "SF" ? colors.sfBlue : colors.accent;
@@ -116,7 +116,7 @@ const LeaderboardRow = React.memo(function LeaderboardRow({ entry, index, isCurr
           <Text style={[lbStyles.statVal, { color: colors.textMuted }]}>{entry.completionRate.toFixed(0)}%</Text>
         </View>
       </View>
-      <AnimatedBar value={entry.hoursLogged} maxValue={maxHours} color={rankColor} delay={index * 50 + 200} />
+      <AnimatedBar value={entry.hoursLogged} maxValue={80} color={rankColor} delay={index * 50 + 200} />
     </View>
   );
 });
@@ -133,9 +133,9 @@ const lbStyles = StyleSheet.create({
   sourceTag: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
   sourceText: { fontSize: 9, fontWeight: "700" as const, letterSpacing: 0.4 },
   statsRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
-  statVal: { fontSize: 12, fontWeight: "500" as const },
-  statSep: { fontSize: 11 },
-  metaText: { fontSize: 11, marginBottom: 4 },
+  statVal: { fontSize: 11, fontWeight: "500" as const },
+  statSep: { fontSize: 10 },
+  metaText: { fontSize: 10, marginBottom: 4 },
 });
 
 const ComparisonCard = React.memo(function ComparisonCard({ mxHours, sfHours, mxCompleted, sfCompleted, colors }: {
@@ -410,11 +410,6 @@ export default function StatsScreen() {
     [currentLbEntries, lbVisibleCount]
   );
 
-  const lbMaxHours = useMemo(
-    () => Math.max(...currentLbEntries.map((e) => e.hoursLogged), 1),
-    [currentLbEntries]
-  );
-
   const isInitialLoad = leaderboardQuery.isLoading && !leaderboardQuery.data;
   const hasLeaderboardError = leaderboardQuery.isError && !leaderboardQuery.data && !leaderboardQuery.isLoading;
   const hasStatsError = statsQuery.isError && !statsQuery.data && !statsQuery.isLoading;
@@ -558,7 +553,7 @@ export default function StatsScreen() {
             <View style={styles.profileMain}>
               <Text style={[styles.profileName, { color: colors.textPrimary }]}>{profile.collectorName}</Text>
               <Text style={[styles.profileMeta, { color: colors.textMuted }]}>
-                {profile.weeklyActualHours.toFixed(2)}h actual this wk · {profile.totalActualHours.toFixed(2)}h all time
+                {profile.weeklyActualHours.toFixed(2)}h this week · {profile.totalActualHours.toFixed(2)}h all time
               </Text>
             </View>
             <View style={[styles.profileMedalCount, { backgroundColor: colors.goldBg }]}>
@@ -568,7 +563,7 @@ export default function StatsScreen() {
 
           <View style={styles.profileStatsGrid}>
             <View style={[styles.profileStatBox, { backgroundColor: colors.bgInput }]}>
-              <Text style={[styles.profileStatValue, { color: colors.complete }]}>{profile.completionRate.toFixed(0)}%</Text>
+              <Text style={[styles.profileStatValue, { color: colors.complete }]}>{profile.completionRate}%</Text>
               <Text style={[styles.profileStatLabel, { color: colors.textMuted }]}>Completion</Text>
             </View>
             <View style={[styles.profileStatBox, { backgroundColor: colors.bgInput }]}>
@@ -643,7 +638,7 @@ export default function StatsScreen() {
         <View style={styles.weekRow}>
           <View style={styles.weekItem}>
             <Text style={[styles.weekVal, { color: colors.accent }]}>{stats.weeklyLoggedHours.toFixed(2)}h</Text>
-            <Text style={[styles.weekLbl, { color: colors.textMuted }]}>Logged hrs</Text>
+            <Text style={[styles.weekLbl, { color: colors.textMuted }]}>Hours</Text>
           </View>
               <View style={[styles.weekSep, { backgroundColor: colors.border }]} />
               <View style={styles.weekItem}>
@@ -771,7 +766,6 @@ export default function StatsScreen() {
               entry={entry}
               index={idx}
               isCurrentUser={normalizeCollectorName(entry.collectorName).toLowerCase() === normalizedName.toLowerCase()}
-              maxHours={lbMaxHours}
               colors={colors}
             />
           ))}
@@ -941,8 +935,8 @@ const styles = StyleSheet.create({
   brandSub: { fontSize: 12, fontWeight: "500" as const, letterSpacing: 0.7, marginTop: 2, textTransform: "uppercase" },
   rigBadge: { fontSize: 10, letterSpacing: 0.6, fontWeight: "500" as const },
   sectionHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: DesignTokens.spacing.md },
-  sectionLabel: { fontSize: 11, letterSpacing: 1.2, fontWeight: "700" as const },
-  sectionLabelMuted: { fontSize: 11, letterSpacing: 1.0, fontWeight: "600" as const },
+  sectionLabel: { fontSize: 10, letterSpacing: 1.4, fontWeight: "700" as const },
+  sectionLabelMuted: { fontSize: 10, letterSpacing: 1.2, fontWeight: "600" as const },
   heroGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 14 },
   heroCard: {
     flex: 1, minWidth: "44%", borderRadius: DesignTokens.radius.xl, padding: DesignTokens.spacing.lg, borderWidth: 1,
@@ -950,7 +944,7 @@ const styles = StyleSheet.create({
   },
   heroIconWrap: { width: 36, height: 36, borderRadius: DesignTokens.radius.md, alignItems: "center", justifyContent: "center", marginBottom: 10 },
   heroValue: { fontSize: 24, letterSpacing: -0.5, fontWeight: "700" as const },
-  heroLabel: { fontSize: 12, marginTop: 2, fontWeight: "500" as const },
+  heroLabel: { fontSize: 11, marginTop: 2, fontWeight: "500" as const },
   carryoverCard: { borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.lg, marginBottom: 14 },
   carryoverHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
   carryoverTitle: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1.1 },
@@ -982,10 +976,10 @@ const styles = StyleSheet.create({
   profileStatsGrid: { flexDirection: "row", gap: 8, marginBottom: 10 },
   profileStatBox: { flex: 1, borderRadius: 10, paddingVertical: 8, alignItems: "center" },
   profileStatValue: { fontSize: 13, fontWeight: "700" as const },
-  profileStatLabel: { fontSize: 10, marginTop: 2, letterSpacing: 0.2 },
+  profileStatLabel: { fontSize: 9, marginTop: 2, letterSpacing: 0.2 },
   awardsRow: { flexDirection: "row", gap: 8 },
   awardChip: { flex: 1, borderRadius: 9, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 8 },
-  awardChipText: { fontSize: 11, fontWeight: "600" as const, textAlign: "center" },
+  awardChipText: { fontSize: 10, fontWeight: "600" as const, textAlign: "center" },
   startPlanCard: { borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.lg, marginBottom: 14 },
   startPlanHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
   startPlanTitle: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1.1 },
@@ -999,7 +993,7 @@ const styles = StyleSheet.create({
   weekSep: { width: 1, height: 28 },
   weekItem: { flex: 1, alignItems: "center" },
   weekVal: { fontSize: 16, fontWeight: "600" as const },
-  weekLbl: { fontSize: 11, marginTop: 3 },
+  weekLbl: { fontSize: 10, marginTop: 3 },
   periodSwitchRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1067,7 +1061,7 @@ const styles = StyleSheet.create({
   allTimeItem: { flex: 1, alignItems: "center" },
   allTimeSep: { width: 1, height: 24 },
   allTimeVal: { fontSize: 15, fontWeight: "600" as const },
-  allTimeLbl: { fontSize: 11, marginTop: 3 },
+  allTimeLbl: { fontSize: 10, marginTop: 3 },
   allTimeDivider: { height: 1, marginBottom: 10 },
   allTimeSub: { fontSize: 10, marginTop: DesignTokens.spacing.sm, textAlign: "center" },
   topTasksCard: { borderRadius: DesignTokens.radius.xl, padding: DesignTokens.spacing.lg, marginBottom: DesignTokens.spacing.md, borderWidth: 1 },
