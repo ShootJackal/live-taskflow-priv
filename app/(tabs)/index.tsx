@@ -20,7 +20,6 @@ import {
   StickyNote,
   AlertCircle,
   Circle,
-  Info,
   Clock,
   Search,
   X,
@@ -28,6 +27,7 @@ import {
   Hash,
   FileText,
   User,
+  AlertTriangle,
 } from "lucide-react-native";
 import { useCollection } from "@/providers/CollectionProvider";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -55,25 +55,17 @@ const LogEntryRow = React.memo(function LogEntryRow({
   colors: ThemeColors;
   isLast: boolean;
 }) {
+  const isClosed = entry.status === "Completed" || entry.status === "Canceled";
   const hasTaskProgress =
-    typeof entry.taskCollectedHours === "number" ||
     typeof entry.taskGoodHours === "number" ||
     typeof entry.taskRemainingHours === "number";
-  const taskCollected = Number(entry.taskCollectedHours ?? 0);
   const taskGood = Number(entry.taskGoodHours ?? 0);
   const taskRemaining = Number(entry.taskRemainingHours ?? 0);
-  const taskTotal = Math.max(taskCollected + taskRemaining, 0);
+  // Progress bar: CB Actual (goodHours) out of total required (good + remaining)
+  const taskTotal = Math.max(taskGood + taskRemaining, 0);
   const taskProgressPct = Math.max(
     0,
-    Math.min(
-      100,
-      Math.round(
-        Number(
-          entry.taskProgressPct ??
-            (taskTotal > 0 ? (taskCollected / taskTotal) * 100 : 0)
-        )
-      )
-    )
+    Math.min(100, taskTotal > 0 ? Math.round((taskGood / taskTotal) * 100) : 0)
   );
 
   return (
@@ -84,6 +76,7 @@ const LogEntryRow = React.memo(function LogEntryRow({
           borderBottomColor: colors.border,
           borderBottomWidth: StyleSheet.hairlineWidth,
         },
+        isClosed && logStyles.rowClosed,
       ]}
     >
       <View style={logStyles.rowLeft}>
@@ -93,7 +86,7 @@ const LogEntryRow = React.memo(function LogEntryRow({
         <View style={logStyles.rowContent}>
           <MarqueeText
             text={entry.taskName}
-            style={[logStyles.taskName, { color: colors.textPrimary }]}
+            style={[logStyles.taskName, { color: isClosed ? colors.textMuted : colors.textPrimary }]}
             speedMs={4300}
           />
           <View style={logStyles.metaRow}>
@@ -107,10 +100,11 @@ const LogEntryRow = React.memo(function LogEntryRow({
                 {entry.status}
               </Text>
             </View>
-            <Text style={[logStyles.hours, { color: colors.textMuted }]}>
-              {Number(entry.loggedHours).toFixed(2)}h /{" "}
-              {Number(entry.plannedHours).toFixed(2)}h planned
-            </Text>
+            {Number(entry.loggedHours) > 0 && (
+              <Text style={[logStyles.hours, { color: colors.textMuted }]}>
+                {Number(entry.loggedHours).toFixed(2)}h logged
+              </Text>
+            )}
           </View>
           {hasTaskProgress && (
             <View
@@ -126,7 +120,7 @@ const LogEntryRow = React.memo(function LogEntryRow({
                 <Text
                   style={[logStyles.taskStat, { color: colors.complete }]}
                 >
-                  Good {taskGood.toFixed(2)}h
+                  CB Actual {taskGood.toFixed(2)}h
                 </Text>
                 <Text
                   style={[
@@ -173,6 +167,7 @@ const LogEntryRow = React.memo(function LogEntryRow({
 
 const logStyles = StyleSheet.create({
   row: { paddingVertical: 10 },
+  rowClosed: { opacity: 0.45 },
   rowLeft: { flexDirection: "row", gap: 12 },
   statusStripe: { width: 3, borderRadius: 2, minHeight: 32 },
   rowContent: { flex: 1 },
@@ -245,6 +240,8 @@ export default function DashboardScreen() {
     notes,
     openTasks,
     todayLog,
+    hasCarryover,
+    carryoverItems,
     isLoadingCollectors,
     isLoadingTasks,
     isLoadingLog,
@@ -302,7 +299,6 @@ export default function DashboardScreen() {
   const canSubmit = !!selectedCollectorName && !!selectedTaskName;
   const canSubmitWithHours = canSubmit && hasValidHours;
   const latestOpenTask = openTasks.length > 0 ? openTasks[0] : null;
-  const plannedHoursHint = latestOpenTask ? latestOpenTask.plannedHours : 0;
 
   const toggleTaskSearch = useCallback(() => {
     const next = !showTaskSearch;
@@ -325,6 +321,30 @@ export default function DashboardScreen() {
   }, [refreshData]);
 
   const handleAssign = useCallback(() => {
+    if (hasCarryover) {
+      Alert.alert(
+        "Close Yesterday's Tasks First",
+        `You have ${carryoverItems.length} incomplete task${carryoverItems.length === 1 ? "" : "s"} from yesterday. Please go to the Stats tab to close them before assigning new tasks.`,
+        [
+          { text: "Not Now", style: "cancel" },
+          {
+            text: "Assign Anyway",
+            style: "destructive",
+            onPress: () => {
+              try {
+                assignTask();
+              } catch (e: unknown) {
+                Alert.alert(
+                  "Error",
+                  e instanceof Error ? e.message : "Failed to assign task"
+                );
+              }
+            },
+          },
+        ]
+      );
+      return;
+    }
     try {
       assignTask();
     } catch (e: unknown) {
@@ -333,7 +353,7 @@ export default function DashboardScreen() {
         e instanceof Error ? e.message : "Failed to assign task"
       );
     }
-  }, [assignTask]);
+  }, [assignTask, hasCarryover, carryoverItems]);
 
   const handleComplete = useCallback(() => {
     if (!latestOpenTask) return;
@@ -385,17 +405,12 @@ export default function DashboardScreen() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }, []);
 
-  // Header summary counts only today-assigned entries. Carryover tasks
-  // (assignedDate before today) must not inflate the reported totals.
+  // Header summary — today's entries only.
   const todayStats = useMemo(() => {
-    // Only count entries assigned today so carryover tasks from previous days
-    // don't inflate the header stats.
-    const todayOnly = todayLog.filter((e) => e.assignedDate === todayDateStr);
-    const completed = todayOnly.filter((e) => e.status === "Completed").length;
-    const totalLogged = todayOnly.reduce((s, e) => s + e.loggedHours, 0);
-    const totalPlanned = todayOnly.reduce((s, e) => s + e.plannedHours, 0);
-    return { completed, totalLogged, totalPlanned, total: todayOnly.length };
-  }, [todayLog, todayDateStr]);
+    const completed = todayLog.filter((e) => e.status === "Completed").length;
+    const totalLogged = todayLog.reduce((s, e) => s + e.loggedHours, 0);
+    return { completed, totalLogged, total: todayLog.length };
+  }, [todayLog]);
 
   // Full log list keeps all entries (including carryovers) visible and actionable.
   const visibleLog = useMemo(
@@ -619,9 +634,32 @@ export default function DashboardScreen() {
                         { color: colors.accentLight },
                       ]}
                     >
-                      In Progress · {Number(latestOpenTask.plannedHours).toFixed(2)}h planned
+                      In Progress · Enter hours below to complete or cancel
                     </Text>
                   </View>
+                </View>
+              )}
+
+              {/* ── Carryover warning banner ──────────────────────────── */}
+              {hasCarryover && (
+                <View
+                  style={[
+                    styles.notice,
+                    {
+                      backgroundColor: colors.bgCard,
+                      borderLeftColor: colors.alertYellow,
+                    },
+                  ]}
+                >
+                  <AlertTriangle size={15} color={colors.alertYellow} />
+                  <Text
+                    style={[
+                      styles.noticeText,
+                      { color: colors.textSecondary },
+                    ]}
+                  >
+                    {carryoverItems.length} incomplete task{carryoverItems.length === 1 ? "" : "s"} from yesterday — close them in Stats before assigning.
+                  </Text>
                 </View>
               )}
 
@@ -830,11 +868,11 @@ export default function DashboardScreen() {
                       </Text>
                       <Text
                         style={[
-                          styles.requiredTag,
-                          { color: colors.cancel },
+                          styles.optionalTag,
+                          { color: colors.textMuted },
                         ]}
                       >
-                        required
+                        for completion
                       </Text>
                     </View>
                     <TextInput
@@ -856,7 +894,7 @@ export default function DashboardScreen() {
                       returnKeyType="done"
                       testID="hours-input"
                     />
-                    {!hoursToLog.trim() && (
+                    {latestOpenTask && !hoursToLog.trim() && (
                       <View style={styles.hintRow}>
                         <AlertCircle
                           size={11}
@@ -868,21 +906,7 @@ export default function DashboardScreen() {
                             { color: colors.statusPending },
                           ]}
                         >
-                          Enter actual hours before submitting
-                        </Text>
-                      </View>
-                    )}
-                    {latestOpenTask && plannedHoursHint > 0 && (
-                      <View style={styles.hintRow}>
-                        <Info size={11} color={colors.textMuted} />
-                        <Text
-                          style={[
-                            styles.hintText,
-                            { color: colors.textMuted },
-                          ]}
-                        >
-                          Planned chunk:{" "}
-                          {Number(plannedHoursHint).toFixed(2)}h
+                          Enter hours to complete or report on the open task
                         </Text>
                       </View>
                     )}
@@ -955,7 +979,7 @@ export default function DashboardScreen() {
                 color={colors.white}
                 bgColor={colors.accent}
                 onPress={handleAssign}
-                disabled={!canSubmitWithHours}
+                disabled={!canSubmit}
                 fullWidth
                 testID="assign-btn"
               />
