@@ -180,22 +180,16 @@ function AssignmentLogView({ collectorName, configured }: { collectorName: strin
                 {entry.collector}
               </Text>
             ) : null}
-            <Text style={[viewStyles.metaText, { color: colors.textSecondary }]}>
-              {Number(entry.loggedHours).toFixed(2)}h / {Number(entry.plannedHours).toFixed(2)}h
-            </Text>
-            {Math.round((Number(entry.remainingHours) || 0) * 100) / 100 > 0 && (
-              <Text style={[viewStyles.metaText, { color: colors.statusPending }]}>
-                {Number(entry.remainingHours).toFixed(2)}h left
+            {Number(entry.loggedHours) > 0 && (
+              <Text style={[viewStyles.metaText, { color: colors.textSecondary }]}>
+                {Number(entry.loggedHours).toFixed(2)}h logged
               </Text>
             )}
           </View>
-          {(typeof entry.taskCollectedHours === "number" || typeof entry.taskRemainingHours === "number") && (
+          {(typeof entry.taskGoodHours === "number" || typeof entry.taskRemainingHours === "number") && (
             <View style={[viewStyles.taskMetaRow, { borderColor: colors.border, backgroundColor: colors.bgInput }]}>
-              <Text style={[viewStyles.taskMetaText, { color: colors.accent }]}>
-                Collected {Number(entry.taskCollectedHours ?? 0).toFixed(2)}h
-              </Text>
               <Text style={[viewStyles.taskMetaText, { color: colors.complete }]}>
-                Good {Number(entry.taskGoodHours ?? 0).toFixed(2)}h
+                CB Actual {Number(entry.taskGoodHours ?? 0).toFixed(2)}h
               </Text>
               <Text style={[viewStyles.taskMetaText, { color: colors.statusPending }]}>
                 Missing {Number(entry.taskRemainingHours ?? 0).toFixed(2)}h
