@@ -885,7 +885,7 @@ function runDailyRolloverForDate_(targetDate) {
     }
   }
 
-  var rowsToInsert = [];
+  var rowsToUpdate = [];
   for (var key in latestByCollectorTask) {
     var state = latestByCollectorTask[key];
     var row = state.row;
@@ -893,28 +893,29 @@ function runDailyRolloverForDate_(targetDate) {
     if (isCompletedStatus_(status) || isCanceledStatus_(status) || isIncompleteStatus_(status)) continue;
 
     var now = new Date();
-    var planned = Math.max(0, safeNum(row[5]));
     var note = 'AUTO_EOD_INCOMPLETE ' + targetKey + ' | prior_status=' + (status || 'In Progress');
-    rowsToInsert.push([
-      'A-' + now.getTime() + '-I' + rowsToInsert.length,
-      safeStr(row[1]),
-      safeStr(row[2]),
-      safeStr(row[3]),
-      row[4] || targetDate,
-      planned,
-      'Incomplete',
-      0,
-      planned,
-      '',
-      note,
-      safeStr(row[11]) || getWeekStart(row[4] || targetDate)
-    ]);
+    rowsToUpdate.push({
+      dataIdx: state._order,
+      values: [
+        safeStr(row[0]),
+        safeStr(row[1]),
+        safeStr(row[2]),
+        safeStr(row[3]),
+        row[4] || targetDate,
+        0,
+        'Incomplete',
+        0,
+        0,
+        '',
+        note,
+        safeStr(row[11]) || getWeekStart(row[4] || targetDate)
+      ]
+    });
   }
 
-  if (rowsToInsert.length === 0) return;
-  // Keep newest rollover rows at the top, preserving the same top-insert behavior used by assignments.
-  for (var r = rowsToInsert.length - 1; r >= 0; r--) {
-    insertAssignmentLogRow(sheet, rowsToInsert[r]);
+  if (rowsToUpdate.length === 0) return;
+  for (var r = 0; r < rowsToUpdate.length; r++) {
+    updateAssignmentLogRow(sheet, rowsToUpdate[r].dataIdx, rowsToUpdate[r].values);
   }
 }
 
@@ -2162,8 +2163,15 @@ function handleCarryoverReport(body) {
   var data = sheet.getDataRange().getValues();
   var normCol = normalizeCollectorKey(collector);
   var normTask = normalizeTaskKey(task);
-  var state = getAssignmentStateById_(data, assignmentId);
-  if (!state) state = getLatestAssignmentState(data, normCol, normTask);
+
+  var stateResult = getAssignmentStateByIdWithRowIdx_(data, assignmentId);
+  var state = stateResult.state;
+  var rowIdx = stateResult.rowIdx;
+  if (!state || rowIdx < 1) {
+    var fallback = getLatestAssignmentStateWithRowIdx(data, normCol, normTask);
+    state = fallback.state;
+    rowIdx = fallback.rowIdx;
+  }
   if (!state) throw new Error('Carryover assignment not found');
   if (normalizeCollectorKey(state.collector) !== normCol) throw new Error('Collector mismatch for carryover assignment');
   if (normalizeTaskKey(state.taskName) !== normTask) throw new Error('Task mismatch for carryover assignment');
@@ -2188,25 +2196,21 @@ function handleCarryoverReport(body) {
     actualHours = getActualHoursForCollectorTaskOnDate_(actualRows, collectorRigSet, normCol, normTask, assignedDate);
   }
 
-  var planned = Math.max(0, safeNum(state.planned));
-  if (planned <= 0) planned = actualHours;
   var logged = Math.round(actualHours * 100) / 100;
-  var remaining = Math.max(0, Math.round((planned - logged) * 100) / 100);
   var now = new Date();
-  var nextId = 'A-' + now.getTime();
   var reportNote = 'CARRYOVER_REPORT ' + Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') + ' | actual=' + logged.toFixed(2) + 'h';
   if (notes) reportNote += ' | ' + notes;
 
-  insertAssignmentLogRow(sheet, [
-    nextId,
+  updateAssignmentLogRow(sheet, rowIdx, [
+    state.assignmentId,
     safeStr(state.taskId),
     safeStr(state.taskName) || task,
     safeStr(state.collector) || collector,
     state.assignedDate || now,
-    planned,
+    0,
     'Completed',
     logged,
-    remaining,
+    0,
     now,
     reportNote,
     safeStr(state.weekStart) || getWeekStart(state.assignedDate || now)
@@ -2216,12 +2220,12 @@ function handleCarryoverReport(body) {
   return {
     success: true,
     message: 'Carryover reported: ' + task,
-    assignmentId: nextId,
+    assignmentId: state.assignmentId,
     collector: collector,
     task: task,
     hours: logged,
-    planned: planned,
-    remaining: remaining,
+    planned: 0,
+    remaining: 0,
     status: 'Completed'
   };
 }
@@ -2239,8 +2243,15 @@ function handleCarryoverCancel(body) {
   var data = sheet.getDataRange().getValues();
   var normCol = normalizeCollectorKey(collector);
   var normTask = normalizeTaskKey(task);
-  var state = getAssignmentStateById_(data, assignmentId);
-  if (!state) state = getLatestAssignmentState(data, normCol, normTask);
+
+  var stateResult = getAssignmentStateByIdWithRowIdx_(data, assignmentId);
+  var state = stateResult.state;
+  var rowIdx = stateResult.rowIdx;
+  if (!state || rowIdx < 1) {
+    var fallback = getLatestAssignmentStateWithRowIdx(data, normCol, normTask);
+    state = fallback.state;
+    rowIdx = fallback.rowIdx;
+  }
   if (!state) throw new Error('Carryover assignment not found');
   if (normalizeCollectorKey(state.collector) !== normCol) throw new Error('Collector mismatch for carryover assignment');
   if (normalizeTaskKey(state.taskName) !== normTask) throw new Error('Task mismatch for carryover assignment');
@@ -2266,19 +2277,18 @@ function handleCarryoverCancel(body) {
   }
 
   var now = new Date();
-  var cancelId = 'A-' + now.getTime();
   var cancelNote = 'CARRYOVER_CANCEL ' + Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
   if (notes) cancelNote += ' | ' + notes;
-  insertAssignmentLogRow(sheet, [
-    cancelId,
+  updateAssignmentLogRow(sheet, rowIdx, [
+    state.assignmentId,
     safeStr(state.taskId),
     safeStr(state.taskName) || task,
     safeStr(state.collector) || collector,
     state.assignedDate || now,
-    Math.max(0, safeNum(state.planned)),
+    0,
     'Canceled',
     0,
-    Math.max(0, safeNum(state.planned)),
+    0,
     now,
     cancelNote,
     safeStr(state.weekStart) || getWeekStart(state.assignedDate || now)
@@ -2288,7 +2298,7 @@ function handleCarryoverCancel(body) {
   return {
     success: true,
     message: 'Carryover canceled: ' + task,
-    assignmentId: cancelId,
+    assignmentId: state.assignmentId,
     collector: collector,
     task: task,
     status: 'Canceled'
@@ -2330,7 +2340,8 @@ function handleGetTodayLog(collectorName) {
     var taskTotal = Math.max(taskCollected + taskRemaining, 0);
     var taskProgressPct = taskTotal > 0 ? Math.round((taskCollected / taskTotal) * 100) : 0;
 
-    if (isActive) {
+    if (isActive && dateStr === todayStr) {
+      // Only enrich with live hours for tasks assigned today that are still active
       var liveHours = getLiveHoursForAssignmentAcrossRigs(liveHoursIndex, collectorRigSet, safeStr(row[2]), assignDate);
       if (liveHours > loggedHours) {
         loggedHours = liveHours;
@@ -2338,7 +2349,10 @@ function handleGetTodayLog(collectorName) {
       }
     }
 
-    var include = (dateStr === todayStr || completedStr === todayStr || isActive);
+    // Only include entries assigned today or completed today.
+    // Previous-day tasks that are still In Progress (carryover) are NOT shown here —
+    // they appear via getDailyCarryover and the Stats screen instead.
+    var include = (dateStr === todayStr || completedStr === todayStr);
     if (!include) continue;
 
     var eventTs = Math.max(toTimestampMs(row[9]), toTimestampMs(row[4]));
@@ -2870,6 +2884,85 @@ function insertAssignmentLogRow(sheet, rowValues) {
   sheet.getRange(2, 1, 1, rowValues.length).setValues([rowValues]);
 }
 
+/**
+ * Update an existing assignment row in-place.
+ * dataIdx is the 0-based data array index (data[dataIdx] == the row).
+ * Sheet row number = dataIdx + 1 (sheets are 1-based, data[0] is the header row).
+ */
+function updateAssignmentLogRow(sheet, dataIdx, rowValues) {
+  var sheetRow = dataIdx + 1;
+  sheet.getRange(sheetRow, 1, 1, rowValues.length).setValues([rowValues]);
+}
+
+/**
+ * Like getLatestAssignmentState but also returns the data-array index so the
+ * caller can update the row in-place via updateAssignmentLogRow.
+ */
+function getLatestAssignmentStateWithRowIdx(data, normCol, normTask) {
+  var best = null;
+  var bestTs = -1;
+  var bestOrder = Number.MAX_VALUE;
+  var bestIdx = -1;
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    var rowCollector = normalizeCollectorKey(row[3]);
+    var rowTask = normalizeTaskKey(row[2]);
+    if (rowCollector !== normCol || rowTask !== normTask) continue;
+    var rowTs = Math.max(toTimestampMs(row[9]), toTimestampMs(row[4]));
+    if (rowTs > bestTs || (rowTs === bestTs && i < bestOrder)) {
+      bestTs = rowTs;
+      bestOrder = i;
+      bestIdx = i;
+      best = {
+        assignmentId: safeStr(row[0]),
+        taskId: safeStr(row[1]),
+        taskName: safeStr(row[2]),
+        collector: safeStr(row[3]),
+        assignedDate: row[4],
+        planned: safeNum(row[5]),
+        status: safeStr(row[6]),
+        logged: safeNum(row[7]),
+        remaining: safeNum(row[8]),
+        completedDate: row[9],
+        notes: safeStr(row[10]),
+        weekStart: safeStr(row[11])
+      };
+    }
+  }
+  return { state: best, rowIdx: bestIdx };
+}
+
+/**
+ * Like getAssignmentStateById_ but also returns the data-array index for
+ * in-place updates.
+ */
+function getAssignmentStateByIdWithRowIdx_(data, assignmentId) {
+  var targetId = safeStr(assignmentId);
+  if (!targetId) return { state: null, rowIdx: -1 };
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (safeStr(row[0]) !== targetId) continue;
+    return {
+      state: {
+        assignmentId: safeStr(row[0]),
+        taskId: safeStr(row[1]),
+        taskName: safeStr(row[2]),
+        collector: safeStr(row[3]),
+        assignedDate: row[4],
+        planned: safeNum(row[5]),
+        status: safeStr(row[6]),
+        logged: safeNum(row[7]),
+        remaining: safeNum(row[8]),
+        completedDate: row[9],
+        notes: safeStr(row[10]),
+        weekStart: safeStr(row[11])
+      },
+      rowIdx: i
+    };
+  }
+  return { state: null, rowIdx: -1 };
+}
+
 function getLatestAssignmentState(data, normCol, normTask) {
   var best = null;
   var bestTs = -1;
@@ -2978,73 +3071,102 @@ function handleSubmitCore(collector, task, hours, actionType, notes, normCol, no
   var data = sheet.getDataRange().getValues();
   var now = new Date();
   var nowMs = now.getTime();
-  var latest = getLatestAssignmentState(data, normCol, normTask);
-  var latestTaskId = latest ? safeStr(latest.taskId) : '';
-  var latestAssignedDate = latest ? latest.assignedDate : now;
-  var latestWeekStart = latest ? safeStr(latest.weekStart) : getWeekStart(now);
 
   if (actionType === 'ASSIGN') {
-    var dupAssign = findRecentOpenAssignment(data, normCol, normTask, hours, nowMs);
+    // Dedup: check for a recent open assignment for this collector+task
+    var dupAssign = findRecentOpenAssignment(data, normCol, normTask, 0, nowMs);
     if (dupAssign) {
       return {
         success: true,
         duplicate: true,
         message: 'Assign already logged recently',
         assignmentId: dupAssign.assignmentId,
-        planned: dupAssign.planned,
-        hours: dupAssign.logged,
-        remaining: dupAssign.remaining,
+        planned: 0,
+        hours: 0,
+        remaining: 0,
         status: dupAssign.status
       };
     }
-
-    var plannedAssign = Math.max(0, safeNum(hours));
+    // Look up any existing task ID from prior rows
+    var latestForId = getLatestAssignmentState(data, normCol, normTask);
+    var latestTaskId = latestForId ? safeStr(latestForId.taskId) : '';
     var aId = 'A-' + Date.now();
-    insertAssignmentLogRow(sheet, [aId, latestTaskId, task, collector, now, plannedAssign, 'In Progress', 0, plannedAssign, '', notes, getWeekStart(now)]);
+    // Always write 0 for planned hours
+    insertAssignmentLogRow(sheet, [aId, latestTaskId, task, collector, now, 0, 'In Progress', 0, 0, '', notes, getWeekStart(now)]);
     refreshPostSubmitCaches(collector);
-    return { success: true, message: 'Assigned: ' + task, assignmentId: aId, planned: plannedAssign, hours: 0, remaining: plannedAssign, status: 'In Progress' };
+    return { success: true, message: 'Assigned: ' + task, assignmentId: aId, planned: 0, hours: 0, remaining: 0, status: 'In Progress' };
   }
 
+  // For all other actions, find the latest row and update it in-place
+  var latestResult = getLatestAssignmentStateWithRowIdx(data, normCol, normTask);
+  var latest = latestResult.state;
+  var latestRowIdx = latestResult.rowIdx;
+
   if (actionType === 'COMPLETE') {
-    var dupComplete = findRecentCompletedAssignment(data, normCol, normTask, hours, nowMs);
-    if (dupComplete) {
+    if (!latest || latestRowIdx < 1) {
+      return { success: false, message: 'No active assignment found to complete for ' + task };
+    }
+    // Dedup: already completed?
+    if (isCompletedStatus_(safeStr(latest.status))) {
       return {
         success: true,
         duplicate: true,
-        message: 'Complete already logged recently',
-        assignmentId: dupComplete.assignmentId,
-        hours: dupComplete.logged || hours,
-        planned: dupComplete.planned || hours,
-        remaining: dupComplete.remaining,
-        status: dupComplete.status
+        message: 'Already completed',
+        assignmentId: latest.assignmentId,
+        hours: safeNum(latest.logged),
+        planned: 0,
+        remaining: 0,
+        status: 'Completed'
       };
     }
-
-    var prevLogged = latest ? safeNum(latest.logged) : 0;
-    var prevPlanned = latest ? safeNum(latest.planned) : 0;
-    var plannedComplete = prevPlanned > 0 ? prevPlanned : Math.max(0, safeNum(hours));
-    var newLogged = prevLogged + Math.max(0, safeNum(hours));
-    var remComplete = Math.max(0, plannedComplete - newLogged);
-    var fId = 'A-' + Date.now();
-    insertAssignmentLogRow(sheet, [fId, latestTaskId, task, collector, latestAssignedDate, plannedComplete, 'Completed', newLogged, remComplete, now, notes, latestWeekStart || getWeekStart(now)]);
+    var newLogged = Math.max(0, safeNum(hours));
+    updateAssignmentLogRow(sheet, latestRowIdx, [
+      latest.assignmentId, latest.taskId, task, collector,
+      latest.assignedDate, 0, 'Completed', newLogged, 0,
+      now, notes, latest.weekStart || getWeekStart(now)
+    ]);
     refreshPostSubmitCaches(collector);
-    return { success: true, message: 'Completed: ' + task, assignmentId: fId, hours: newLogged, planned: plannedComplete, remaining: remComplete, status: 'Completed' };
+    return { success: true, message: 'Completed: ' + task, assignmentId: latest.assignmentId, hours: newLogged, planned: 0, remaining: 0, status: 'Completed' };
   }
 
   if (actionType === 'CANCEL') {
-    var cancelId = 'A-' + Date.now();
-    insertAssignmentLogRow(sheet, [cancelId, latestTaskId, task, collector, latestAssignedDate, latest ? safeNum(latest.planned) : 0, 'Canceled', latest ? safeNum(latest.logged) : 0, latest ? safeNum(latest.remaining) : 0, now, notes, latestWeekStart || getWeekStart(now)]);
+    if (!latest || latestRowIdx < 1) {
+      return { success: false, message: 'No active assignment found to cancel for ' + task };
+    }
+    // Dedup: already canceled?
+    if (isCanceledStatus_(safeStr(latest.status))) {
+      return {
+        success: true,
+        duplicate: true,
+        message: 'Already canceled',
+        assignmentId: latest.assignmentId,
+        status: 'Canceled'
+      };
+    }
+    updateAssignmentLogRow(sheet, latestRowIdx, [
+      latest.assignmentId, latest.taskId, task, collector,
+      latest.assignedDate, 0, 'Canceled', 0, 0,
+      now, notes, latest.weekStart || getWeekStart(now)
+    ]);
     refreshPostSubmitCaches(collector);
-    return { success: true, message: 'Canceled: ' + task, assignmentId: cancelId, status: 'Canceled' };
+    return { success: true, message: 'Canceled: ' + task, assignmentId: latest.assignmentId, status: 'Canceled' };
   }
 
   if (actionType === 'NOTE_ONLY') {
     if (!notes) return { success: false, message: 'No note text provided' };
-    var noteStatus = latest ? safeStr(latest.status) : 'In Progress';
-    var noteId = 'A-' + Date.now();
-    insertAssignmentLogRow(sheet, [noteId, latestTaskId, task, collector, latestAssignedDate, latest ? safeNum(latest.planned) : 0, noteStatus || 'In Progress', latest ? safeNum(latest.logged) : 0, latest ? safeNum(latest.remaining) : 0, latest ? latest.completedDate : '', notes, latestWeekStart || getWeekStart(now)]);
+    if (!latest || latestRowIdx < 1) {
+      return { success: false, message: 'No assignment found for ' + task };
+    }
+    var noteStatus = safeStr(latest.status) || 'In Progress';
+    updateAssignmentLogRow(sheet, latestRowIdx, [
+      latest.assignmentId, latest.taskId, task, collector,
+      latest.assignedDate, 0, noteStatus,
+      safeNum(latest.logged), safeNum(latest.remaining),
+      latest.completedDate || '', notes,
+      latest.weekStart || getWeekStart(now)
+    ]);
     refreshPostSubmitCaches(collector);
-    return { success: true, message: 'Note saved', assignmentId: noteId, status: noteStatus || 'In Progress' };
+    return { success: true, message: 'Note saved', assignmentId: latest.assignmentId, status: noteStatus };
   }
 
   return { success: false, message: 'Unsupported actionType: ' + actionType };

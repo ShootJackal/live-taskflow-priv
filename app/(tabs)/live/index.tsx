@@ -34,6 +34,16 @@ function getRigRegion(rig: unknown): "SF" | "MX" {
   return "MX";
 }
 
+function formatFeedError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error ?? "unknown error");
+  const clean = raw
+    .replace(/^Request failed:\s*/i, "")
+    .replace(/^Leaderboard feed unavailable:\s*/i, "")
+    .trim();
+  if (!clean) return "unknown error";
+  return clean.length > 68 ? `${clean.slice(0, 65)}...` : clean;
+}
+
 interface TerminalLine {
   id: string;
   text: string;
@@ -452,6 +462,11 @@ export default function LiveScreen() {
   }, [collectors]);
 
   const leaderboardEntries = useMemo(() => leaderboardQuery.data ?? [], [leaderboardQuery.data]);
+  const hasLeaderboardError = leaderboardQuery.isError && leaderboardEntries.length === 0;
+  const leaderboardErrorText = useMemo(
+    () => (hasLeaderboardError ? formatFeedError(leaderboardQuery.error) : ""),
+    [hasLeaderboardError, leaderboardQuery.error]
+  );
 
   const regionOverview = useMemo(() => {
     const base: Record<"MX" | "SF", RegionSnapshot> = {
@@ -529,7 +544,9 @@ export default function LiveScreen() {
         `SF ${regionOverview.sf.hoursLogged.toFixed(2)}h · ${regionOverview.sf.tasksCompleted}/${regionOverview.sf.tasksAssigned} done`,
         `Combined ${regionOverview.totalHoursLogged.toFixed(2)}h · ${regionOverview.combinedCompletionRate.toFixed(1)}%`,
       ]
-      : ["Waiting for weekly leaderboard feed..."];
+      : (hasLeaderboardError
+        ? [`Leaderboard feed error: ${leaderboardErrorText}`]
+        : ["Waiting for weekly leaderboard feed..."]);
     segs.push({ label: "REGIONS", color: colors.mxOrange, items: regionItems, speed: 34 });
     const statsItems: string[] = [];
     if (stats) {
@@ -546,7 +563,7 @@ export default function LiveScreen() {
     }
     segs.push({ label: "STATS", color: colors.statsGreen, items: statsItems, speed: 36 });
     return segs;
-  }, [colors, recollectItems, stats, regionOverview, liveAlerts]);
+  }, [colors, recollectItems, stats, regionOverview, liveAlerts, hasLeaderboardError, leaderboardErrorText]);
 
   const buildTerminalLines = useCallback((): TerminalLine[] => {
     const lines: TerminalLine[] = [];
@@ -570,6 +587,8 @@ export default function LiveScreen() {
       lines.push({ id: `mx_t_${ts}`, text: `Tasks Logged:       ${regionOverview.mx.tasksAssigned}`, type: "data", color: colors.mxOrange });
       lines.push({ id: `mx_h2_${ts}`, text: `Hours Captured (wk): ${regionOverview.mx.hoursLogged.toFixed(2)}h`, type: "data", color: colors.mxOrange });
       lines.push({ id: `mx_r2_${ts}`, text: `Completion Rate:    ${regionOverview.mx.completionRate.toFixed(1)}%`, type: "data", color: colors.terminalGreen });
+    } else if (hasLeaderboardError) {
+      lines.push({ id: `mx_w_${ts}`, text: `Leaderboard error: ${leaderboardErrorText}`, type: "label", color: colors.cancel });
     } else {
       lines.push({ id: `mx_w_${ts}`, text: "Awaiting data feed...", type: "label" });
     }
@@ -583,6 +602,8 @@ export default function LiveScreen() {
       lines.push({ id: `sf_t_${ts}`, text: `Tasks Logged:       ${regionOverview.sf.tasksAssigned}`, type: "data", color: colors.sfBlue });
       lines.push({ id: `sf_h2_${ts}`, text: `Hours Captured (wk): ${regionOverview.sf.hoursLogged.toFixed(2)}h`, type: "data", color: colors.sfBlue });
       lines.push({ id: `sf_r2_${ts}`, text: `Completion Rate:    ${regionOverview.sf.completionRate.toFixed(1)}%`, type: "data", color: colors.terminalGreen });
+    } else if (hasLeaderboardError) {
+      lines.push({ id: `sf_w_${ts}`, text: `Leaderboard error: ${leaderboardErrorText}`, type: "label", color: colors.cancel });
     } else {
       lines.push({ id: `sf_w_${ts}`, text: "Awaiting data feed...", type: "label" });
     }
@@ -597,6 +618,8 @@ export default function LiveScreen() {
       lines.push({ id: `cb_3_${ts}`, text: `Weekly Hours:       ${regionOverview.totalHoursLogged.toFixed(2)}h`, type: "data", color: colors.accentLight });
       lines.push({ id: `cb_4_${ts}`, text: `Weekly Completed:   ${regionOverview.totalTasksCompleted}`, type: "data", color: colors.terminalGreen });
       lines.push({ id: `cb_5_${ts}`, text: `Total Rigs Active:  ${totalRigCount} (mapped MX: ${mxRigs} | SF: ${sfRigs})`, type: "data", color: colors.textPrimary });
+    } else if (hasLeaderboardError) {
+      lines.push({ id: `cb_w_${ts}`, text: "Leaderboard sync failed. Check endpoint config.", type: "label", color: colors.cancel });
     } else {
       lines.push({ id: `cb_w_${ts}`, text: "Syncing with server...", type: "label" });
     }
@@ -621,7 +644,7 @@ export default function LiveScreen() {
     lines.push({ id: `rdy_${ts}`, text: "Ready for commands.", type: "cmd" });
 
     return lines;
-  }, [mappedRigCounts, fallbackCollectorCounts, regionOverview, colors, recollectItems, totalRigCount]);
+  }, [mappedRigCounts, fallbackCollectorCounts, regionOverview, colors, recollectItems, totalRigCount, hasLeaderboardError, leaderboardErrorText]);
 
   const allLines = useMemo(() => buildTerminalLines(), [buildTerminalLines]);
 
@@ -727,8 +750,8 @@ export default function LiveScreen() {
 
   return (
     <ScreenContainer>
-      <View style={[liveStyles.topBar, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-        <View pointerEvents="none" accessible={false} style={[liveStyles.headerGlow, { backgroundColor: colors.accentSoft }]} />
+      <View style={[liveStyles.topBar, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
+        {/* subtle ambient glow — no hard border */}
         <View style={liveStyles.topBarLeft}>
           <View style={[liveStyles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
             <Text style={[liveStyles.headerTagText, { color: colors.accent }]}>{`${t("live", "Live").toUpperCase()} MONITOR`}</Text>
@@ -879,11 +902,11 @@ const tickerStyles = StyleSheet.create({
     borderRadius: 4,
   },
   pillDot: { width: 5, height: 5, borderRadius: 3 },
-  pillText: { fontSize: 8, fontWeight: "800" as const, letterSpacing: 1.2 },
+  pillText: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 0.8 },
   separator: { width: 1, height: 16 },
   scrollWrap: { flex: 1, overflow: "hidden", height: 34, justifyContent: "center", marginLeft: 8, position: "relative" as const },
   scrollHighlight: { position: "absolute" as const, top: 0, left: 0, right: 0, bottom: 0 },
-  scrollText: { fontSize: 10, letterSpacing: 0.3, width: 5000 },
+  scrollText: { fontSize: 11, letterSpacing: 0.2, width: 5000 },
   fadeEdgeLeft: { position: "absolute" as const, top: 0, left: 0, bottom: 0, width: 16, opacity: 0.7 },
   fadeEdgeRight: { position: "absolute" as const, top: 0, right: 0, bottom: 0, width: 24, opacity: 0.8 },
 });
@@ -910,8 +933,8 @@ const cmdStyles = StyleSheet.create({
     borderRadius: 4,
   },
   sessionDot: { width: 4, height: 4, borderRadius: 2 },
-  sessionLabel: { fontSize: 7, fontWeight: "800" as const, letterSpacing: 1 },
-  rigCountMini: { fontSize: 7, letterSpacing: 0.5 },
+  sessionLabel: { fontSize: 9, fontWeight: "700" as const, letterSpacing: 0.8 },
+  rigCountMini: { fontSize: 9, letterSpacing: 0.3 },
   scrollArea: { maxHeight: 420 },
   scrollContent: { padding: 12, paddingBottom: 8 },
   line: { lineHeight: 19, letterSpacing: 0.2, fontSize: 11 },
@@ -933,20 +956,20 @@ const cmdStyles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
-  actionText: { fontSize: 9, fontWeight: "700" as const, letterSpacing: 1 },
+  actionText: { fontSize: 11, fontWeight: "600" as const, letterSpacing: 0.4 },
 });
 
 const guideStyles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", alignItems: "center", padding: DesignTokens.spacing.xxl },
   card: { width: "100%", maxWidth: 380, borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.xl },
   cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
-  cardTitle: { fontSize: 14, fontWeight: "800" as const, letterSpacing: 3 },
-  step: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 14 },
-  stepNum: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  stepNumText: { fontSize: 11, fontWeight: "800" as const },
+  cardTitle: { fontSize: 15, fontWeight: "700" as const, letterSpacing: 1.5 },
+  step: { flexDirection: "row", alignItems: "flex-start", gap: 14, paddingVertical: 14 },
+  stepNum: { width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  stepNumText: { fontSize: 12, fontWeight: "700" as const },
   stepContent: { flex: 1 },
-  stepTitle: { fontSize: 14, marginBottom: 3 },
-  stepDesc: { fontSize: 12, lineHeight: 17 },
+  stepTitle: { fontSize: 15, fontWeight: "600" as const, marginBottom: 4 },
+  stepDesc: { fontSize: 13, lineHeight: 19 },
 });
 
 const liveStyles = StyleSheet.create({
@@ -962,18 +985,11 @@ const liveStyles = StyleSheet.create({
     marginTop: DesignTokens.spacing.sm,
     padding: DesignTokens.spacing.lg,
     borderRadius: DesignTokens.radius.xl,
-    borderWidth: 1,
     overflow: "hidden",
-  },
-  headerGlow: {
-    position: "absolute",
-    top: -44,
-    left: -22,
-    right: -22,
-    height: 126,
-    opacity: 0.8,
-    borderBottomLeftRadius: 74,
-    borderBottomRightRadius: 74,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.10,
+    shadowRadius: 16,
+    elevation: 6,
   },
   topBarLeft: { flex: 1 },
   headerTag: {
@@ -984,7 +1000,7 @@ const liveStyles = StyleSheet.create({
     paddingVertical: 3,
     marginBottom: 4,
   },
-  headerTagText: { fontSize: 9, fontWeight: "800" as const, letterSpacing: 1.1 },
+  headerTagText: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 0.7 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   brandLogo: { width: 26, height: 26, borderRadius: 8 },
   brandStack: { position: "relative", minWidth: 190, height: 42, justifyContent: "center" },
@@ -1017,7 +1033,7 @@ const liveStyles = StyleSheet.create({
     borderRadius: 9,
   },
   liveDot: { width: 6, height: 6, borderRadius: 3 },
-  liveLabel: { fontSize: 9, fontWeight: "800" as const, letterSpacing: 1.2 },
+  liveLabel: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 0.8 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
   rigCountChip: {
     flexDirection: "row",
@@ -1029,7 +1045,7 @@ const liveStyles = StyleSheet.create({
     paddingVertical: 4,
   },
   rigCountDot: { width: 6, height: 6, borderRadius: 4 },
-  rigCountText: { fontSize: 10, letterSpacing: 0.5 },
+  rigCountText: { fontSize: 11, letterSpacing: 0.3 },
   alertChip: {
     borderWidth: 1,
     borderRadius: 9,
@@ -1038,7 +1054,7 @@ const liveStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  alertChipText: { fontSize: 9, letterSpacing: 0.5, fontWeight: "700" as const },
+  alertChipText: { fontSize: 10, letterSpacing: 0.3, fontWeight: "600" as const },
   clockPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -1048,12 +1064,12 @@ const liveStyles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
   },
-  clockText: { fontSize: 9, letterSpacing: 0.45 },
+  clockText: { fontSize: 10, letterSpacing: 0.3 },
   topBarRight: { flexDirection: "row", gap: 8 },
   iconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 11,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",

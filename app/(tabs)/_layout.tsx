@@ -162,15 +162,7 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
         ]}
         {...(Platform.OS === "web" ? ({ role: "tablist", "aria-label": "TaskFlow navigation" } as any) : {})}
       >
-        <View
-          pointerEvents="none"
-          accessible={false}
-          style={[
-            barStyles.glassSheen,
-            { backgroundColor: isDark ? "rgba(255,255,255,0.05)" : colors.cardDepth },
-          ]}
-          {...(Platform.OS === "web" ? ({ "aria-hidden": true, focusable: false } as any) : {})}
-        />
+        {/* glass sheen removed — flatter, calmer island */}
 
         <Animated.View
           pointerEvents="none"
@@ -248,13 +240,13 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
                   {
                     color: iconColor,
                     fontWeight: isFocused ? ("700" as const) : ("500" as const),
-                    fontSize: tabName === "live" ? 9 : 9,
-                    letterSpacing: tabName === "live" ? 1.2 : 0.6,
+                    fontSize: 11,
+                    letterSpacing: isFocused ? 0.2 : 0.1,
                     fontFamily: isFocused ? "Lexend_700Bold" : "Lexend_500Medium",
                   },
                 ]}
               >
-                {tabName === "live" ? label.toUpperCase() : label}
+                {label}
               </Text>
             </TouchableOpacity>
           );
@@ -277,7 +269,7 @@ export default function TabLayout() {
         tabBarInactiveTintColor: colors.textMuted,
       }}
     >
-      <Tabs.Screen name="live" options={{ title: t("live", "LIVE").toUpperCase() }} />
+      <Tabs.Screen name="live" options={{ title: t("live", "Live") }} />
       <Tabs.Screen name="index" options={{ title: t("collect", "Collect"), headerShown: false }} />
       <Tabs.Screen name="stats" options={{ title: t("stats", "Stats") }} />
       <Tabs.Screen name="tools" options={{ title: t("tools", "Tools") }} />
@@ -309,14 +301,6 @@ const barStyles = StyleSheet.create({
     overflow: "hidden",
     position: "relative",
   },
-  glassSheen: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: "48%",
-    opacity: 0.9,
-  },
   activePill: {
     position: "absolute",
     top: 4,
@@ -328,11 +312,11 @@ const barStyles = StyleSheet.create({
   tab: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 6,
+    paddingVertical: 8,
     gap: 3,
   },
   iconWrap: {
-    width: 40,
+    width: 42,
     height: 30,
     alignItems: "center",
     justifyContent: "center",
@@ -364,6 +348,6 @@ const barStyles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   label: {
-    textTransform: "uppercase",
+    textAlign: "center",
   },
 });

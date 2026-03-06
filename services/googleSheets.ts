@@ -184,12 +184,12 @@ function resolveScriptUrls(): { legacy: string; core: string; analytics: string 
 
 function getScriptUrlForRole(role: ScriptRole): string {
   const { legacy, core, analytics } = resolveScriptUrls();
-  // Monolith-first mode: if legacy URL is set, always use it for all actions.
-  if (legacy) return legacy;
+  // Split-first mode: if any split endpoint is configured, prefer split routing.
+  const splitEnabled = Boolean(core || analytics);
   if (role === "analytics") {
-    return analytics || core;
+    return splitEnabled ? (analytics || core) : legacy;
   }
-  return core || analytics;
+  return splitEnabled ? (core || analytics) : legacy;
 }
 
 function getScriptUrlForAction(action: string): string {
@@ -922,16 +922,23 @@ function sanitizeLeaderboard(raw: LeaderboardEntry[]): LeaderboardEntry[] {
 
 export async function fetchLeaderboard(period: "thisWeek" | "lastWeek" = "thisWeek"): Promise<LeaderboardEntry[]> {
   log("[API] fetchLeaderboard — using server endpoint", period);
+  let serverFetchFailed = false;
+  let serverErrorMessage = "";
 
   try {
     // Always hit server for leaderboard to avoid stale storage snapshots masking live MX/SF updates.
     const serverLeaderboard = await apiGet<LeaderboardEntry[]>("getLeaderboard", { period }, false);
-    if (serverLeaderboard && serverLeaderboard.length > 0) {
+    if (!Array.isArray(serverLeaderboard)) {
+      throw new Error("Malformed leaderboard payload (expected array)");
+    }
+    if (serverLeaderboard.length > 0) {
       log("[API] Server leaderboard returned", serverLeaderboard.length, "entries");
       return sanitizeLeaderboard(serverLeaderboard);
     }
     log("[API] Server leaderboard empty — trying _AppCache fallback");
   } catch (err) {
+    serverFetchFailed = true;
+    serverErrorMessage = err instanceof Error ? err.message : String(err ?? "Unknown error");
     log("[API] Server getLeaderboard failed:", err);
   }
 
@@ -956,7 +963,11 @@ export async function fetchLeaderboard(period: "thisWeek" | "lastWeek" = "thisWe
     log("[API] _AppCache fallback failed:", err);
   }
 
-  log("[API] Leaderboard empty or failed, returning []");
+  if (serverFetchFailed) {
+    throw new Error(`Leaderboard feed unavailable: ${serverErrorMessage || "server fetch failed"}`);
+  }
+
+  log("[API] Leaderboard empty, returning []");
   return [];
 }
 
@@ -974,12 +985,14 @@ export function isApiConfigured(): boolean {
 export function clearApiCache(): void {
   memoryCache.clear();
   appCacheSnapshotMemo.clear();
+  _resolvedUrls = null;
   log("[API] Memory cache cleared");
 }
 
 export async function clearAllCaches(): Promise<void> {
   memoryCache.clear();
   appCacheSnapshotMemo.clear();
+  _resolvedUrls = null;
   try {
     await clearStorageApiCache();
     log("[API] All caches cleared (memory + storage)");

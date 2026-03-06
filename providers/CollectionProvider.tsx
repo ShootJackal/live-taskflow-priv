@@ -11,11 +11,13 @@ import {
   ActionType,
   SubmitPayload,
   AssignmentStatus,
+  DailyCarryoverItem,
 } from "@/types";
 import {
   fetchCollectors,
   fetchTasks,
   fetchTodayLog,
+  fetchDailyCarryover,
   submitAction,
   isApiConfigured,
   warmServerCache,
@@ -90,6 +92,14 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     queryFn: () => fetchTodayLog(selectedCollectorName),
     enabled: configured && !!selectedCollectorName,
     refetchInterval: 30000,
+    retry: 1,
+  });
+
+  const dailyCarryoverQuery = useQuery<DailyCarryoverItem[]>({
+    queryKey: ["dailyCarryover", selectedCollectorName],
+    queryFn: () => fetchDailyCarryover(selectedCollectorName),
+    enabled: configured && !!selectedCollectorName,
+    staleTime: 30000,
     retry: 1,
   });
 
@@ -304,6 +314,9 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
       await queryClient.cancelQueries({ queryKey: ["todayLog", collector] });
 
       const previousLog = queryClient.getQueryData<LogEntry[]>(["todayLog", collector]);
+      const previousHoursToLog = hoursToLog;
+      const previousNotes = notes;
+      const previousTaskName = selectedTaskName;
       const optimistic = buildOptimisticLogEntry(payload);
       queryClient.setQueryData<LogEntry[]>(
         ["todayLog", collector],
@@ -316,11 +329,20 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
         setSelectedTaskName("");
       }
 
-      return { previousLog, collector };
+      return { previousLog, collector, previousHoursToLog, previousNotes, previousTaskName };
     },
     onError: (err, payload, context) => {
       if (context?.previousLog !== undefined) {
         queryClient.setQueryData(["todayLog", context.collector], context.previousLog);
+      }
+      if (context?.previousHoursToLog !== undefined) {
+        setHoursToLog((current) => (current.trim().length > 0 ? current : context.previousHoursToLog));
+      }
+      if (context?.previousNotes !== undefined) {
+        setNotes((current) => (current.trim().length > 0 ? current : context.previousNotes));
+      }
+      if (payload.actionType === "ASSIGN" && context?.previousTaskName) {
+        setSelectedTaskName((current) => (current.trim().length > 0 ? current : context.previousTaskName));
       }
       const message = err instanceof Error ? err.message : "Sync failed";
       Alert.alert(
@@ -382,20 +404,16 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     if (!selectedCollectorName || !selectedTaskName) {
       throw new Error("Select collector and task first");
     }
-    const hours = hoursToLog ? parseFloat(hoursToLog) : 0;
-    if (!hours || hours <= 0) {
-      throw new Error("Enter hours to log before assigning");
-    }
     submitOnce({
       collector: selectedCollectorName,
       task: selectedTaskName,
-      hours,
+      hours: 0,
       actionType: "ASSIGN",
       notes,
       rig: selectedRig || undefined,
-      requestId: createRequestId("ASSIGN", selectedTaskName, hours),
+      requestId: createRequestId("ASSIGN", selectedTaskName, 0),
     });
-  }, [selectedCollectorName, selectedTaskName, hoursToLog, notes, selectedRig, createRequestId, submitOnce]);
+  }, [selectedCollectorName, selectedTaskName, notes, selectedRig, createRequestId, submitOnce]);
 
   const completeTask = useCallback(
     (taskName: string) => {
@@ -461,6 +479,11 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     ]);
   }, [queryClient, selectedCollectorName]);
 
+  const carryoverItems = useMemo<DailyCarryoverItem[]>(
+    () => dailyCarryoverQuery.data ?? [],
+    [dailyCarryoverQuery.data]
+  );
+
   return {
     configured,
     collectors,
@@ -468,6 +491,8 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     todayLog,
     openTasks,
     activity,
+    carryoverItems,
+    hasCarryover: carryoverItems.length > 0,
     selectedCollectorName,
     selectedCollector,
     selectedRig,
@@ -479,7 +504,7 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     isLoadingCollectors: collectorQuery.isLoading,
     isLoadingTasks: taskQuery.isLoading,
     isLoadingLog: todayLogQuery.isLoading,
-    isSubmitting: false,
+    isSubmitting: submitMutation.isPending,
     isSyncing: submitMutation.isPending,
     submitError: submitMutation.error?.message ?? null,
 

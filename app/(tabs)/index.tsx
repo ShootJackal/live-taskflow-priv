@@ -3,7 +3,6 @@ import {
   View,
   Text,
   ScrollView,
-  FlatList,
   StyleSheet,
   TextInput,
   Alert,
@@ -21,10 +20,14 @@ import {
   StickyNote,
   AlertCircle,
   Circle,
-  Info,
   Clock,
   Search,
   X,
+  ListTodo,
+  Hash,
+  FileText,
+  User,
+  AlertTriangle,
 } from "lucide-react-native";
 import { useCollection } from "@/providers/CollectionProvider";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -39,56 +42,119 @@ import type { LogEntry } from "@/types";
 import type { ThemeColors } from "@/constants/colors";
 import { Image } from "expo-image";
 
-const LogEntryRow = React.memo(function LogEntryRow({ entry, statusColor, colors, isLast }: {
+// ─── Log entry row ───────────────────────────────────────────────────────────
+
+const LogEntryRow = React.memo(function LogEntryRow({
+  entry,
+  statusColor,
+  colors,
+  isLast,
+}: {
   entry: LogEntry;
   statusColor: string;
   colors: ThemeColors;
   isLast: boolean;
 }) {
+  const isClosed = entry.status === "Completed" || entry.status === "Canceled";
   const hasTaskProgress =
-    typeof entry.taskCollectedHours === "number" ||
     typeof entry.taskGoodHours === "number" ||
     typeof entry.taskRemainingHours === "number";
-  const taskCollected = Number(entry.taskCollectedHours ?? 0);
   const taskGood = Number(entry.taskGoodHours ?? 0);
   const taskRemaining = Number(entry.taskRemainingHours ?? 0);
-  const taskTotal = Math.max(taskCollected + taskRemaining, 0);
-  const taskProgressPct = Math.max(0, Math.min(100, Math.round(Number(entry.taskProgressPct ?? (taskTotal > 0 ? (taskCollected / taskTotal) * 100 : 0)))));
+  // Progress bar: CB Actual (goodHours) out of total required (good + remaining)
+  const taskTotal = Math.max(taskGood + taskRemaining, 0);
+  const taskProgressPct = Math.max(
+    0,
+    Math.min(100, taskTotal > 0 ? Math.round((taskGood / taskTotal) * 100) : 0)
+  );
 
   return (
-    <View style={[logStyles.row, !isLast && { borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
+    <View
+      style={[
+        logStyles.row,
+        !isLast && {
+          borderBottomColor: colors.border,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+        },
+        isClosed && logStyles.rowClosed,
+      ]}
+    >
       <View style={logStyles.rowLeft}>
-        <View style={[logStyles.statusStripe, { backgroundColor: statusColor }]} />
+        <View
+          style={[logStyles.statusStripe, { backgroundColor: statusColor }]}
+        />
         <View style={logStyles.rowContent}>
           <MarqueeText
             text={entry.taskName}
-            style={[logStyles.taskName, { color: colors.textPrimary }]}
+            style={[logStyles.taskName, { color: isClosed ? colors.textMuted : colors.textPrimary }]}
             speedMs={4300}
           />
           <View style={logStyles.metaRow}>
-            <View style={[logStyles.statusBadge, { backgroundColor: statusColor + '14' }]}>
+            <View
+              style={[
+                logStyles.statusBadge,
+                { backgroundColor: statusColor + "18" },
+              ]}
+            >
               <Text style={[logStyles.statusText, { color: statusColor }]}>
                 {entry.status}
               </Text>
             </View>
-            <Text style={[logStyles.hours, { color: colors.textMuted }]}>
-              {Number(entry.loggedHours).toFixed(2)}h / {Number(entry.plannedHours).toFixed(2)}h
-            </Text>
+            {Number(entry.loggedHours) > 0 && (
+              <Text style={[logStyles.hours, { color: colors.textMuted }]}>
+                {Number(entry.loggedHours).toFixed(2)}h logged
+              </Text>
+            )}
           </View>
           {hasTaskProgress && (
-            <View style={[logStyles.taskSnapshot, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
+            <View
+              style={[
+                logStyles.taskSnapshot,
+                {
+                  backgroundColor: colors.bgInput,
+                  borderColor: colors.border,
+                },
+              ]}
+            >
               <View style={logStyles.taskSnapshotTop}>
-                <Text style={[logStyles.taskStat, { color: colors.complete }]}>
-                  Good {taskGood.toFixed(2)}h
+                <Text
+                  style={[logStyles.taskStat, { color: colors.complete }]}
+                >
+                  CB Actual {taskGood.toFixed(2)}h
                 </Text>
-                <Text style={[logStyles.taskStat, { color: colors.statusPending }]}>
-                  Missing {taskRemaining.toFixed(2)}h
+                <Text
+                  style={[
+                    logStyles.taskStat,
+                    { color: colors.statusPending },
+                  ]}
+                >
+                  Remaining {taskRemaining.toFixed(2)}h
                 </Text>
-                <Text style={[logStyles.taskPct, { color: colors.textSecondary }]}>{taskProgressPct}%</Text>
+                <Text
+                  style={[
+                    logStyles.taskPct,
+                    { color: colors.textSecondary },
+                  ]}
+                >
+                  {taskProgressPct}%
+                </Text>
               </View>
               {taskTotal > 0 && (
-                <View style={[logStyles.taskTrack, { backgroundColor: colors.border }]}>
-                  <View style={[logStyles.taskFill, { backgroundColor: colors.accent, width: `${taskProgressPct}%` as any }]} />
+                <View
+                  style={[
+                    logStyles.taskTrack,
+                    { backgroundColor: colors.border },
+                  ]}
+                >
+                  <View
+                    style={[
+                      logStyles.taskFill,
+                      {
+                        backgroundColor: colors.accent,
+                        width: `${taskProgressPct}%` as any,
+                      },
+                    ]}
+                  />
                 </View>
               )}
             </View>
@@ -100,23 +166,64 @@ const LogEntryRow = React.memo(function LogEntryRow({ entry, statusColor, colors
 });
 
 const logStyles = StyleSheet.create({
-  row: { paddingVertical: 7 },
-  rowLeft: { flexDirection: "row", gap: 10 },
-  statusStripe: { width: 3, borderRadius: 2, minHeight: 30 },
+  row: { paddingVertical: 10 },
+  rowClosed: { opacity: 0.45 },
+  rowLeft: { flexDirection: "row", gap: 12 },
+  statusStripe: { width: 3, borderRadius: 2, minHeight: 32 },
   rowContent: { flex: 1 },
-  taskName: { fontSize: 13, fontWeight: "600" as const, marginBottom: 2 },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  statusBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  statusText: { fontSize: 10, fontWeight: "600" as const },
-  hours: { fontSize: 11 },
-  remaining: { fontSize: 11, fontWeight: "500" as const },
-  taskSnapshot: { marginTop: 6, borderRadius: 7, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 4 },
-  taskSnapshotTop: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
-  taskStat: { fontSize: 10, fontWeight: "500" as const },
-  taskPct: { marginLeft: "auto", fontSize: 10, fontWeight: "700" as const },
-  taskTrack: { marginTop: 6, height: 3, borderRadius: 2, overflow: "hidden" },
+  taskName: {
+    fontSize: DesignTokens.fontSize.footnote + 1,
+    fontWeight: "600" as const,
+    marginBottom: 4,
+  },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: DesignTokens.radius.xs,
+  },
+  statusText: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "600" as const,
+  },
+  hours: { fontSize: DesignTokens.fontSize.caption1 },
+  taskSnapshot: {
+    marginTop: 6,
+    borderRadius: DesignTokens.radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  taskSnapshotTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  taskStat: {
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "500" as const,
+  },
+  taskPct: {
+    marginLeft: "auto",
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "700" as const,
+  },
+  taskTrack: {
+    marginTop: 6,
+    height: 3,
+    borderRadius: 2,
+    overflow: "hidden",
+  },
   taskFill: { height: 3, borderRadius: 2 },
 });
+
+// ─── Main screen ─────────────────────────────────────────────────────────────
 
 export default function DashboardScreen() {
   const { colors } = useTheme();
@@ -133,6 +240,8 @@ export default function DashboardScreen() {
     notes,
     openTasks,
     todayLog,
+    hasCarryover,
+    carryoverItems,
     isLoadingCollectors,
     isLoadingTasks,
     isLoadingLog,
@@ -154,13 +263,22 @@ export default function DashboardScreen() {
   const [showTaskSearch, setShowTaskSearch] = useState(false);
   const [logVisibleCount, setLogVisibleCount] = useState(5);
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
+  const slideAnim = useRef(new Animated.Value(18)).current;
   const searchAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }),
-      Animated.spring(slideAnim, { toValue: 0, speed: 20, bounciness: 4, useNativeDriver: true }),
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 320,
+        useNativeDriver: true,
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        speed: 22,
+        bounciness: 3,
+        useNativeDriver: true,
+      }),
     ]).start();
   }, [fadeAnim, slideAnim]);
 
@@ -169,26 +287,27 @@ export default function DashboardScreen() {
     [collectors]
   );
 
-  const taskOptions = useMemo(
-    () => {
-      const allTasks = tasks.map((t) => ({ value: t.name, label: t.label }));
-      if (!taskSearch.trim()) return allTasks;
-      const q = taskSearch.toLowerCase();
-      return allTasks.filter((t) => t.label.toLowerCase().includes(q));
-    },
-    [tasks, taskSearch]
-  );
+  const taskOptions = useMemo(() => {
+    const allTasks = tasks.map((t) => ({ value: t.name, label: t.label }));
+    if (!taskSearch.trim()) return allTasks;
+    const q = taskSearch.toLowerCase();
+    return allTasks.filter((t) => t.label.toLowerCase().includes(q));
+  }, [tasks, taskSearch]);
 
-  const hasValidHours = !!hoursToLog.trim() && parseFloat(hoursToLog) > 0;
+  const hasValidHours =
+    !!hoursToLog.trim() && parseFloat(hoursToLog) > 0;
   const canSubmit = !!selectedCollectorName && !!selectedTaskName;
   const canSubmitWithHours = canSubmit && hasValidHours;
   const latestOpenTask = openTasks.length > 0 ? openTasks[0] : null;
-  const plannedHoursHint = latestOpenTask ? latestOpenTask.plannedHours : 0;
 
   const toggleTaskSearch = useCallback(() => {
     const next = !showTaskSearch;
     setShowTaskSearch(next);
-    Animated.timing(searchAnim, { toValue: next ? 1 : 0, duration: 200, useNativeDriver: false }).start();
+    Animated.timing(searchAnim, {
+      toValue: next ? 1 : 0,
+      duration: 200,
+      useNativeDriver: false,
+    }).start();
     if (!next) setTaskSearch("");
   }, [showTaskSearch, searchAnim]);
 
@@ -202,15 +321,49 @@ export default function DashboardScreen() {
   }, [refreshData]);
 
   const handleAssign = useCallback(() => {
-    try { assignTask(); } catch (e: unknown) {
-      Alert.alert("Error", e instanceof Error ? e.message : "Failed to assign task");
+    if (hasCarryover) {
+      Alert.alert(
+        "Close Yesterday's Tasks First",
+        `You have ${carryoverItems.length} incomplete task${carryoverItems.length === 1 ? "" : "s"} from yesterday. Please go to the Stats tab to close them before assigning new tasks.`,
+        [
+          { text: "Not Now", style: "cancel" },
+          {
+            text: "Assign Anyway",
+            style: "destructive",
+            onPress: () => {
+              try {
+                assignTask();
+              } catch (e: unknown) {
+                Alert.alert(
+                  "Error",
+                  e instanceof Error ? e.message : "Failed to assign task"
+                );
+              }
+            },
+          },
+        ]
+      );
+      return;
     }
-  }, [assignTask]);
+    try {
+      assignTask();
+    } catch (e: unknown) {
+      Alert.alert(
+        "Error",
+        e instanceof Error ? e.message : "Failed to assign task"
+      );
+    }
+  }, [assignTask, hasCarryover, carryoverItems]);
 
   const handleComplete = useCallback(() => {
     if (!latestOpenTask) return;
-    try { completeTask(latestOpenTask.taskName); } catch (e: unknown) {
-      Alert.alert("Error", e instanceof Error ? e.message : "Failed to complete task");
+    try {
+      completeTask(latestOpenTask.taskName);
+    } catch (e: unknown) {
+      Alert.alert(
+        "Error",
+        e instanceof Error ? e.message : "Failed to complete task"
+      );
     }
   }, [completeTask, latestOpenTask]);
 
@@ -218,28 +371,52 @@ export default function DashboardScreen() {
     if (!latestOpenTask) return;
     Alert.alert("Cancel Task", `Cancel "${latestOpenTask.taskName}"?`, [
       { text: "No", style: "cancel" },
-      { text: "Yes", style: "destructive", onPress: () => {
-        try { cancelTask(latestOpenTask.taskName); } catch (e: unknown) {
-          Alert.alert("Error", e instanceof Error ? e.message : "Failed to cancel");
-        }
-      }},
+      {
+        text: "Yes",
+        style: "destructive",
+        onPress: () => {
+          try {
+            cancelTask(latestOpenTask.taskName);
+          } catch (e: unknown) {
+            Alert.alert(
+              "Error",
+              e instanceof Error ? e.message : "Failed to cancel"
+            );
+          }
+        },
+      },
     ]);
   }, [cancelTask, latestOpenTask]);
 
   const handleAddNote = useCallback(() => {
     if (!latestOpenTask || !notes.trim()) return;
-    try { addNote(latestOpenTask.taskName); } catch (e: unknown) {
-      Alert.alert("Error", e instanceof Error ? e.message : "Failed to save note");
+    try {
+      addNote(latestOpenTask.taskName);
+    } catch (e: unknown) {
+      Alert.alert(
+        "Error",
+        e instanceof Error ? e.message : "Failed to save note"
+      );
     }
   }, [addNote, latestOpenTask, notes]);
 
+  const todayDateStr = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
+
+  // Header summary — today's entries only.
   const todayStats = useMemo(() => {
     const completed = todayLog.filter((e) => e.status === "Completed").length;
     const totalLogged = todayLog.reduce((s, e) => s + e.loggedHours, 0);
-    const totalPlanned = todayLog.reduce((s, e) => s + e.plannedHours, 0);
-    return { completed, totalLogged, totalPlanned, total: todayLog.length };
+    return { completed, totalLogged, total: todayLog.length };
   }, [todayLog]);
-  const visibleLog = useMemo(() => todayLog.slice(0, logVisibleCount), [todayLog, logVisibleCount]);
+
+  // Full log list keeps all entries (including carryovers) visible and actionable.
+  const visibleLog = useMemo(
+    () => todayLog.slice(0, logVisibleCount),
+    [todayLog, logVisibleCount]
+  );
 
   useEffect(() => {
     setLogVisibleCount(5);
@@ -252,309 +429,721 @@ export default function DashboardScreen() {
     });
   }, [todayLog.length]);
 
-  const getStatusColor = useCallback((status: string) => {
-    if (status === "Completed") return colors.statusActive;
-    if (status === "Partial") return colors.statusPending;
-    if (status === "Canceled") return colors.statusCancelled;
-    return colors.accent;
-  }, [colors]);
+  const getStatusColor = useCallback(
+    (status: string) => {
+      if (status === "Completed") return colors.statusActive;
+      if (status === "Partial") return colors.statusPending;
+      if (status === "Canceled") return colors.statusCancelled;
+      return colors.accent;
+    },
+    [colors]
+  );
 
-  const cardShadow = useMemo(() => ({
-    shadowColor: colors.shadow,
-    ...DesignTokens.shadow.elevated,
-  }), [colors]);
+  const firstName = selectedCollector
+    ? selectedCollector.name.split(" ")[0]
+    : null;
+
+  // Shared card style — shadow only, no border stroke
+  const cardShadow = useMemo(
+    () => ({
+      shadowColor: colors.shadow,
+      ...DesignTokens.shadow.float,
+    }),
+    [colors]
+  );
 
   return (
     <ErrorBoundary fallbackMessage="Something went wrong loading the Collect screen.">
-    <ScreenContainer>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <Animated.View style={[styles.flex, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-          <ScrollView
-            style={styles.container}
-            contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.accent} colors={[colors.accent]} />
-          }
+      <ScreenContainer>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <View style={[styles.header, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-            <View pointerEvents="none" accessible={false} style={[styles.headerGlow, { backgroundColor: colors.accentSoft }]} />
-            <View style={styles.headerLeft}>
-              <View style={[styles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
-                <Text style={[styles.headerTagText, { color: colors.accent }]}>COLLECT HUB</Text>
-              </View>
-              <View style={styles.brandRow}>
-                <Image source={require("../../assets/images/icon.png")} style={styles.brandLogo} contentFit="contain" />
-                <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>
-                  {t("collect", "Collect")}
-                </Text>
-              </View>
-              <Text style={[styles.brandSub, { color: colors.textSecondary, fontFamily: "Lexend_400Regular" }]}>
-                {selectedCollector ? `${selectedCollector.name.split(" ")[0]}'s Workspace` : "Task Management"}
-              </Text>
-            </View>
-            <View style={styles.headerRight}>
-              {selectedRig !== "" && (
-                <Text style={[styles.rigLabel, { color: colors.textMuted }]}>{selectedRig}</Text>
-              )}
-              {openTasks.length > 0 && (
-                <View style={[styles.openPill, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
-                  <Circle size={6} color={colors.accent} fill={colors.accent} />
-                  <Text style={[styles.openPillText, { color: colors.accent }]}>{openTasks.length} open</Text>
-                </View>
-              )}
-            </View>
-          </View>
-
-          {!configured && (
-            <View style={[styles.notice, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
-              <AlertCircle size={14} color={colors.statusPending} />
-              <Text style={[styles.noticeText, { color: colors.textSecondary }]}>
-                Set EXPO_PUBLIC_GOOGLE_SCRIPT_URL to connect (or CORE/ANALYTICS URLs)
-              </Text>
-            </View>
-          )}
-
-          {!!submitError && (
-            <View style={[styles.notice, { backgroundColor: colors.cancelBg, borderColor: colors.cancel + "25" }]}>
-              <AlertCircle size={14} color={colors.cancel} />
-              <Text style={[styles.noticeText, { color: colors.cancel }]}>{submitError}</Text>
-            </View>
-          )}
-
-          <View style={[styles.formCard, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
-            {!selectedCollectorName && (
-              <View style={styles.formField}>
-                <View style={styles.fieldRow}>
-                  <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Collector</Text>
-                  {isLoadingCollectors && <ActivityIndicator size="small" color={colors.accent} />}
-                </View>
-                <SelectPicker
-                  label=""
-                  options={collectorOptions}
-                  selectedValue={selectedCollectorName}
-                  onValueChange={selectCollector}
-                  placeholder="Who are you? (set in Tools)"
-                  testID="collector-picker"
+          <Animated.View
+            style={[
+              styles.flex,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }],
+              },
+            ]}
+          >
+            <ScrollView
+              style={styles.container}
+              contentContainerStyle={styles.content}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  tintColor={colors.accent}
+                  colors={[colors.accent]}
                 />
-                <View style={[styles.separator, { backgroundColor: colors.border }]} />
-              </View>
-            )}
-
-            <View style={styles.formField}>
-              <View style={styles.fieldRow}>
-                <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Task</Text>
-                <View style={styles.fieldRowRight}>
-                  {isLoadingTasks && <ActivityIndicator size="small" color={colors.accent} />}
-                  <TouchableOpacity
-                    onPress={toggleTaskSearch}
-                    style={[styles.searchToggle, {
-                      backgroundColor: showTaskSearch ? colors.accentSoft : 'transparent',
-                    }]}
-                    activeOpacity={0.7}
-                    testID="task-search-toggle"
+              }
+            >
+              {/* ── Large-title header ─────────────────────────────────── */}
+              <View style={styles.pageHeader}>
+                <View style={styles.headerLeft}>
+                  <View style={styles.brandRow}>
+                    <Image
+                      source={require("../../assets/images/icon.png")}
+                      style={styles.brandLogo}
+                      contentFit="contain"
+                    />
+                    <Text
+                      style={[
+                        styles.brandText,
+                        {
+                          color: colors.accent,
+                          fontFamily: "Lexend_700Bold",
+                        },
+                      ]}
+                    >
+                      {t("collect", "Collect")}
+                    </Text>
+                  </View>
+                  <Text
+                    style={[
+                      styles.brandSub,
+                      {
+                        color: colors.textSecondary,
+                        fontFamily: "Lexend_400Regular",
+                      },
+                    ]}
                   >
-                    {showTaskSearch ? <X size={14} color={colors.accent} /> : <Search size={14} color={colors.textMuted} />}
-                  </TouchableOpacity>
+                    {firstName
+                      ? `${firstName}'s Workspace`
+                      : "Task Management"}
+                  </Text>
+                </View>
+
+                <View style={styles.headerRight}>
+                  {selectedRig !== "" && (
+                    <Text
+                      style={[
+                        styles.rigLabel,
+                        { color: colors.textMuted },
+                      ]}
+                    >
+                      {selectedRig}
+                    </Text>
+                  )}
+                  {openTasks.length > 0 && (
+                    <View
+                      style={[
+                        styles.openPill,
+                        {
+                          backgroundColor: colors.accentSoft,
+                          borderColor: colors.accentDim,
+                        },
+                      ]}
+                    >
+                      <Circle
+                        size={5}
+                        color={colors.accent}
+                        fill={colors.accent}
+                      />
+                      <Text
+                        style={[
+                          styles.openPillText,
+                          { color: colors.accent },
+                        ]}
+                      >
+                        {openTasks.length} open
+                      </Text>
+                    </View>
+                  )}
                 </View>
               </View>
 
-              {showTaskSearch && (
-                <Animated.View style={[styles.searchWrap, {
-                  opacity: searchAnim,
-                  maxHeight: searchAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 44] }),
-                }]}>
-                  <View style={[styles.searchBar, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
-                    <Search size={13} color={colors.textMuted} />
-                    <TextInput
-                      style={[styles.searchInput, { color: colors.textPrimary }]}
-                      value={taskSearch}
-                      onChangeText={setTaskSearch}
-                      placeholder="Search tasks..."
-                      placeholderTextColor={colors.textMuted}
-                      autoFocus
-                      testID="task-search-input"
+              {/* ── Banners ───────────────────────────────────────────── */}
+              {!configured && (
+                <View
+                  style={[
+                    styles.notice,
+                    {
+                      backgroundColor: colors.bgCard,
+                      borderLeftColor: colors.statusPending,
+                      ...cardShadow,
+                    },
+                  ]}
+                >
+                  <AlertCircle size={15} color={colors.statusPending} />
+                  <Text
+                    style={[
+                      styles.noticeText,
+                      { color: colors.textSecondary },
+                    ]}
+                  >
+                    Set EXPO_PUBLIC_GOOGLE_SCRIPT_URL to connect (or
+                    CORE/ANALYTICS URLs)
+                  </Text>
+                </View>
+              )}
+
+              {!!submitError && (
+                <View
+                  style={[
+                    styles.notice,
+                    {
+                      backgroundColor: colors.cancelBg,
+                      borderLeftColor: colors.cancel,
+                    },
+                  ]}
+                >
+                  <AlertCircle size={15} color={colors.cancel} />
+                  <Text
+                    style={[styles.noticeText, { color: colors.cancel }]}
+                  >
+                    {submitError}
+                  </Text>
+                </View>
+              )}
+
+              {/* ── Open-task inline banner ───────────────────────────── */}
+              {latestOpenTask && (
+                <View
+                  style={[
+                    styles.openTaskBanner,
+                    {
+                      backgroundColor: colors.accentSoft,
+                      borderColor: colors.accentDim,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.openTaskDot,
+                      { backgroundColor: colors.accent },
+                    ]}
+                  />
+                  <View style={styles.openTaskInfo}>
+                    <Text
+                      style={[
+                        styles.openTaskLabel,
+                        { color: colors.accent },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {latestOpenTask.taskName}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.openTaskMeta,
+                        { color: colors.accentLight },
+                      ]}
+                    >
+                      In Progress · Enter hours below to complete or cancel
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* ── Carryover warning banner ──────────────────────────── */}
+              {hasCarryover && (
+                <View
+                  style={[
+                    styles.notice,
+                    {
+                      backgroundColor: colors.bgCard,
+                      borderLeftColor: colors.alertYellow,
+                    },
+                  ]}
+                >
+                  <AlertTriangle size={15} color={colors.alertYellow} />
+                  <Text
+                    style={[
+                      styles.noticeText,
+                      { color: colors.textSecondary },
+                    ]}
+                  >
+                    {carryoverItems.length} incomplete task{carryoverItems.length === 1 ? "" : "s"} from yesterday — close them in Stats before assigning.
+                  </Text>
+                </View>
+              )}
+
+              {/* ── iOS-grouped form section ──────────────────────────── */}
+              <View
+                style={[
+                  styles.formSection,
+                  {
+                    backgroundColor: colors.bgCard,
+                    ...cardShadow,
+                    shadowColor: colors.shadow,
+                  },
+                ]}
+              >
+                {/* Collector field — shown when not yet set */}
+                {!selectedCollectorName && (
+                  <>
+                    <View style={styles.formRow}>
+                      <View
+                        style={[
+                          styles.formRowIcon,
+                          { backgroundColor: colors.accentSoft },
+                        ]}
+                      >
+                        <User size={16} color={colors.accent} />
+                      </View>
+                      <View style={styles.formRowContent}>
+                        <Text
+                          style={[
+                            styles.formRowLabel,
+                            { color: colors.textSecondary },
+                          ]}
+                        >
+                          Collector
+                        </Text>
+                        {isLoadingCollectors ? (
+                          <ActivityIndicator
+                            size="small"
+                            color={colors.accent}
+                          />
+                        ) : (
+                          <SelectPicker
+                            label=""
+                            options={collectorOptions}
+                            selectedValue={selectedCollectorName}
+                            onValueChange={selectCollector}
+                            placeholder="Who are you? (set in Tools)"
+                            testID="collector-picker"
+                          />
+                        )}
+                      </View>
+                    </View>
+                    <View
+                      style={[
+                        styles.insetSeparator,
+                        { backgroundColor: colors.border },
+                      ]}
                     />
-                    {taskSearch.length > 0 && (
-                      <TouchableOpacity onPress={() => setTaskSearch("")} activeOpacity={0.7}>
-                        <X size={13} color={colors.textMuted} />
+                  </>
+                )}
+
+                {/* Task field */}
+                <View style={styles.formRow}>
+                  <View
+                    style={[
+                      styles.formRowIcon,
+                      { backgroundColor: colors.completeBg },
+                    ]}
+                  >
+                    <ListTodo size={16} color={colors.complete} />
+                  </View>
+                  <View style={styles.formRowContent}>
+                    <View style={styles.formRowLabelRow}>
+                      <Text
+                        style={[
+                          styles.formRowLabel,
+                          { color: colors.textSecondary },
+                        ]}
+                      >
+                        Task
+                      </Text>
+                      <View style={styles.formRowLabelRight}>
+                        {isLoadingTasks && (
+                          <ActivityIndicator
+                            size="small"
+                            color={colors.accent}
+                          />
+                        )}
+                        <TouchableOpacity
+                          onPress={toggleTaskSearch}
+                          style={[
+                            styles.searchToggle,
+                            {
+                              backgroundColor: showTaskSearch
+                                ? colors.accentSoft
+                                : "transparent",
+                            },
+                          ]}
+                          activeOpacity={0.7}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          testID="task-search-toggle"
+                        >
+                          {showTaskSearch ? (
+                            <X size={14} color={colors.accent} />
+                          ) : (
+                            <Search size={14} color={colors.textMuted} />
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    {showTaskSearch && (
+                      <Animated.View
+                        style={[
+                          styles.searchWrap,
+                          {
+                            opacity: searchAnim,
+                            maxHeight: searchAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0, 48],
+                            }),
+                          },
+                        ]}
+                      >
+                        <View
+                          style={[
+                            styles.searchBar,
+                            {
+                              backgroundColor: colors.bgInput,
+                              borderColor: colors.border,
+                            },
+                          ]}
+                        >
+                          <Search size={13} color={colors.textMuted} />
+                          <TextInput
+                            style={[
+                              styles.searchInput,
+                              { color: colors.textPrimary },
+                            ]}
+                            value={taskSearch}
+                            onChangeText={setTaskSearch}
+                            placeholder="Search tasks…"
+                            placeholderTextColor={colors.textMuted}
+                            autoFocus
+                            testID="task-search-input"
+                          />
+                          {taskSearch.length > 0 && (
+                            <TouchableOpacity
+                              onPress={() => setTaskSearch("")}
+                              activeOpacity={0.7}
+                              hitSlop={{
+                                top: 8,
+                                bottom: 8,
+                                left: 8,
+                                right: 8,
+                              }}
+                            >
+                              <X size={13} color={colors.textMuted} />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </Animated.View>
+                    )}
+
+                    <SelectPicker
+                      label=""
+                      options={taskOptions}
+                      selectedValue={selectedTaskName}
+                      onValueChange={setSelectedTaskName}
+                      placeholder={
+                        taskSearch
+                          ? `${taskOptions.length} tasks found…`
+                          : "Choose a task…"
+                      }
+                      testID="task-picker"
+                    />
+                  </View>
+                </View>
+
+                <View
+                  style={[
+                    styles.insetSeparator,
+                    { backgroundColor: colors.border },
+                  ]}
+                />
+
+                {/* Hours field */}
+                <View style={styles.formRow}>
+                  <View
+                    style={[
+                      styles.formRowIcon,
+                      { backgroundColor: colors.assignBg },
+                    ]}
+                  >
+                    <Hash size={16} color={colors.assign} />
+                  </View>
+                  <View style={styles.formRowContent}>
+                    <View style={styles.formRowLabelRow}>
+                      <Text
+                        style={[
+                          styles.formRowLabel,
+                          { color: colors.textSecondary },
+                        ]}
+                      >
+                        Hours
+                      </Text>
+                      <Text
+                        style={[
+                          styles.optionalTag,
+                          { color: colors.textMuted },
+                        ]}
+                      >
+                        for completion
+                      </Text>
+                    </View>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        {
+                          backgroundColor: colors.bgInput,
+                          borderColor: !hoursToLog.trim()
+                            ? colors.statusPending + "55"
+                            : colors.border,
+                          color: colors.textPrimary,
+                        },
+                      ]}
+                      value={hoursToLog}
+                      onChangeText={setHoursToLog}
+                      placeholder="0.00"
+                      placeholderTextColor={colors.textMuted}
+                      keyboardType="decimal-pad"
+                      returnKeyType="done"
+                      testID="hours-input"
+                    />
+                    {latestOpenTask && !hoursToLog.trim() && (
+                      <View style={styles.hintRow}>
+                        <AlertCircle
+                          size={11}
+                          color={colors.statusPending}
+                        />
+                        <Text
+                          style={[
+                            styles.hintText,
+                            { color: colors.statusPending },
+                          ]}
+                        >
+                          Enter hours to complete or report on the open task
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                <View
+                  style={[
+                    styles.insetSeparator,
+                    { backgroundColor: colors.border },
+                  ]}
+                />
+
+                {/* Notes field */}
+                <View style={[styles.formRow, { alignItems: "flex-start" }]}>
+                  <View
+                    style={[
+                      styles.formRowIcon,
+                      { backgroundColor: colors.bgInput, marginTop: 2 },
+                    ]}
+                  >
+                    <FileText size={16} color={colors.textMuted} />
+                  </View>
+                  <View style={styles.formRowContent}>
+                    <View style={styles.formRowLabelRow}>
+                      <Text
+                        style={[
+                          styles.formRowLabel,
+                          { color: colors.textSecondary },
+                        ]}
+                      >
+                        Notes
+                      </Text>
+                      <Text
+                        style={[
+                          styles.optionalTag,
+                          { color: colors.textMuted },
+                        ]}
+                      >
+                        optional
+                      </Text>
+                    </View>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        styles.notesInput,
+                        {
+                          backgroundColor: colors.bgInput,
+                          borderColor: colors.border,
+                          color: colors.textPrimary,
+                        },
+                      ]}
+                      value={notes}
+                      onChangeText={setNotes}
+                      placeholder="Add notes…"
+                      placeholderTextColor={colors.textMuted}
+                      multiline
+                      numberOfLines={3}
+                      textAlignVertical="top"
+                      testID="notes-input"
+                    />
+                  </View>
+                </View>
+              </View>
+
+              {/* ── Primary CTA: Assign ───────────────────────────────── */}
+              <ActionButton
+                title="Assign Task"
+                icon={<UserCheck size={17} color={colors.white} />}
+                color={colors.white}
+                bgColor={colors.accent}
+                onPress={handleAssign}
+                disabled={!canSubmit}
+                fullWidth
+                testID="assign-btn"
+              />
+
+              {/* ── Secondary row: Done + Cancel ─────────────────────── */}
+              <View style={styles.secondaryRow}>
+                <ActionButton
+                  title="Done"
+                  icon={<CheckCircle size={15} color={colors.complete} />}
+                  color={colors.complete}
+                  bgColor={colors.completeBg}
+                  onPress={handleComplete}
+                  disabled={!latestOpenTask || !hasValidHours}
+                  testID="complete-btn"
+                />
+                <ActionButton
+                  title="Cancel"
+                  icon={<XCircle size={15} color={colors.cancel} />}
+                  color={colors.cancel}
+                  bgColor={colors.cancelBg}
+                  onPress={handleCancel}
+                  disabled={!latestOpenTask}
+                  testID="cancel-btn"
+                />
+              </View>
+
+              {/* ── Syncing indicator ─────────────────────────────────── */}
+              {isSyncing && (
+                <View style={styles.syncBadge}>
+                  <ActivityIndicator size="small" color={colors.accent} />
+                  <Text
+                    style={[
+                      styles.syncText,
+                      { color: colors.textMuted },
+                    ]}
+                  >
+                    Syncing…
+                  </Text>
+                </View>
+              )}
+
+              {/* ── Save Note Only ────────────────────────────────────── */}
+              {latestOpenTask !== null && notes.trim().length > 0 && (
+                <ActionButton
+                  title="Save Note Only"
+                  icon={<StickyNote size={15} color={colors.accent} />}
+                  color={colors.accent}
+                  bgColor={colors.accentSoft}
+                  onPress={handleAddNote}
+                  fullWidth
+                  testID="note-btn"
+                />
+              )}
+
+              {/* ── Today's activity log ─────────────────────────────── */}
+              {selectedCollectorName !== "" && todayLog.length > 0 && (
+                <View style={styles.logSection}>
+                  {/* Section header */}
+                  <View style={styles.logSectionHeader}>
+                    <View style={styles.logHeaderLeft}>
+                      <Clock size={13} color={colors.textMuted} />
+                      <Text
+                        style={[
+                          styles.logSectionTitle,
+                          { color: colors.textMuted },
+                        ]}
+                      >
+                        {t("todays_activity", "Today's Activity")}
+                      </Text>
+                    </View>
+                    <View style={styles.logStats}>
+                      <Text
+                        style={[
+                          styles.logStatText,
+                          { color: colors.complete },
+                        ]}
+                      >
+                        {todayStats.completed} done
+                      </Text>
+                      <Text
+                        style={[
+                          styles.logStatDivider,
+                          { color: colors.border },
+                        ]}
+                      >
+                        ·
+                      </Text>
+                      <Text
+                        style={[
+                          styles.logStatText,
+                          { color: colors.accent },
+                        ]}
+                      >
+                        {todayStats.totalLogged.toFixed(2)}h
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Log entries card */}
+                  <View
+                    style={[
+                      styles.logCard,
+                      {
+                        backgroundColor: colors.bgCard,
+                        ...cardShadow,
+                        shadowColor: colors.shadow,
+                      },
+                    ]}
+                  >
+                    {isLoadingLog && (
+                      <ActivityIndicator
+                        size="small"
+                        color={colors.accent}
+                        style={{ marginBottom: 8 }}
+                      />
+                    )}
+                    {visibleLog.map((entry, idx) => (
+                      <LogEntryRow
+                        key={entry.assignmentId || `log_${idx}`}
+                        entry={entry}
+                        statusColor={getStatusColor(entry.status)}
+                        colors={colors}
+                        isLast={idx === visibleLog.length - 1}
+                      />
+                    ))}
+                    {todayLog.length > 5 && (
+                      <TouchableOpacity
+                        style={[
+                          styles.logMoreBtn,
+                          {
+                            borderColor: colors.border,
+                            backgroundColor: colors.bgInput,
+                          },
+                        ]}
+                        onPress={() => {
+                          setLogVisibleCount((prev) =>
+                            prev >= todayLog.length
+                              ? 5
+                              : Math.min(todayLog.length, prev + 5)
+                          );
+                        }}
+                        activeOpacity={0.75}
+                      >
+                        <Text
+                          style={[
+                            styles.logMoreText,
+                            { color: colors.accent },
+                          ]}
+                        >
+                          {logVisibleCount >= todayLog.length
+                            ? t("show_less", "Show Less")
+                            : t("load_more", "Load More")}
+                        </Text>
                       </TouchableOpacity>
                     )}
                   </View>
-                </Animated.View>
-              )}
-
-              <SelectPicker
-                label=""
-                options={taskOptions}
-                selectedValue={selectedTaskName}
-                onValueChange={setSelectedTaskName}
-                placeholder={taskSearch ? `${taskOptions.length} tasks found...` : "Choose a task..."}
-                testID="task-picker"
-              />
-            </View>
-
-            <View style={[styles.separator, { backgroundColor: colors.border }]} />
-
-            <View style={styles.formField}>
-              <View style={styles.fieldRow}>
-                <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Hours</Text>
-                <Text style={[styles.requiredTag, { color: colors.cancel }]}>required</Text>
-              </View>
-              <TextInput
-                style={[styles.input, {
-                  backgroundColor: colors.bgInput,
-                  borderColor: !hoursToLog.trim() ? colors.statusPending + '60' : colors.border,
-                  color: colors.textPrimary,
-                }]}
-                value={hoursToLog}
-                onChangeText={setHoursToLog}
-                placeholder="Enter hours (e.g. 1.5)"
-                placeholderTextColor={colors.textMuted}
-                keyboardType="decimal-pad"
-                returnKeyType="done"
-                testID="hours-input"
-              />
-              {!hoursToLog.trim() && (
-                <View style={styles.hintRow}>
-                  <AlertCircle size={10} color={colors.statusPending} />
-                  <Text style={[styles.hintText, { color: colors.statusPending }]}>
-                    You must enter your actual hours before submitting
-                  </Text>
                 </View>
               )}
-              {latestOpenTask && plannedHoursHint > 0 && (
-                <View style={styles.hintRow}>
-                  <Info size={10} color={colors.statusPending} />
-                  <Text style={[styles.hintText, { color: colors.statusPending }]}>
-                    Planned chunk: {Number(plannedHoursHint).toFixed(2)}h
-                  </Text>
-                </View>
-              )}
-            </View>
 
-            <View style={[styles.separator, { backgroundColor: colors.border }]} />
-
-            <View style={styles.formField}>
-              <View style={styles.fieldRow}>
-                <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Notes</Text>
-                <Text style={[styles.optionalTag, { color: colors.textMuted }]}>optional</Text>
-              </View>
-              <TextInput
-                style={[styles.input, styles.notesInput, { backgroundColor: colors.bgInput, borderColor: colors.border, color: colors.textPrimary }]}
-                value={notes}
-                onChangeText={setNotes}
-                placeholder="Add notes..."
-                placeholderTextColor={colors.textMuted}
-                multiline
-                numberOfLines={3}
-                textAlignVertical="top"
-                testID="notes-input"
-              />
-            </View>
-          </View>
-
-          <View style={styles.actionsRow}>
-            <ActionButton
-              title="Assign"
-              icon={<UserCheck size={15} color={colors.assign} />}
-              color={colors.assign}
-              bgColor={colors.assignBg}
-              onPress={handleAssign}
-              disabled={!canSubmitWithHours}
-              testID="assign-btn"
-            />
-            <ActionButton
-              title="Done"
-              icon={<CheckCircle size={15} color={colors.complete} />}
-              color={colors.complete}
-              bgColor={colors.completeBg}
-              onPress={handleComplete}
-              disabled={!latestOpenTask || !hasValidHours}
-              testID="complete-btn"
-            />
-            <ActionButton
-              title="Cancel"
-              icon={<XCircle size={15} color={colors.cancel} />}
-              color={colors.cancel}
-              bgColor={colors.cancelBg}
-              onPress={handleCancel}
-              disabled={!latestOpenTask}
-              testID="cancel-btn"
-            />
-          </View>
-
-          {isSyncing && (
-            <View style={styles.syncBadge}>
-              <ActivityIndicator size={10} color={colors.accent} />
-              <Text style={[styles.syncText, { color: colors.textMuted }]}>Syncing...</Text>
-            </View>
-          )}
-
-          {latestOpenTask !== null && notes.trim().length > 0 && (
-            <ActionButton
-              title="Save Note Only"
-              icon={<StickyNote size={15} color={colors.accent} />}
-              color={colors.accent}
-              bgColor={colors.accentSoft}
-              onPress={handleAddNote}
-              fullWidth
-              testID="note-btn"
-            />
-          )}
-
-          {selectedCollectorName !== "" && todayLog.length > 0 && (
-            <View style={[styles.logCard, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
-              <View style={styles.logHeader}>
-                <View style={styles.logHeaderLeft}>
-                  <Clock size={12} color={colors.textMuted} />
-                  <Text style={[styles.logTitle, { color: colors.textMuted }]}>{t("todays_activity", "Today's Activity")}</Text>
-                </View>
-                <View style={styles.logStats}>
-                  <Text style={[styles.logStatText, { color: colors.complete }]}>
-                    {todayStats.completed} done
-                  </Text>
-                  <Text style={[styles.logStatDivider, { color: colors.border }]}>|</Text>
-                  <Text style={[styles.logStatText, { color: colors.accent }]}>
-                    {todayStats.totalLogged.toFixed(2)}h
-                  </Text>
-                </View>
-              </View>
-              {isLoadingLog && <ActivityIndicator size="small" color={colors.accent} style={{ marginBottom: 6 }} />}
-              {visibleLog.map((entry, idx) => (
-                <LogEntryRow
-                  key={entry.assignmentId || `log_${idx}`}
-                  entry={entry}
-                  statusColor={getStatusColor(entry.status)}
-                  colors={colors}
-                  isLast={idx === visibleLog.length - 1}
-                />
-              ))}
-              {todayLog.length > 5 && (
-                <TouchableOpacity
-                  style={[styles.logMoreBtn, { borderColor: colors.border, backgroundColor: colors.bgInput }]}
-                  onPress={() => {
-                    setLogVisibleCount((prev) => (prev >= todayLog.length ? 5 : Math.min(todayLog.length, prev + 5)));
-                  }}
-                  activeOpacity={0.75}
-                >
-                  <Text style={[styles.logMoreText, { color: colors.accent }]}>
-                    {logVisibleCount >= todayLog.length ? t("show_less", "Show Less") : t("load_more", "Load More")}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-
-          <View style={styles.spacer} />
-        </ScrollView>
-        </Animated.View>
-      </KeyboardAvoidingView>
-    </ScreenContainer>
+              <View style={styles.spacer} />
+            </ScrollView>
+          </Animated.View>
+        </KeyboardAvoidingView>
+      </ScreenContainer>
     </ErrorBoundary>
   );
 }
@@ -562,114 +1151,270 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1 },
-  content: { padding: DesignTokens.spacing.xl, paddingBottom: 140 },
-  header: {
+  content: {
+    paddingHorizontal: DesignTokens.spacing.xl,
+    paddingTop: DesignTokens.spacing.lg,
+    paddingBottom: 150,
+    gap: DesignTokens.spacing.md,
+  },
+
+  // Header — plain text, no card
+  pageHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: DesignTokens.spacing.xl,
-    padding: DesignTokens.spacing.lg,
-    borderRadius: DesignTokens.radius.xl,
-    borderWidth: 1,
-    overflow: "hidden",
+    paddingVertical: DesignTokens.spacing.sm,
+    marginBottom: DesignTokens.spacing.xs,
   },
-  headerGlow: {
-    position: "absolute",
-    top: -44,
-    left: -20,
-    right: -20,
-    height: 120,
-    opacity: 0.78,
-    borderBottomLeftRadius: 70,
-    borderBottomRightRadius: 70,
+  headerLeft: { gap: 3 },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
-  headerLeft: { gap: DesignTokens.spacing.xs },
-  headerTag: {
-    alignSelf: "flex-start",
-    borderRadius: DesignTokens.radius.xs,
-    borderWidth: 1,
-    paddingHorizontal: DesignTokens.spacing.sm,
-    paddingVertical: 3,
-    marginBottom: 2,
+  brandLogo: { width: 28, height: 28, borderRadius: 8 },
+  brandText: {
+    fontSize: DesignTokens.fontSize.largeTitle,
+    fontWeight: "700" as const,
+    letterSpacing: 0.1,
   },
-  headerTagText: {
-    fontSize: 9,
-    fontWeight: "800" as const,
-    letterSpacing: 1.1,
+  brandSub: {
+    fontSize: DesignTokens.fontSize.footnote,
+    letterSpacing: 0.3,
+    marginLeft: 38, // align under text
   },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  brandLogo: { width: 26, height: 26, borderRadius: 8 },
-  headerRight: { alignItems: "flex-end", gap: DesignTokens.spacing.xs + 2 },
-  brandText: { fontSize: 34, fontWeight: "700" as const, letterSpacing: 0.2 },
-  brandSub: { fontSize: 12, fontWeight: "500" as const, letterSpacing: 0.7, marginTop: 2, textTransform: "uppercase" },
-  rigLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: "500" as const },
+  headerRight: {
+    alignItems: "flex-end",
+    gap: DesignTokens.spacing.xs,
+  },
+  rigLabel: {
+    fontSize: DesignTokens.fontSize.caption1,
+    letterSpacing: 0.4,
+    fontWeight: "500" as const,
+  },
   openPill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: DesignTokens.radius.sm,
+    borderRadius: DesignTokens.radius.pill,
     borderWidth: 1,
   },
-  openPillText: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 0.5 },
+  openPillText: {
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "700" as const,
+    letterSpacing: 0.3,
+  },
+
+  // Banners
   notice: {
     flexDirection: "row",
     alignItems: "center",
     borderRadius: DesignTokens.radius.md,
     padding: DesignTokens.spacing.md,
-    marginBottom: DesignTokens.spacing.md,
     gap: 10,
+    borderLeftWidth: 3,
+  },
+  noticeText: {
+    flex: 1,
+    fontSize: DesignTokens.fontSize.footnote,
+    lineHeight: 19,
+  },
+
+  // Open-task banner
+  openTaskBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: DesignTokens.radius.lg,
+    paddingHorizontal: DesignTokens.spacing.lg,
+    paddingVertical: DesignTokens.spacing.md,
+    borderWidth: 1,
+    gap: 10,
+  },
+  openTaskDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  openTaskInfo: { flex: 1 },
+  openTaskLabel: {
+    fontSize: DesignTokens.fontSize.footnote,
+    fontWeight: "600" as const,
+  },
+  openTaskMeta: {
+    fontSize: DesignTokens.fontSize.caption2,
+    marginTop: 2,
+  },
+
+  // iOS-grouped form section — no border, shadow only
+  formSection: {
+    borderRadius: DesignTokens.radius.xl,
+    overflow: "hidden",
+    marginBottom: DesignTokens.spacing.xs,
+  },
+  formRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: DesignTokens.spacing.lg,
+    paddingVertical: DesignTokens.spacing.md,
+    gap: DesignTokens.spacing.md,
+    minHeight: 52,
+  },
+  formRowIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: DesignTokens.radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  formRowContent: { flex: 1 },
+  formRowLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 5,
+  },
+  formRowLabel: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "700" as const,
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+  },
+  formRowLabelRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: DesignTokens.spacing.sm,
+  },
+  // Inset separator — starts after icon column
+  insetSeparator: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 66, // 16 padding + 34 icon + 16 gap
+  },
+  searchToggle: {
+    width: 32,
+    height: 32,
+    borderRadius: DesignTokens.radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  searchWrap: { overflow: "hidden", marginBottom: 6 },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    borderRadius: DesignTokens.radius.sm,
+    borderWidth: 1,
+    gap: 6,
+    height: 38,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: DesignTokens.fontSize.footnote,
+    paddingVertical: 0,
+  },
+  input: {
+    borderRadius: DesignTokens.radius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: DesignTokens.fontSize.subhead,
+    fontWeight: "500" as const,
     borderWidth: 1,
   },
-  noticeText: { flex: 1, fontSize: 13, lineHeight: 18 },
-  formCard: { borderRadius: DesignTokens.radius.xl, padding: DesignTokens.spacing.xl, marginBottom: DesignTokens.spacing.lg, borderWidth: 1 },
-  formField: { paddingVertical: 2 },
-  fieldLabel: { fontSize: 11, fontWeight: "700" as const, marginBottom: 6, letterSpacing: 0.4, textTransform: "uppercase" },
-  fieldRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
-  fieldRowRight: { flexDirection: "row", alignItems: "center", gap: DesignTokens.spacing.sm },
-  optionalTag: { fontSize: 10, fontWeight: "500" as const },
-  requiredTag: { fontSize: 10, fontWeight: "700" as const },
-  separator: { height: 1, marginVertical: 10 },
-  searchToggle: {
-    width: 28, height: 28, borderRadius: DesignTokens.radius.sm, alignItems: "center", justifyContent: "center",
+  notesInput: {
+    minHeight: 60,
+    fontSize: DesignTokens.fontSize.footnote,
   },
-  searchWrap: { marginBottom: 6, overflow: "hidden" },
-  searchBar: {
-    flexDirection: "row", alignItems: "center",
-    paddingHorizontal: 10, borderRadius: DesignTokens.radius.sm, borderWidth: 1, gap: 6,
+  hintRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 5,
+    marginTop: 5,
   },
-  searchInput: { flex: 1, fontSize: 13, paddingVertical: DesignTokens.spacing.sm },
-  input: { borderRadius: DesignTokens.radius.md, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, fontWeight: "500" as const, borderWidth: 1 },
-  notesInput: { minHeight: 56, fontSize: 13 },
-  hintRow: { flexDirection: "row", alignItems: "flex-start", gap: 5, marginTop: 6 },
-  hintText: { flex: 1, fontSize: 11, lineHeight: 15, fontWeight: "500" as const },
-  actionsRow: { flexDirection: "row", gap: DesignTokens.spacing.sm, marginBottom: 10 },
-  syncBadge: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 8 },
-  syncText: { fontSize: 11, fontWeight: "500" as const },
-  logCard: { borderRadius: DesignTokens.radius.xl, padding: DesignTokens.spacing.lg, marginTop: DesignTokens.spacing.md, borderWidth: 1 },
-  logHeader: {
+  hintText: {
+    flex: 1,
+    fontSize: DesignTokens.fontSize.caption2,
+    lineHeight: 15,
+    fontWeight: "500" as const,
+  },
+  optionalTag: {
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "500" as const,
+  },
+  requiredTag: {
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "700" as const,
+  },
+
+  // Secondary actions (Done / Cancel)
+  secondaryRow: {
+    flexDirection: "row",
+    gap: DesignTokens.spacing.sm,
+  },
+
+  // Sync indicator
+  syncBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  syncText: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "500" as const,
+  },
+
+  // Activity log
+  logSection: {
+    gap: DesignTokens.spacing.sm,
+  },
+  logSectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: DesignTokens.spacing.sm,
-    paddingBottom: DesignTokens.spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(128,128,128,0.08)",
+    paddingHorizontal: 4,
   },
-  logHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 5 },
-  logTitle: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1, textTransform: "uppercase" },
-  logStats: { flexDirection: "row", alignItems: "center", gap: 6 },
-  logStatText: { fontSize: 11, fontWeight: "600" as const },
-  logStatDivider: { fontSize: 10 },
+  logHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  logSectionTitle: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "700" as const,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  logStats: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  logStatText: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "600" as const,
+  },
+  logStatDivider: {
+    fontSize: DesignTokens.fontSize.caption1,
+  },
+  logCard: {
+    borderRadius: DesignTokens.radius.xl,
+    paddingHorizontal: DesignTokens.spacing.lg,
+    paddingVertical: DesignTokens.spacing.sm,
+  },
   logMoreBtn: {
     marginTop: 8,
     borderWidth: 1,
     borderRadius: DesignTokens.radius.sm,
-    paddingVertical: 8,
+    paddingVertical: 10,
     alignItems: "center",
     justifyContent: "center",
   },
-  logMoreText: { fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.4 },
-  spacer: { height: DesignTokens.spacing.xl },
+  logMoreText: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "700" as const,
+    letterSpacing: 0.3,
+  },
+  spacer: { height: DesignTokens.spacing.lg },
 });
