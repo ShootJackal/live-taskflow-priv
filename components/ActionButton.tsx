@@ -8,7 +8,6 @@ import {
   View,
 } from "react-native";
 import * as Haptics from "expo-haptics";
-import { useTheme } from "@/providers/ThemeProvider";
 import { DesignTokens } from "@/constants/colors";
 
 interface ActionButtonProps {
@@ -34,15 +33,14 @@ export default React.memo(function ActionButton({
   testID,
   fullWidth = false,
 }: ActionButtonProps) {
-  const { colors, isDark } = useTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = useCallback(() => {
     Animated.spring(scaleAnim, {
-      toValue: 0.95,
+      toValue: 0.96,
       useNativeDriver: true,
-      speed: 50,
-      bounciness: 4,
+      speed: 60,
+      bounciness: 2,
     }).start();
   }, [scaleAnim]);
 
@@ -50,8 +48,8 @@ export default React.memo(function ActionButton({
     Animated.spring(scaleAnim, {
       toValue: 1,
       useNativeDriver: true,
-      speed: 50,
-      bounciness: 4,
+      speed: 60,
+      bounciness: 2,
     }).start();
   }, [scaleAnim]);
 
@@ -64,53 +62,32 @@ export default React.memo(function ActionButton({
     <Animated.View
       style={[
         fullWidth ? styles.fullWidth : styles.wrapper,
-        { transform: [{ scale: scaleAnim }] },
+        {
+          transform: [{ scale: scaleAnim }],
+          opacity: disabled ? 0.42 : 1,
+        },
       ]}
     >
-      <View
-        style={[
-          styles.shell,
-          {
-            backgroundColor: colors.bg,
-            borderColor: isDark ? colors.border : colors.borderLight,
-            shadowColor: colors.shadow,
-          },
-          disabled && styles.disabled,
-        ]}
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor: bgColor }]}
+        onPress={handlePress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        disabled={disabled || loading}
+        activeOpacity={0.82}
+        testID={testID}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: disabled || loading }}
       >
-        <TouchableOpacity
-          style={[
-            styles.button,
-            {
-              backgroundColor: bgColor,
-              borderColor: colors.border,
-            },
-          ]}
-          onPress={handlePress}
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
-          disabled={disabled || loading}
-          activeOpacity={0.92}
-          testID={testID}
-        >
-          <View
-            pointerEvents="none"
-            accessible={false}
-            style={[
-              styles.topSheen,
-              { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : colors.cardDepth },
-            ]}
-          />
-          {loading ? (
-            <ActivityIndicator size="small" color={color} />
-          ) : (
-            <View style={styles.content}>
-              {icon}
-              <Text style={[styles.text, { color }]}>{title}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      </View>
+        {loading ? (
+          <ActivityIndicator size="small" color={color} />
+        ) : (
+          <View style={styles.content}>
+            {icon}
+            <Text style={[styles.text, { color }]}>{title}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
     </Animated.View>
   );
 });
@@ -122,40 +99,22 @@ const styles = StyleSheet.create({
   fullWidth: {
     width: "100%",
   },
-  shell: {
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 3,
-    ...DesignTokens.shadow.card,
-  },
   button: {
-    borderRadius: 9,
-    paddingVertical: 13,
-    paddingHorizontal: 12,
+    borderRadius: DesignTokens.radius.md,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    minHeight: 48,
-    overflow: "hidden",
-  },
-  topSheen: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: "50%",
+    minHeight: 50,
   },
   content: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 7,
   },
   text: {
-    fontSize: 13,
+    fontSize: DesignTokens.fontSize.footnote + 1,
     fontWeight: "600" as const,
-    letterSpacing: 0.3,
-  },
-  disabled: {
-    opacity: 0.5,
+    letterSpacing: 0.15,
   },
 });

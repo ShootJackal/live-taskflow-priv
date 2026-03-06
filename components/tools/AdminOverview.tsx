@@ -1,7 +1,6 @@
 import React, { useMemo } from "react";
 import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
 import { Check, Activity, AlertTriangle, FileText, Shield, Users, Star } from "lucide-react-native";
-import { useTheme } from "@/providers/ThemeProvider";
 import { useCollection } from "@/providers/CollectionProvider";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -97,7 +96,7 @@ export function AdminOverview({
   const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   return (
-    <View style={[adminStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border, shadowColor: colors.shadow }]}>
+    <View style={[adminStyles.card, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
       <View style={adminStyles.headerRow}>
         <View style={adminStyles.headerLeft}>
           <Shield size={14} color={colors.accent} />
@@ -108,7 +107,7 @@ export function AdminOverview({
 
       <View style={adminStyles.grid}>
         {items.map((item, idx) => (
-          <View key={idx} style={[adminStyles.gridItem, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
+          <View key={idx} style={[adminStyles.gridItem, { backgroundColor: colors.bgInput }]}>
             <View style={adminStyles.gridItemIcon}>{item.icon}</View>
             <Text style={[adminStyles.gridValue, { color: item.color }]}>{item.value}</Text>
             <Text style={[adminStyles.gridLabel, { color: colors.textMuted }]}>{item.label}</Text>
@@ -189,41 +188,102 @@ export function AdminOverview({
 
 const adminStyles = StyleSheet.create({
   card: {
-    borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.lg, marginBottom: 2,
-    ...DesignTokens.shadow.card,
+    borderRadius: DesignTokens.radius.xl,
+    padding: DesignTokens.spacing.lg,
+    ...DesignTokens.shadow.float,
   },
-  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
   headerLeft: { flexDirection: "row", alignItems: "center", gap: 6 },
-  headerText: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1.2 },
-  rateText: { fontSize: 16, fontWeight: "700" as const },
+  headerText: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "700" as const,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  rateText: { fontSize: DesignTokens.fontSize.callout, fontWeight: "700" as const },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
   gridItem: {
-    flex: 1, minWidth: "44%" as unknown as number, borderRadius: 10, padding: 10, borderWidth: 1, alignItems: "center",
+    flex: 1,
+    minWidth: "44%" as unknown as number,
+    borderRadius: DesignTokens.radius.md,
+    padding: 12,
+    alignItems: "center",
   },
-  gridItemIcon: { marginBottom: 4 },
-  gridValue: { fontSize: 18, fontWeight: "700" as const },
-  gridLabel: { fontSize: 9, fontWeight: "500" as const, marginTop: 2, letterSpacing: 0.3 },
-  recollectSection: { borderTopWidth: 1, marginTop: 10, paddingTop: 10 },
-  recollectTitle: { fontSize: 9, fontWeight: "700" as const, letterSpacing: 1, marginBottom: 6 },
-  recollectItem: { fontSize: 11, lineHeight: 18, paddingLeft: 8 },
-  recollectMore: { fontSize: 10, marginTop: 4, fontStyle: "italic" as const },
-  collectorSection: { borderTopWidth: 1, marginTop: 12, paddingTop: 12 },
+  gridItemIcon: { marginBottom: 5 },
+  gridValue: { fontSize: DesignTokens.fontSize.title3, fontWeight: "700" as const },
+  gridLabel: {
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "500" as const,
+    marginTop: 3,
+    letterSpacing: 0.2,
+  },
+  recollectSection: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: 12,
+    paddingTop: 12,
+  },
+  recollectTitle: {
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "700" as const,
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+    marginBottom: 8,
+  },
+  recollectItem: { fontSize: DesignTokens.fontSize.caption1, lineHeight: 20, paddingLeft: 8 },
+  recollectMore: { fontSize: DesignTokens.fontSize.caption2, marginTop: 4, fontStyle: "italic" as const },
+  collectorSection: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: 14,
+    paddingTop: 14,
+  },
   collectorHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 },
-  collectorTitle: { fontSize: 9, fontWeight: "700" as const, letterSpacing: 1, flex: 1 },
-  totalHours: { fontSize: 11, fontWeight: "600" as const },
-  collectorRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8, borderBottomWidth: 1 },
+  collectorTitle: {
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "700" as const,
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+    flex: 1,
+  },
+  totalHours: { fontSize: DesignTokens.fontSize.caption1, fontWeight: "600" as const },
+  collectorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 9,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   collectorInfo: { flex: 1 },
-  collectorName: { fontSize: 12, fontWeight: "600" as const },
-  collectorRig: { fontSize: 10, marginTop: 1 },
+  collectorName: { fontSize: DesignTokens.fontSize.footnote, fontWeight: "600" as const },
+  collectorRig: { fontSize: DesignTokens.fontSize.caption2, marginTop: 2 },
   collectorStats: { alignItems: "flex-end" },
-  collectorHours: { fontSize: 12, fontWeight: "700" as const },
-  ratingRow: { flexDirection: "row", alignItems: "center", gap: 2, marginTop: 2 },
-  ratingText: { fontSize: 9 },
-  reqSection: { borderTopWidth: 1, marginTop: 12, paddingTop: 12 },
-  reqTitle: { fontSize: 9, fontWeight: "700" as const, letterSpacing: 1, marginBottom: 8 },
-  reqRow: { flexDirection: "row", alignItems: "center", paddingVertical: 6, borderBottomWidth: 1 },
-  reqName: { flex: 1, fontSize: 11 },
-  reqHours: { fontSize: 11, fontWeight: "600" as const },
-  loadingWrap: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 16 },
-  loadingText: { fontSize: 12 },
+  collectorHours: { fontSize: DesignTokens.fontSize.footnote, fontWeight: "700" as const },
+  ratingRow: { flexDirection: "row", alignItems: "center", gap: 3, marginTop: 2 },
+  ratingText: { fontSize: DesignTokens.fontSize.caption2 },
+  reqSection: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: 14,
+    paddingTop: 14,
+  },
+  reqTitle: {
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "700" as const,
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+    marginBottom: 8,
+  },
+  reqRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 7,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  reqName: { flex: 1, fontSize: DesignTokens.fontSize.caption1 },
+  reqHours: { fontSize: DesignTokens.fontSize.caption1, fontWeight: "600" as const },
+  loadingWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 18,
+  },
+  loadingText: { fontSize: DesignTokens.fontSize.caption1 },
 });

@@ -36,28 +36,46 @@ export default React.memo(function SelectPicker({
   placeholder = "Select...",
   testID,
 }: SelectPickerProps) {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const [visible, setVisible] = useState(false);
-  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const overlayAnim = useRef(new Animated.Value(0)).current;
 
   const selectedOption = options.find((o) => o.value === selectedValue);
 
   const open = useCallback(() => {
     setVisible(true);
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 200,
-      useNativeDriver: true,
-    }).start();
-  }, [fadeAnim]);
+    slideAnim.setValue(280);
+    overlayAnim.setValue(0);
+    Animated.parallel([
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        speed: 28,
+        bounciness: 0,
+      }),
+      Animated.timing(overlayAnim, {
+        toValue: 1,
+        duration: 220,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [slideAnim, overlayAnim]);
 
   const close = useCallback(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 0,
-      duration: 150,
-      useNativeDriver: true,
-    }).start(() => setVisible(false));
-  }, [fadeAnim]);
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: 280,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(overlayAnim, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setVisible(false));
+  }, [slideAnim, overlayAnim]);
 
   const handleSelect = useCallback(
     (value: string) => {
@@ -68,13 +86,15 @@ export default React.memo(function SelectPicker({
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: Option }) => {
+    ({ item, index }: { item: Option; index: number }) => {
       const isSelected = item.value === selectedValue;
+      const isLast = index === options.length - 1;
       return (
         <TouchableOpacity
           style={[
             styles.option,
-            { backgroundColor: isSelected ? colors.bgElevated : "transparent" },
+            { backgroundColor: isSelected ? colors.accentSoft : "transparent" },
+            !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
           ]}
           onPress={() => handleSelect(item.value)}
           activeOpacity={0.7}
@@ -85,62 +105,59 @@ export default React.memo(function SelectPicker({
           <Text
             style={[
               styles.optionText,
-              { color: isSelected ? colors.accent : colors.textPrimary },
-              isSelected && styles.optionTextSelected,
+              {
+                color: isSelected ? colors.accent : colors.textPrimary,
+                fontWeight: isSelected ? ("600" as const) : ("400" as const),
+              },
             ]}
           >
             {item.label}
           </Text>
-          {isSelected && <Check size={18} color={colors.accent} />}
+          {isSelected && <Check size={18} color={colors.accent} strokeWidth={2.5} />}
         </TouchableOpacity>
       );
     },
-    [selectedValue, handleSelect, colors]
+    [selectedValue, handleSelect, colors, options.length]
   );
 
   const keyExtractor = useCallback((item: Option) => item.value, []);
 
   return (
     <View style={styles.container} testID={testID}>
-      {label ? <Text style={[styles.label, { color: colors.textSecondary }]}>{label}</Text> : null}
-      <View
+      {label ? (
+        <Text style={[styles.label, { color: colors.textSecondary }]}>{label}</Text>
+      ) : null}
+
+      <TouchableOpacity
         style={[
-          styles.triggerShell,
+          styles.trigger,
           {
-            backgroundColor: colors.bg,
-            borderColor: isDark ? colors.border : colors.borderLight,
-            shadowColor: colors.shadow,
+            backgroundColor: colors.bgInput,
+            borderColor: colors.border,
           },
         ]}
+        onPress={open}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel={
+          label
+            ? `${label}. ${selectedOption?.label ?? placeholder}`
+            : `Picker. ${selectedOption?.label ?? placeholder}`
+        }
+        accessibilityHint="Double tap to open options."
+        accessibilityState={{ expanded: visible }}
       >
-        <TouchableOpacity
-          style={[styles.trigger, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
-          onPress={open}
-          activeOpacity={0.92}
-          accessibilityRole="button"
-          accessibilityLabel={label ? `${label}. ${selectedOption?.label ?? placeholder}` : `Picker. ${selectedOption?.label ?? placeholder}`}
-          accessibilityHint="Double tap to open options."
-          accessibilityState={{ expanded: visible }}
+        <Text
+          style={[
+            styles.triggerText,
+            { color: selectedOption ? colors.textPrimary : colors.textMuted },
+          ]}
+          numberOfLines={1}
         >
-          <View
-            pointerEvents="none"
-            style={[
-              styles.topSheen,
-              { backgroundColor: isDark ? "rgba(255,255,255,0.04)" : colors.cardDepth },
-            ]}
-          />
-          <Text
-            style={[
-              styles.triggerText,
-              { color: selectedOption ? colors.textPrimary : colors.textMuted },
-            ]}
-            numberOfLines={1}
-          >
-            {selectedOption?.label ?? placeholder}
-          </Text>
-          <ChevronDown size={18} color={colors.textMuted} />
-        </TouchableOpacity>
-      </View>
+          {selectedOption?.label ?? placeholder}
+        </Text>
+        <ChevronDown size={16} color={colors.textMuted} />
+      </TouchableOpacity>
 
       <Modal
         visible={visible}
@@ -150,7 +167,10 @@ export default React.memo(function SelectPicker({
         statusBarTranslucent
         presentationStyle="overFullScreen"
       >
-        <Animated.View style={[styles.overlay, { opacity: fadeAnim, backgroundColor: colors.overlay }]}>
+        <View style={styles.overlay}>
+          <Animated.View
+            style={[styles.overlayBg, { opacity: overlayAnim, backgroundColor: colors.overlay }]}
+          />
           <Pressable
             style={styles.overlayTouch}
             onPress={close}
@@ -162,16 +182,8 @@ export default React.memo(function SelectPicker({
               styles.sheet,
               {
                 backgroundColor: colors.bgCard,
-                borderColor: colors.border,
                 shadowColor: colors.shadow,
-                transform: [
-                  {
-                    translateY: fadeAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [300, 0],
-                    }),
-                  },
-                ],
+                transform: [{ translateY: slideAnim }],
               },
             ]}
             accessible
@@ -183,18 +195,19 @@ export default React.memo(function SelectPicker({
               accessible={false}
               {...(Platform.OS === "web" ? ({ "aria-hidden": true, focusable: false } as any) : {})}
             />
-            <Text style={[styles.sheetTitle, { color: colors.textPrimary }]}>
-              {label || "Select Option"}
-            </Text>
+            {label ? (
+              <Text style={[styles.sheetTitle, { color: colors.textPrimary }]}>{label}</Text>
+            ) : null}
             <FlatList
               data={options}
               keyExtractor={keyExtractor}
               renderItem={renderItem}
               style={styles.list}
               showsVerticalScrollIndicator={false}
+              bounces={false}
             />
           </Animated.View>
-        </Animated.View>
+        </View>
       </Modal>
     </View>
   );
@@ -202,56 +215,48 @@ export default React.memo(function SelectPicker({
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 4,
+    marginBottom: 2,
   },
   label: {
-    fontSize: 12,
+    fontSize: DesignTokens.fontSize.caption1,
     fontWeight: "600" as const,
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
     marginBottom: 6,
   },
   trigger: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 10,
+    borderRadius: DesignTokens.radius.md,
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderWidth: 1,
-    overflow: "hidden",
-  },
-  triggerShell: {
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 3,
-    ...DesignTokens.shadow.card,
-  },
-  topSheen: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: "50%",
+    minHeight: 46,
   },
   triggerText: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: "500" as const,
+    fontSize: DesignTokens.fontSize.subhead,
+    fontWeight: "400" as const,
   },
   overlay: {
     flex: 1,
     justifyContent: "flex-end",
   },
+  overlayBg: {
+    ...StyleSheet.absoluteFillObject,
+  },
   overlayTouch: {
     flex: 1,
   },
   sheet: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
     paddingHorizontal: 20,
-    paddingBottom: Platform.OS === "web" ? 20 : 40,
-    maxHeight: "60%",
-    borderWidth: 1,
-    ...DesignTokens.shadow.elevated,
+    paddingBottom: Platform.OS === "web" ? 24 : 44,
+    maxHeight: "62%",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    elevation: 14,
   },
   sheetHandle: {
     width: 36,
@@ -262,9 +267,10 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   sheetTitle: {
-    fontSize: 16,
+    fontSize: DesignTokens.fontSize.headline,
     fontWeight: "600" as const,
-    marginBottom: 8,
+    marginBottom: 12,
+    paddingHorizontal: 4,
   },
   list: {
     flexGrow: 0,
@@ -272,16 +278,13 @@ const styles = StyleSheet.create({
   option: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 13,
+    paddingVertical: 14,
     paddingHorizontal: 12,
-    borderRadius: 10,
-    marginBottom: 2,
+    borderRadius: DesignTokens.radius.sm,
+    marginBottom: 0,
   },
   optionText: {
     flex: 1,
-    fontSize: 15,
-  },
-  optionTextSelected: {
-    fontWeight: "600" as const,
+    fontSize: DesignTokens.fontSize.subhead,
   },
 });
