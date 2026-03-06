@@ -38,6 +38,34 @@ export const DesignTokens = {
       shadowRadius: 10,
       elevation: 4,
     },
+    // For borderless cards — slightly richer lift without a stroke
+    float: {
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.11,
+      shadowRadius: 18,
+      elevation: 7,
+    },
+    // Hair-thin lift for rows inside a section group
+    row: {
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.06,
+      shadowRadius: 4,
+      elevation: 2,
+    },
+  },
+  // iOS SF Pro-inspired type scale (minimum readable sizes)
+  fontSize: {
+    largeTitle: 34,
+    title1: 28,
+    title2: 22,
+    title3: 20,
+    headline: 17,
+    body: 17,
+    callout: 16,
+    subhead: 15,
+    footnote: 13,
+    caption1: 12,
+    caption2: 11,
   },
   maxContentWidth: 600,
   fontMono: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),

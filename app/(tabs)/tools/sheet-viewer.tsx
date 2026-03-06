@@ -469,11 +469,10 @@ const viewStyles = StyleSheet.create({
   entryCard: {
     borderRadius: 14,
     padding: 14,
-    borderWidth: 1,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.09,
+    shadowRadius: 12,
+    elevation: 4,
   },
   entryTop: {
     flexDirection: "row",
@@ -500,7 +499,6 @@ const viewStyles = StyleSheet.create({
   taskMetaRow: {
     marginTop: 8,
     borderRadius: 8,
-    borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 6,
     flexDirection: "row",
@@ -527,19 +525,19 @@ const viewStyles = StyleSheet.create({
   sumLabel: { fontSize: 10, fontWeight: "600" as const, letterSpacing: 0.3 },
   section: { gap: 8 },
   sectionTitle: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "700" as const,
-    letterSpacing: 1.2,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
     marginTop: 4,
   },
   taskCard: {
     borderRadius: 14,
     padding: 14,
-    borderWidth: 1,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.09,
+    shadowRadius: 12,
+    elevation: 4,
   },
   taskTop: {
     flexDirection: "row",
@@ -562,7 +560,6 @@ const viewStyles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
-    borderWidth: 1,
   },
   recollectInfoText: { fontSize: 11, fontWeight: "600" as const },
   assignedRow: {

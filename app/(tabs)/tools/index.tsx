@@ -50,8 +50,6 @@ import { buildRigSortValue, SHEET_PAGES } from "@/components/tools/toolConstants
 import { clearAllCaches } from "@/services/googleSheets";
 import { Image } from "expo-image";
 
-const FONT_MONO = DesignTokens.fontMono;
-
 export default function ToolsScreen() {
   const { colors, resolvedMode, setThemeMode } = useTheme();
   const { t, locale, setLocale } = useLocale();
@@ -220,7 +218,7 @@ export default function ToolsScreen() {
     ]);
   }, []);
 
-  const cardStyle = [styles.card, { backgroundColor: colors.bgCard, borderColor: colors.border, shadowColor: colors.shadow }];
+  const cardStyle = [styles.card, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }];
 
   return (
     <ScreenContainer>
@@ -230,23 +228,43 @@ export default function ToolsScreen() {
           contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.pageHeader, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-          <View pointerEvents="none" accessible={false} style={[styles.headerGlow, { backgroundColor: colors.accentSoft }]} />
+        {/* Large-title header — no card container */}
+        <View style={styles.pageHeader}>
           <View>
-            <View style={[styles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
-              <Text style={[styles.headerTagText, { color: colors.accent }]}>SETTINGS</Text>
-            </View>
             <View style={styles.brandRow}>
-              <Image source={require("../../../assets/images/icon.png")} style={styles.brandLogo} contentFit="contain" />
-              <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>{t("tools", "Tools")}</Text>
+              <Image
+                source={require("../../../assets/images/icon.png")}
+                style={styles.brandLogo}
+                contentFit="contain"
+              />
+              <Text
+                style={[
+                  styles.brandText,
+                  { color: colors.accent, fontFamily: "Lexend_700Bold" },
+                ]}
+              >
+                {t("tools", "Tools")}
+              </Text>
             </View>
-            <Text style={[styles.brandSub, { color: colors.textSecondary, fontFamily: "Lexend_400Regular" }]}>{t("settings", "Settings & Utilities")}</Text>
+            <Text
+              style={[
+                styles.brandSub,
+                { color: colors.textSecondary, fontFamily: "Lexend_400Regular" },
+              ]}
+            >
+              {t("settings", "Settings & Utilities")}
+            </Text>
           </View>
           <View style={styles.pageHeaderRight}>
             {isAdmin && (
-              <View style={[styles.adminBadge, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
-                <Shield size={9} color={colors.accent} />
-                <Text style={[styles.adminBadgeText, { color: colors.accent, fontFamily: FONT_MONO }]}>ADMIN</Text>
+              <View
+                style={[
+                  styles.adminBadge,
+                  { backgroundColor: colors.accentSoft, borderColor: colors.accentDim },
+                ]}
+              >
+                <Shield size={11} color={colors.accent} />
+                <Text style={[styles.adminBadgeText, { color: colors.accent }]}>Admin</Text>
               </View>
             )}
           </View>
@@ -434,82 +452,173 @@ export default function ToolsScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1 },
-  content: { paddingHorizontal: DesignTokens.spacing.xl, paddingTop: 14, paddingBottom: 120 },
-  pageHeader: {
-    flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start",
-    marginBottom: DesignTokens.spacing.lg, padding: DesignTokens.spacing.lg,
-    borderRadius: DesignTokens.radius.xl, borderWidth: 1, overflow: "hidden",
+  content: {
+    paddingHorizontal: DesignTokens.spacing.xl,
+    paddingTop: DesignTokens.spacing.lg,
+    paddingBottom: 150,
+    gap: DesignTokens.spacing.xs,
   },
-  headerGlow: {
-    position: "absolute",
-    top: -44,
-    left: -24,
-    right: -24,
-    height: 120,
-    opacity: 0.75,
-    borderBottomLeftRadius: 70,
-    borderBottomRightRadius: 70,
+
+  // Header — plain text, no card
+  pageHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    paddingVertical: DesignTokens.spacing.sm,
+    marginBottom: DesignTokens.spacing.xs,
   },
   pageHeaderRight: { alignItems: "flex-end", gap: DesignTokens.spacing.xs },
-  headerTag: {
-    alignSelf: "flex-start",
-    borderRadius: DesignTokens.radius.xs,
-    borderWidth: 1,
-    paddingHorizontal: DesignTokens.spacing.sm,
-    paddingVertical: 3,
-    marginBottom: 2,
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  brandLogo: { width: 28, height: 28, borderRadius: 8 },
+  brandText: {
+    fontSize: DesignTokens.fontSize.largeTitle,
+    fontWeight: "700" as const,
+    letterSpacing: 0.1,
   },
-  headerTagText: { fontSize: 9, fontWeight: "800" as const, letterSpacing: 1.1 },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  brandLogo: { width: 26, height: 26, borderRadius: 8 },
-  brandText: { fontSize: 34, fontWeight: "700" as const, letterSpacing: 0.2 },
-  brandSub: { fontSize: 12, fontWeight: "500" as const, letterSpacing: 0.7, marginTop: 2, textTransform: "uppercase" },
+  brandSub: {
+    fontSize: DesignTokens.fontSize.footnote,
+    fontWeight: "500" as const,
+    letterSpacing: 0.3,
+    marginLeft: 38,
+    marginTop: 2,
+  },
   adminBadge: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: DesignTokens.radius.pill,
+    borderWidth: 1,
   },
-  adminBadgeText: { fontSize: 8, fontWeight: "800" as const, letterSpacing: 1.2 },
-  sectionGap: { height: DesignTokens.spacing.xl },
+  adminBadgeText: {
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "600" as const,
+    letterSpacing: 0.3,
+  },
+
+  sectionGap: { height: DesignTokens.spacing.lg },
+
+  // iOS grouped card — shadow only, no border
   card: {
-    borderRadius: DesignTokens.radius.xl, borderWidth: 1, overflow: "hidden", marginBottom: 2,
-    ...DesignTokens.shadow.card,
+    borderRadius: DesignTokens.radius.xl,
+    overflow: "hidden",
+    ...DesignTokens.shadow.float,
   },
-  settingRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: DesignTokens.spacing.md, gap: 10 },
-  settingIconWrap: { width: 36, height: 36, borderRadius: DesignTokens.radius.md, alignItems: "center", justifyContent: "center" },
+
+  // Settings rows — iOS-style (44pt+ height, inset separator)
+  settingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: DesignTokens.spacing.lg,
+    paddingVertical: DesignTokens.spacing.md,
+    gap: DesignTokens.spacing.md,
+    minHeight: 54,
+  },
+  settingIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: DesignTokens.radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
   settingContent: { flex: 1 },
-  settingLabel: { fontSize: 10, letterSpacing: 0.4, marginBottom: 4, textTransform: "uppercase", fontWeight: "600" as const },
-  settingSubLabel: { fontSize: 13, fontWeight: "600" as const, lineHeight: 18 },
-  settingHint: { fontSize: 10, marginTop: 5, letterSpacing: 0.2 },
-  settingDivider: { height: 1, marginLeft: 60 },
-  noRigText: { fontSize: 12, fontStyle: "italic" as const, paddingVertical: 4 },
+  settingLabel: {
+    fontSize: DesignTokens.fontSize.caption1,
+    letterSpacing: 0.3,
+    marginBottom: 4,
+    textTransform: "uppercase",
+    fontWeight: "700" as const,
+  },
+  settingSubLabel: {
+    fontSize: DesignTokens.fontSize.subhead,
+    fontWeight: "600" as const,
+    lineHeight: 20,
+  },
+  settingHint: {
+    fontSize: DesignTokens.fontSize.caption2,
+    marginTop: 4,
+    letterSpacing: 0.1,
+  },
+  // Inset separator: starts after icon column (16 + 36 + 12 = 64)
+  settingDivider: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 64,
+  },
+  noRigText: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontStyle: "italic" as const,
+    paddingVertical: 4,
+  },
   profileBadge: {
-    flexDirection: "row", alignItems: "center", gap: 6, marginTop: DesignTokens.spacing.sm,
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: DesignTokens.radius.sm, borderWidth: 1, alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: DesignTokens.radius.pill,
+    borderWidth: 1,
+    alignSelf: "flex-start",
   },
-  profileBadgeText: { fontSize: 11, fontWeight: "600" as const },
+  profileBadgeText: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "600" as const,
+  },
   adminLogoutRow: {
-    flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10,
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: DesignTokens.radius.sm,
+    borderWidth: 1,
+    alignSelf: "flex-start",
   },
-  adminLogoutText: { fontSize: 12, fontWeight: "600" as const },
+  adminLogoutText: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "600" as const,
+  },
   displaySettingsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    gap: DesignTokens.spacing.md,
+    paddingHorizontal: DesignTokens.spacing.lg,
+    paddingVertical: DesignTokens.spacing.md,
+    minHeight: 54,
   },
-  quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  sheetRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
-  sheetDivider: { height: 1, marginLeft: 58 },
-  sheetIcon: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: DesignTokens.spacing.sm },
+  sheetRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: DesignTokens.spacing.lg,
+    paddingVertical: DesignTokens.spacing.md,
+    gap: DesignTokens.spacing.md,
+    minHeight: 52,
+  },
+  sheetDivider: { height: StyleSheet.hairlineWidth, marginLeft: 62 },
+  sheetIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: DesignTokens.radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   sheetInfo: { flex: 1 },
-  sheetRowText: { fontSize: 13, fontWeight: "500" as const },
-  sheetDesc: { fontSize: 10, marginTop: 2 },
+  sheetRowText: { fontSize: DesignTokens.fontSize.footnote, fontWeight: "500" as const },
+  sheetDesc: { fontSize: DesignTokens.fontSize.caption2, marginTop: 2 },
   clearCacheBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-    paddingVertical: 10, borderRadius: DesignTokens.radius.md, borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 13,
+    borderRadius: DesignTokens.radius.md,
+    borderWidth: 1,
   },
-  clearCacheText: { fontSize: 12, fontWeight: "500" as const },
+  clearCacheText: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "500" as const,
+  },
   bottomSpacer: { height: 20 },
 });

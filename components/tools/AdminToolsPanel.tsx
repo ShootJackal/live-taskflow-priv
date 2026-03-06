@@ -57,15 +57,27 @@ const atStyles = StyleSheet.create({
   },
   toolBtnText: { fontSize: 12, fontWeight: "600" as const, letterSpacing: 0.3 },
   card: {
-    borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.lg,
-    ...DesignTokens.shadow.card,
+    borderRadius: DesignTokens.radius.xl,
+    padding: DesignTokens.spacing.lg,
+    ...DesignTokens.shadow.float,
   },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: DesignTokens.spacing.sm },
-  cardTitle: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1.2, flex: 1 },
+  cardTitle: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "700" as const,
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+    flex: 1,
+  },
   perfGrid: { flexDirection: "row", gap: 6 },
   perfItem: { flex: 1, borderRadius: DesignTokens.radius.sm, padding: DesignTokens.spacing.sm, alignItems: "center" },
-  perfValue: { fontSize: 16, fontWeight: "700" as const },
-  perfLabel: { fontSize: 8, fontWeight: "500" as const, marginTop: 2, letterSpacing: 0.3 },
+  perfValue: { fontSize: DesignTokens.fontSize.callout, fontWeight: "700" as const },
+  perfLabel: {
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "500" as const,
+    marginTop: 3,
+    letterSpacing: 0.2,
+  },
   regionBar: { flexDirection: "row", height: 22, borderRadius: DesignTokens.radius.xs, overflow: "hidden" },
   regionSegment: { justifyContent: "center", alignItems: "center" },
   regionBarLabel: { color: "#fff", fontSize: 9, fontWeight: "800" as const, letterSpacing: 0.5 },
@@ -432,7 +444,7 @@ export function AdminToolsPanel({
         <Text style={[atStyles.toolBtnText, { color: colors.accent }]}>Force Resync All Data</Text>
       </TouchableOpacity>
 
-      <View style={[atStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+      <View style={[atStyles.card, { backgroundColor: colors.bgCard }]}>
         <View style={atStyles.cardHeader}>
           <Users size={12} color={colors.accent} />
           <Text style={[atStyles.cardTitle, { color: colors.accent }]}>ADMIN TASK CONTROL</Text>
@@ -518,7 +530,7 @@ export function AdminToolsPanel({
         </View>
       </View>
 
-      <View style={[atStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+      <View style={[atStyles.card, { backgroundColor: colors.bgCard }]}>
         <View style={atStyles.cardHeader}>
           <Star size={12} color={colors.gold} />
           <Text style={[atStyles.cardTitle, { color: colors.gold }]}>COLLECTOR MEDALS</Text>
@@ -571,7 +583,7 @@ export function AdminToolsPanel({
         </TouchableOpacity>
       </View>
 
-      <View style={[atStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+      <View style={[atStyles.card, { backgroundColor: colors.bgCard }]}>
         <View style={atStyles.cardHeader}>
           <AlertTriangle size={12} color={colors.alertYellow} />
           <Text style={[atStyles.cardTitle, { color: colors.alertYellow }]}>LIVE ALERT BROADCAST</Text>
@@ -610,7 +622,7 @@ export function AdminToolsPanel({
       </View>
 
       {teamPerformance && (
-        <View style={[atStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
+        <View style={[atStyles.card, { backgroundColor: colors.bgCard }]}>
           <View style={atStyles.cardHeader}>
             <BarChart3 size={12} color={colors.accent} />
             <Text style={[atStyles.cardTitle, { color: colors.accent }]}>TEAM PERFORMANCE</Text>
@@ -649,7 +661,7 @@ export function AdminToolsPanel({
       )}
 
       <TouchableOpacity
-        style={[atStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}
+        style={[atStyles.card, { backgroundColor: colors.bgCard }]}
         onPress={() => toggleSection("tasks")}
         activeOpacity={0.8}
       >
@@ -697,7 +709,7 @@ export function AdminToolsPanel({
       </TouchableOpacity>
 
       <TouchableOpacity
-        style={[atStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}
+        style={[atStyles.card, { backgroundColor: colors.bgCard }]}
         onPress={() => toggleSection("activity")}
         activeOpacity={0.8}
       >
