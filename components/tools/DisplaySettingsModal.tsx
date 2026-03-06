@@ -10,8 +10,6 @@ import {
 import { X } from "lucide-react-native";
 import { useTheme, THEME_META, type ThemeMode } from "@/providers/ThemeProvider";
 import { useLocale, type LocaleCode } from "@/providers/LocaleProvider";
-import { DesignTokens } from "@/constants/colors";
-
 export function DisplaySettingsModal({
   visible,
   onClose,
