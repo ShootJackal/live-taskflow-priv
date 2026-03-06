@@ -11,11 +11,13 @@ import {
   ActionType,
   SubmitPayload,
   AssignmentStatus,
+  DailyCarryoverItem,
 } from "@/types";
 import {
   fetchCollectors,
   fetchTasks,
   fetchTodayLog,
+  fetchDailyCarryover,
   submitAction,
   isApiConfigured,
   warmServerCache,
@@ -90,6 +92,14 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     queryFn: () => fetchTodayLog(selectedCollectorName),
     enabled: configured && !!selectedCollectorName,
     refetchInterval: 30000,
+    retry: 1,
+  });
+
+  const dailyCarryoverQuery = useQuery<DailyCarryoverItem[]>({
+    queryKey: ["dailyCarryover", selectedCollectorName],
+    queryFn: () => fetchDailyCarryover(selectedCollectorName),
+    enabled: configured && !!selectedCollectorName,
+    staleTime: 30000,
     retry: 1,
   });
 
@@ -390,24 +400,22 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     [submitMutation]
   );
 
+  // ASSIGN always sends hours:0 — planned hours are gone.
+  // Actual hours are reported when the collector marks the task Done.
   const assignTask = useCallback(() => {
     if (!selectedCollectorName || !selectedTaskName) {
       throw new Error("Select collector and task first");
     }
-    const hours = hoursToLog ? parseFloat(hoursToLog) : 0;
-    if (!hours || hours <= 0) {
-      throw new Error("Enter hours to log before assigning");
-    }
     submitOnce({
       collector: selectedCollectorName,
       task: selectedTaskName,
-      hours,
+      hours: 0,
       actionType: "ASSIGN",
       notes,
       rig: selectedRig || undefined,
-      requestId: createRequestId("ASSIGN", selectedTaskName, hours),
+      requestId: createRequestId("ASSIGN", selectedTaskName, 0),
     });
-  }, [selectedCollectorName, selectedTaskName, hoursToLog, notes, selectedRig, createRequestId, submitOnce]);
+  }, [selectedCollectorName, selectedTaskName, notes, selectedRig, createRequestId, submitOnce]);
 
   const completeTask = useCallback(
     (taskName: string) => {
@@ -463,6 +471,11 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     [selectedCollectorName, notes, selectedRig, createRequestId, submitOnce]
   );
 
+  const carryoverItems = useMemo<DailyCarryoverItem[]>(
+    () => dailyCarryoverQuery.data ?? [],
+    [dailyCarryoverQuery.data]
+  );
+
   const refreshData = useCallback(async () => {
     log("[Provider] Refreshing all data");
     await Promise.allSettled([
@@ -480,6 +493,8 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     todayLog,
     openTasks,
     activity,
+    carryoverItems,
+    hasCarryover: carryoverItems.length > 0,
     selectedCollectorName,
     selectedCollector,
     selectedRig,

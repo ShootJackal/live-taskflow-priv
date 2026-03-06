@@ -20,7 +20,6 @@ import {
   StickyNote,
   AlertCircle,
   Circle,
-  Info,
   Clock,
   Search,
   X,
@@ -55,25 +54,17 @@ const LogEntryRow = React.memo(function LogEntryRow({
   colors: ThemeColors;
   isLast: boolean;
 }) {
+  const isClosed = entry.status === "Completed" || entry.status === "Canceled";
   const hasTaskProgress =
-    typeof entry.taskCollectedHours === "number" ||
     typeof entry.taskGoodHours === "number" ||
     typeof entry.taskRemainingHours === "number";
-  const taskCollected = Number(entry.taskCollectedHours ?? 0);
   const taskGood = Number(entry.taskGoodHours ?? 0);
   const taskRemaining = Number(entry.taskRemainingHours ?? 0);
-  const taskTotal = Math.max(taskCollected + taskRemaining, 0);
+  // Progress = CB Actual ÷ (CB Actual + Remaining)
+  const taskTotal = Math.max(taskGood + taskRemaining, 0);
   const taskProgressPct = Math.max(
     0,
-    Math.min(
-      100,
-      Math.round(
-        Number(
-          entry.taskProgressPct ??
-            (taskTotal > 0 ? (taskCollected / taskTotal) * 100 : 0)
-        )
-      )
-    )
+    Math.min(100, taskTotal > 0 ? Math.round((taskGood / taskTotal) * 100) : 0)
   );
 
   return (
@@ -84,6 +75,7 @@ const LogEntryRow = React.memo(function LogEntryRow({
           borderBottomColor: colors.border,
           borderBottomWidth: StyleSheet.hairlineWidth,
         },
+        isClosed && logStyles.rowClosed,
       ]}
     >
       <View style={logStyles.rowLeft}>
@@ -93,7 +85,7 @@ const LogEntryRow = React.memo(function LogEntryRow({
         <View style={logStyles.rowContent}>
           <MarqueeText
             text={entry.taskName}
-            style={[logStyles.taskName, { color: colors.textPrimary }]}
+            style={[logStyles.taskName, { color: isClosed ? colors.textMuted : colors.textPrimary }]}
             speedMs={4300}
           />
           <View style={logStyles.metaRow}>
@@ -107,10 +99,11 @@ const LogEntryRow = React.memo(function LogEntryRow({
                 {entry.status}
               </Text>
             </View>
-            <Text style={[logStyles.hours, { color: colors.textMuted }]}>
-              {Number(entry.loggedHours).toFixed(2)}h /{" "}
-              {Number(entry.plannedHours).toFixed(2)}h planned
-            </Text>
+            {Number(entry.loggedHours) > 0 && (
+              <Text style={[logStyles.hours, { color: colors.textMuted }]}>
+                {Number(entry.loggedHours).toFixed(2)}h logged
+              </Text>
+            )}
           </View>
           {hasTaskProgress && (
             <View
@@ -123,42 +116,22 @@ const LogEntryRow = React.memo(function LogEntryRow({
               ]}
             >
               <View style={logStyles.taskSnapshotTop}>
-                <Text
-                  style={[logStyles.taskStat, { color: colors.complete }]}
-                >
-                  Good {taskGood.toFixed(2)}h
+                <Text style={[logStyles.taskStat, { color: colors.complete }]}>
+                  CB Actual {taskGood.toFixed(2)}h
                 </Text>
-                <Text
-                  style={[
-                    logStyles.taskStat,
-                    { color: colors.statusPending },
-                  ]}
-                >
+                <Text style={[logStyles.taskStat, { color: colors.statusPending }]}>
                   Remaining {taskRemaining.toFixed(2)}h
                 </Text>
-                <Text
-                  style={[
-                    logStyles.taskPct,
-                    { color: colors.textSecondary },
-                  ]}
-                >
+                <Text style={[logStyles.taskPct, { color: colors.textSecondary }]}>
                   {taskProgressPct}%
                 </Text>
               </View>
               {taskTotal > 0 && (
-                <View
-                  style={[
-                    logStyles.taskTrack,
-                    { backgroundColor: colors.border },
-                  ]}
-                >
+                <View style={[logStyles.taskTrack, { backgroundColor: colors.border }]}>
                   <View
                     style={[
                       logStyles.taskFill,
-                      {
-                        backgroundColor: colors.accent,
-                        width: `${taskProgressPct}%` as any,
-                      },
+                      { backgroundColor: colors.accent, width: `${taskProgressPct}%` as any },
                     ]}
                   />
                 </View>
@@ -173,6 +146,7 @@ const LogEntryRow = React.memo(function LogEntryRow({
 
 const logStyles = StyleSheet.create({
   row: { paddingVertical: 10 },
+  rowClosed: { opacity: 0.45 },
   rowLeft: { flexDirection: "row", gap: 12 },
   statusStripe: { width: 3, borderRadius: 2, minHeight: 32 },
   rowContent: { flex: 1 },
@@ -245,6 +219,8 @@ export default function DashboardScreen() {
     notes,
     openTasks,
     todayLog,
+    carryoverItems,
+    hasCarryover,
     isLoadingCollectors,
     isLoadingTasks,
     isLoadingLog,
@@ -299,10 +275,9 @@ export default function DashboardScreen() {
 
   const hasValidHours =
     !!hoursToLog.trim() && parseFloat(hoursToLog) > 0;
+  // Assign only needs collector + task. Hours are for Done/Cancel.
   const canSubmit = !!selectedCollectorName && !!selectedTaskName;
-  const canSubmitWithHours = canSubmit && hasValidHours;
   const latestOpenTask = openTasks.length > 0 ? openTasks[0] : null;
-  const plannedHoursHint = latestOpenTask ? latestOpenTask.plannedHours : 0;
 
   const toggleTaskSearch = useCallback(() => {
     const next = !showTaskSearch;
@@ -325,15 +300,30 @@ export default function DashboardScreen() {
   }, [refreshData]);
 
   const handleAssign = useCallback(() => {
+    if (hasCarryover) {
+      Alert.alert(
+        "Incomplete Tasks from Yesterday",
+        `You have ${carryoverItems.length} unresolved task${carryoverItems.length === 1 ? "" : "s"} from yesterday. Close them on the Stats tab first.`,
+        [
+          { text: "Go to Stats", style: "cancel" },
+          {
+            text: "Assign Anyway",
+            onPress: () => {
+              try { assignTask(); } catch (e: unknown) {
+                Alert.alert("Error", e instanceof Error ? e.message : "Failed to assign task");
+              }
+            },
+          },
+        ]
+      );
+      return;
+    }
     try {
       assignTask();
     } catch (e: unknown) {
-      Alert.alert(
-        "Error",
-        e instanceof Error ? e.message : "Failed to assign task"
-      );
+      Alert.alert("Error", e instanceof Error ? e.message : "Failed to assign task");
     }
-  }, [assignTask]);
+  }, [assignTask, hasCarryover, carryoverItems.length]);
 
   const handleComplete = useCallback(() => {
     if (!latestOpenTask) return;
@@ -613,15 +603,33 @@ export default function DashboardScreen() {
                     >
                       {latestOpenTask.taskName}
                     </Text>
-                    <Text
-                      style={[
-                        styles.openTaskMeta,
-                        { color: colors.accentLight },
-                      ]}
-                    >
-                      In Progress · {Number(latestOpenTask.plannedHours).toFixed(2)}h planned
-                    </Text>
+                  <Text
+                    style={[
+                      styles.openTaskMeta,
+                      { color: colors.accentLight },
+                    ]}
+                  >
+                    In Progress · Enter hours below to complete or cancel
+                  </Text>
                   </View>
+                </View>
+              )}
+
+              {/* ── Carryover warning ────────────────────────────────── */}
+              {hasCarryover && (
+                <View
+                  style={[
+                    styles.carryoverBanner,
+                    {
+                      backgroundColor: colors.alertYellowBg,
+                      borderColor: colors.alertYellow + "55",
+                    },
+                  ]}
+                >
+                  <AlertCircle size={14} color={colors.alertYellow} />
+                  <Text style={[styles.carryoverBannerText, { color: colors.alertYellow }]}>
+                    {carryoverItems.length} incomplete task{carryoverItems.length === 1 ? "" : "s"} from yesterday — close them in Stats
+                  </Text>
                 </View>
               )}
 
@@ -830,11 +838,11 @@ export default function DashboardScreen() {
                       </Text>
                       <Text
                         style={[
-                          styles.requiredTag,
-                          { color: colors.cancel },
+                          styles.optionalTag,
+                          { color: colors.textMuted },
                         ]}
                       >
-                        required
+                        for completion
                       </Text>
                     </View>
                     <TextInput
@@ -842,9 +850,7 @@ export default function DashboardScreen() {
                         styles.input,
                         {
                           backgroundColor: colors.bgInput,
-                          borderColor: !hoursToLog.trim()
-                            ? colors.statusPending + "55"
-                            : colors.border,
+                          borderColor: colors.border,
                           color: colors.textPrimary,
                         },
                       ]}
@@ -856,36 +862,6 @@ export default function DashboardScreen() {
                       returnKeyType="done"
                       testID="hours-input"
                     />
-                    {!hoursToLog.trim() && (
-                      <View style={styles.hintRow}>
-                        <AlertCircle
-                          size={11}
-                          color={colors.statusPending}
-                        />
-                        <Text
-                          style={[
-                            styles.hintText,
-                            { color: colors.statusPending },
-                          ]}
-                        >
-                          Enter actual hours before submitting
-                        </Text>
-                      </View>
-                    )}
-                    {latestOpenTask && plannedHoursHint > 0 && (
-                      <View style={styles.hintRow}>
-                        <Info size={11} color={colors.textMuted} />
-                        <Text
-                          style={[
-                            styles.hintText,
-                            { color: colors.textMuted },
-                          ]}
-                        >
-                          Planned chunk:{" "}
-                          {Number(plannedHoursHint).toFixed(2)}h
-                        </Text>
-                      </View>
-                    )}
                   </View>
                 </View>
 
@@ -955,7 +931,7 @@ export default function DashboardScreen() {
                 color={colors.white}
                 bgColor={colors.accent}
                 onPress={handleAssign}
-                disabled={!canSubmitWithHours}
+                disabled={!canSubmit}
                 fullWidth
                 testID="assign-btn"
               />
@@ -1196,6 +1172,23 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: DesignTokens.fontSize.footnote,
     lineHeight: 19,
+  },
+
+  // Carryover warning banner
+  carryoverBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: DesignTokens.radius.md,
+    paddingHorizontal: DesignTokens.spacing.md,
+    paddingVertical: DesignTokens.spacing.sm + 2,
+    borderWidth: 1,
+    gap: 8,
+  },
+  carryoverBannerText: {
+    flex: 1,
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "600" as const,
+    lineHeight: 17,
   },
 
   // Open-task banner

@@ -2338,7 +2338,9 @@ function handleGetTodayLog(collectorName) {
       }
     }
 
-    var include = (dateStr === todayStr || completedStr === todayStr || isActive);
+    // Only include tasks assigned today OR completed/closed today.
+    // Previous-day In Progress tasks are exclusively visible via getDailyCarryover.
+    var include = (dateStr === todayStr || completedStr === todayStr);
     if (!include) continue;
 
     var eventTs = Math.max(toTimestampMs(row[9]), toTimestampMs(row[4]));
@@ -2998,11 +3000,11 @@ function handleSubmitCore(collector, task, hours, actionType, notes, normCol, no
       };
     }
 
-    var plannedAssign = Math.max(0, safeNum(hours));
+    // plannedHours is always 0 for new assignments — actual hours are recorded on Done.
     var aId = 'A-' + Date.now();
-    insertAssignmentLogRow(sheet, [aId, latestTaskId, task, collector, now, plannedAssign, 'In Progress', 0, plannedAssign, '', notes, getWeekStart(now)]);
+    insertAssignmentLogRow(sheet, [aId, latestTaskId, task, collector, now, 0, 'In Progress', 0, 0, '', notes, getWeekStart(now)]);
     refreshPostSubmitCaches(collector);
-    return { success: true, message: 'Assigned: ' + task, assignmentId: aId, planned: plannedAssign, hours: 0, remaining: plannedAssign, status: 'In Progress' };
+    return { success: true, message: 'Assigned: ' + task, assignmentId: aId, planned: 0, hours: 0, remaining: 0, status: 'In Progress' };
   }
 
   if (actionType === 'COMPLETE') {

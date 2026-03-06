@@ -180,25 +180,24 @@ function AssignmentLogView({ collectorName, configured }: { collectorName: strin
                 {entry.collector}
               </Text>
             ) : null}
-            <Text style={[viewStyles.metaText, { color: colors.textSecondary }]}>
-              {Number(entry.loggedHours).toFixed(2)}h / {Number(entry.plannedHours).toFixed(2)}h
-            </Text>
+            {Number(entry.loggedHours) > 0 && (
+              <Text style={[viewStyles.metaText, { color: colors.textSecondary }]}>
+                {Number(entry.loggedHours).toFixed(2)}h logged
+              </Text>
+            )}
             {Math.round((Number(entry.remainingHours) || 0) * 100) / 100 > 0 && (
               <Text style={[viewStyles.metaText, { color: colors.statusPending }]}>
                 {Number(entry.remainingHours).toFixed(2)}h left
               </Text>
             )}
           </View>
-          {(typeof entry.taskCollectedHours === "number" || typeof entry.taskRemainingHours === "number") && (
+          {(typeof entry.taskGoodHours === "number" || typeof entry.taskRemainingHours === "number") && (
             <View style={[viewStyles.taskMetaRow, { borderColor: colors.border, backgroundColor: colors.bgInput }]}>
-              <Text style={[viewStyles.taskMetaText, { color: colors.accent }]}>
-                Collected {Number(entry.taskCollectedHours ?? 0).toFixed(2)}h
-              </Text>
               <Text style={[viewStyles.taskMetaText, { color: colors.complete }]}>
-                Good {Number(entry.taskGoodHours ?? 0).toFixed(2)}h
+                CB Actual {Number(entry.taskGoodHours ?? 0).toFixed(2)}h
               </Text>
               <Text style={[viewStyles.taskMetaText, { color: colors.statusPending }]}>
-                Missing {Number(entry.taskRemainingHours ?? 0).toFixed(2)}h
+                Remaining {Number(entry.taskRemainingHours ?? 0).toFixed(2)}h
               </Text>
               <Text style={[viewStyles.taskMetaPct, { color: colors.textSecondary }]}>
                 {Math.round(Number(entry.taskProgressPct ?? 0))}%
@@ -287,7 +286,7 @@ function TaskActualsView({ configured }: { configured: boolean }) {
       </View>
       <View style={viewStyles.summaryRow}>
         <SummaryChip label="Collected hrs" value={`${formatTwoDecimals(hourTotals.collected)}h`} color={colors.accent} bg={colors.accentSoft} />
-        <SummaryChip label="Good hrs" value={`${formatTwoDecimals(hourTotals.good)}h`} color={colors.complete} bg={colors.completeBg} />
+        <SummaryChip label="CB Actual" value={`${formatTwoDecimals(hourTotals.good)}h`} color={colors.complete} bg={colors.completeBg} />
         <SummaryChip label="Remaining hrs" value={`${formatTwoDecimals(hourTotals.remaining)}h`} color={colors.statusPending} bg={colors.alertYellowBg} />
       </View>
 
@@ -355,7 +354,7 @@ function TaskRow({ task, colors, showRecollectTime }: { task: TaskActualRow; col
       ) : null}
       <View style={viewStyles.taskStats}>
         <StatChip label="Collected" value={`${formatTwoDecimals(task.collectedHours)}h`} color={colors.accent} />
-        <StatChip label="Good" value={`${formatTwoDecimals(task.goodHours)}h`} color={colors.complete} />
+        <StatChip label="CB Actual" value={`${formatTwoDecimals(task.goodHours)}h`} color={colors.complete} />
         <StatChip label="Remaining" value={`${formatTwoDecimals(remaining)}h`} color={remaining > 0 ? colors.statusPending : colors.textMuted} />
       </View>
       {showRecollectTime && isRecollect && (
