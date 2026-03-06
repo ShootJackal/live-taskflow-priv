@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "rork-app",
+    "scheme": "taskflow",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -31,7 +31,7 @@
       [
         "expo-router",
         {
-          "origin": "https://rork.com/"
+          "origin": "https://taskflow.app/"
         }
       ],
       "expo-font",
