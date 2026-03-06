@@ -266,12 +266,24 @@ export default function StatsScreen() {
     refetchOnWindowFocus: false,
   });
 
+  const todayDateStr = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
+
+  // Only count entries assigned today. Carryover tasks from previous days
+  // (assignedDate !== today) must not inflate today's summary numbers.
+  const todayOnlyLog = useMemo(
+    () => todayLog.filter((e) => e.assignedDate === todayDateStr),
+    [todayLog, todayDateStr],
+  );
+
   const localStats = useMemo(() => {
-    const completed = todayLog.filter((e) => e.status === "Completed").length;
-    const totalLogged = todayLog.reduce((s, e) => s + e.loggedHours, 0);
-    const active = todayLog.filter((e) => e.status === "In Progress" || e.status === "Partial").length;
-    return { completed, totalLogged, active, total: todayLog.length };
-  }, [todayLog]);
+    const completed = todayOnlyLog.filter((e) => e.status === "Completed").length;
+    const totalLogged = todayOnlyLog.reduce((s, e) => s + e.loggedHours, 0);
+    const active = todayOnlyLog.filter((e) => e.status === "In Progress" || e.status === "Partial").length;
+    return { completed, totalLogged, active, total: todayOnlyLog.length };
+  }, [todayOnlyLog]);
 
   const leaderboard = useMemo<LeaderboardEntry[]>(() => {
     return leaderboardQuery.data ?? [];
@@ -383,10 +395,14 @@ export default function StatsScreen() {
   const stats = statsQuery.data;
   const profile = profileQuery.data;
   const adminStartPlan = adminStartPlanQuery.data;
+  // todayActualHours from GAS is Redash-verified data; it lags by at least one
+  // pipeline cycle and reads 0 for the current day. Fall back to the sum of
+  // today-only logged hours so the stat is never misleadingly empty.
   const todayActualUploaded = useMemo(() => {
-    const n = Number(stats?.todayActualHours);
-    return Number.isFinite(n) && n > 0 ? n : 0;
-  }, [stats?.todayActualHours]);
+    const fromGas = Number(stats?.todayActualHours);
+    if (Number.isFinite(fromGas) && fromGas > 0) return fromGas;
+    return localStats.totalLogged;
+  }, [stats?.todayActualHours, localStats.totalLogged]);
   const cardShadow = useMemo(() => ({
     shadowColor: colors.shadow,
     ...DesignTokens.shadow.float,
@@ -511,7 +527,7 @@ export default function StatsScreen() {
       <View style={styles.heroGrid}>
         <HeroStat label="Assigned" value={String(localStats.total)} icon={<Target size={18} color={colors.accent} />} color={colors.accent} index={0} />
         <HeroStat label="Completed" value={String(localStats.completed)} icon={<CheckCircle size={18} color={colors.complete} />} color={colors.complete} index={1} />
-        <HeroStat label="Actual Uploaded" value={`${todayActualUploaded.toFixed(2)}h`} icon={<Upload size={18} color={colors.statusPending} />} color={colors.statusPending} index={2} />
+        <HeroStat label="Logged Today" value={`${todayActualUploaded.toFixed(2)}h`} icon={<Upload size={18} color={colors.statusPending} />} color={colors.statusPending} index={2} />
         <HeroStat label="Active" value={String(localStats.active)} icon={<TrendingUp size={18} color={colors.accentLight} />} color={colors.accentLight} index={3} />
       </View>
 

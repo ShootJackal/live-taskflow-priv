@@ -380,21 +380,24 @@ export default function DashboardScreen() {
     }
   }, [addNote, latestOpenTask, notes]);
 
-  const todayStats = useMemo(() => {
-    const completed = todayLog.filter((e) => e.status === "Completed").length;
-    const totalLogged = todayLog.reduce((s, e) => s + e.loggedHours, 0);
-    const totalPlanned = todayLog.reduce(
-      (s, e) => s + e.plannedHours,
-      0
-    );
-    return {
-      completed,
-      totalLogged,
-      totalPlanned,
-      total: todayLog.length,
-    };
-  }, [todayLog]);
+  const todayDateStr = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
 
+  // Header summary counts only today-assigned entries. Carryover tasks
+  // (assignedDate before today) must not inflate the reported totals.
+  const todayStats = useMemo(() => {
+    // Only count entries assigned today so carryover tasks from previous days
+    // don't inflate the header stats.
+    const todayOnly = todayLog.filter((e) => e.assignedDate === todayDateStr);
+    const completed = todayOnly.filter((e) => e.status === "Completed").length;
+    const totalLogged = todayOnly.reduce((s, e) => s + e.loggedHours, 0);
+    const totalPlanned = todayOnly.reduce((s, e) => s + e.plannedHours, 0);
+    return { completed, totalLogged, totalPlanned, total: todayOnly.length };
+  }, [todayLog, todayDateStr]);
+
+  // Full log list keeps all entries (including carryovers) visible and actionable.
   const visibleLog = useMemo(
     () => todayLog.slice(0, logVisibleCount),
     [todayLog, logVisibleCount]
