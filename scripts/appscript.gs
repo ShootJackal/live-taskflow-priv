@@ -2685,6 +2685,12 @@ function getOrCreateCacheSheet() {
   var sheet = ss.getSheetByName(TASKFLOW_SHEETS.APP_CACHE);
   if (!sheet) {
     sheet = ss.insertSheet(TASKFLOW_SHEETS.APP_CACHE);
+  }
+  // Always ensure the header row exists, even if the sheet was manually
+  // created or had its content cleared. Without this, getLastRow() returns 0
+  // which causes writeCache to call insertRowsAfter(0, ...) — invalid in
+  // the Sheets API (rows are 1-indexed) — silently failing every write.
+  if (sheet.getLastRow() === 0) {
     sheet.getRange(1, 1, 1, 3).setValues([['key', 'jsonValue', 'updatedAt']]);
   }
   return sheet;
@@ -2697,11 +2703,13 @@ function writeCache(key, value) {
     var lastRow = cacheSheet.getLastRow();
     var targetRow = -1;
     var existingJson = '';
-    if (lastRow >= 1) {
-      var keyColumn = cacheSheet.getRange(1, 1, lastRow, 1).getValues();
+
+    // Scan rows 2+ only (row 1 is always the header — never overwrite it).
+    if (lastRow >= 2) {
+      var keyColumn = cacheSheet.getRange(2, 1, lastRow - 1, 1).getValues();
       for (var i = 0; i < keyColumn.length; i++) {
         if (safeStr(keyColumn[i][0]) === key) {
-          targetRow = i + 1;
+          targetRow = i + 2;  // i=0 → row 2, i=1 → row 3, etc.
           existingJson = safeStr(cacheSheet.getRange(targetRow, 2).getValue());
           break;
         }
@@ -2709,10 +2717,11 @@ function writeCache(key, value) {
     }
 
     if (targetRow === -1) {
+      // Append after the last row, but never before row 2 (row 1 is the header).
+      // Crucially: do NOT call insertRowsAfter(0, ...) — row 0 is invalid in the
+      // Sheets API and throws an exception that the outer catch silently swallows,
+      // causing every write to silently fail on an empty sheet.
       targetRow = Math.max(lastRow + 1, 2);
-      if (targetRow > lastRow + 1) {
-        cacheSheet.insertRowsAfter(lastRow, targetRow - (lastRow + 1));
-      }
     }
 
     var nextJson = JSON.stringify(value);
