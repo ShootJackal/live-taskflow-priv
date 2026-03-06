@@ -7,6 +7,7 @@ import {
   RefreshControl,
   Animated,
   TouchableOpacity,
+  TextInput,
   Platform,
   Alert,
 } from "react-native";
@@ -208,6 +209,7 @@ export default function StatsScreen() {
   const [lbPeriod, setLbPeriod] = useState<LeaderboardPeriod>("thisWeek");
   const [lbVisibleCount, setLbVisibleCount] = useState(10);
   const [carryoverPendingId, setCarryoverPendingId] = useState<string | null>(null);
+  const [carryoverHoursInput, setCarryoverHoursInput] = useState<Record<string, string>>({});
   const syncPulse = useRef(new Animated.Value(0)).current;
 
   const normalizedName = useMemo(() => normalizeCollectorName(selectedCollectorName), [selectedCollectorName]);
@@ -342,24 +344,38 @@ export default function StatsScreen() {
 
   const dailyCarryover = useMemo(() => dailyCarryoverQuery.data ?? [], [dailyCarryoverQuery.data]);
 
-  const handleCarryoverAction = useCallback(async (mode: "report" | "cancel", item: DailyCarryoverItem) => {
+  const handleCarryoverAction = useCallback(async (
+    mode: "report" | "reportHours" | "cancel",
+    item: DailyCarryoverItem,
+    manualHours?: number
+  ) => {
     if (!selectedCollectorName) return;
     setCarryoverPendingId(item.assignmentId);
     try {
-      if (mode === "report") {
-        await reportDailyCarryover({
-          collector: selectedCollectorName,
-          task: item.taskName,
-          assignmentId: item.assignmentId,
-          actualHours: Number(item.actualHours) || 0,
-        });
-      } else {
+      if (mode === "cancel") {
         await cancelDailyCarryover({
           collector: selectedCollectorName,
           task: item.taskName,
           assignmentId: item.assignmentId,
         });
+      } else {
+        // "report" uses auto-detected actuals; "reportHours" uses manual input
+        const hoursToSend = mode === "reportHours" && manualHours && manualHours > 0
+          ? manualHours
+          : Number(item.actualHours) || 0;
+        await reportDailyCarryover({
+          collector: selectedCollectorName,
+          task: item.taskName,
+          assignmentId: item.assignmentId,
+          actualHours: hoursToSend,
+        });
       }
+      // Clear the manual hours input for this item
+      setCarryoverHoursInput((prev) => {
+        const next = { ...prev };
+        delete next[item.assignmentId];
+        return next;
+      });
       await Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: ["dailyCarryover", selectedCollectorName] }),
         queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] }),
@@ -539,6 +555,9 @@ export default function StatsScreen() {
           </View>
           {dailyCarryover.map((item, idx) => {
             const pending = carryoverPendingId === item.assignmentId;
+            const manualHoursStr = carryoverHoursInput[item.assignmentId] ?? "";
+            const manualHours = parseFloat(manualHoursStr);
+            const hasManualHours = !isNaN(manualHours) && manualHours > 0;
             return (
               <View
                 key={`carry_${item.assignmentId}_${idx}`}
@@ -546,8 +565,35 @@ export default function StatsScreen() {
               >
                 <Text style={[styles.carryoverTask, { color: colors.textPrimary }]} numberOfLines={1}>{item.taskName}</Text>
                 <Text style={[styles.carryoverMeta, { color: colors.textMuted }]}>
-                  {item.assignedDate} · Actual {Number(item.actualHours || 0).toFixed(2)}h
+                  {item.assignedDate} · CB Actual {Number(item.actualHours || 0).toFixed(2)}h
                 </Text>
+                {/* Manual hours input */}
+                <View style={[styles.carryoverHoursRow, { borderColor: colors.border }]}>
+                  <TextInput
+                    style={[styles.carryoverHoursInput, { backgroundColor: colors.bgInput, color: colors.textPrimary, borderColor: colors.border }]}
+                    value={manualHoursStr}
+                    onChangeText={(v) => setCarryoverHoursInput((prev) => ({ ...prev, [item.assignmentId]: v }))}
+                    placeholder="hrs"
+                    placeholderTextColor={colors.textMuted}
+                    keyboardType="decimal-pad"
+                    returnKeyType="done"
+                    editable={!pending}
+                  />
+                  <TouchableOpacity
+                    style={[styles.carryoverBtn, styles.carryoverHoursBtn, {
+                      backgroundColor: hasManualHours ? colors.completeBg : colors.bgInput,
+                      borderColor: hasManualHours ? colors.complete + "40" : colors.border,
+                      opacity: pending ? 0.7 : 1,
+                    }]}
+                    onPress={() => hasManualHours && handleCarryoverAction("reportHours", item, manualHours)}
+                    disabled={pending || !hasManualHours}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.carryoverBtnText, { color: hasManualHours ? colors.complete : colors.textMuted }]}>
+                      Report Hours
+                    </Text>
+                  </TouchableOpacity>
+                </View>
                 <View style={styles.carryoverActions}>
                   <TouchableOpacity
                     style={[styles.carryoverBtn, { backgroundColor: colors.completeBg, borderColor: colors.complete + "40", opacity: pending ? 0.7 : 1 }]}
@@ -555,7 +601,10 @@ export default function StatsScreen() {
                     disabled={pending}
                     activeOpacity={0.8}
                   >
-                    <Text style={[styles.carryoverBtnText, { color: colors.complete }]}>Report - {Number(item.actualHours || 0).toFixed(2)}h</Text>
+                    <CheckCircle size={12} color={colors.complete} />
+                    <Text style={[styles.carryoverBtnText, { color: colors.complete }]}>
+                      Complete ({Number(item.actualHours || 0).toFixed(2)}h)
+                    </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.carryoverBtn, { backgroundColor: colors.cancelBg, borderColor: colors.cancel + "40", opacity: pending ? 0.7 : 1 }]}
@@ -1055,6 +1104,26 @@ const styles = StyleSheet.create({
     fontSize: DesignTokens.fontSize.caption1,
     fontWeight: "700" as const,
     letterSpacing: 0.2,
+  },
+  carryoverHoursRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  carryoverHoursInput: {
+    width: 64,
+    borderWidth: 1,
+    borderRadius: DesignTokens.radius.xs,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: DesignTokens.fontSize.footnote,
+    fontWeight: "500" as const,
+    textAlign: "center",
+  },
+  carryoverHoursBtn: {
+    flex: 1,
+    minHeight: 36,
   },
   // Profile card
   profileCard: {
