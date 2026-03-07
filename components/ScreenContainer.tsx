@@ -41,21 +41,21 @@ export default React.memo(function ScreenContainer({
   const auraTones = useMemo(() => {
     if (isDark) {
       return {
-        top: "rgba(126,96,255,0.24)",
-        center: "rgba(82,196,170,0.14)",
-        left: "rgba(95,124,255,0.14)",
-        right: "rgba(244,144,206,0.12)",
-        bottom: "rgba(37,58,132,0.16)",
-        wash: "rgba(255,255,255,0.02)",
+        top: "rgba(212,184,150,0.12)",
+        center: "rgba(110,189,150,0.08)",
+        left: "rgba(184,149,108,0.10)",
+        right: "rgba(232,160,96,0.08)",
+        bottom: "rgba(90,80,60,0.12)",
+        wash: "rgba(255,250,245,0.015)",
       };
     }
     return {
-      top: "rgba(126,86,255,0.18)",
-      center: "rgba(96,180,240,0.10)",
-      left: "rgba(112,152,255,0.09)",
-      right: "rgba(236,126,190,0.10)",
-      bottom: "rgba(119,168,255,0.09)",
-      wash: "rgba(255,255,255,0.16)",
+      top: "rgba(184,149,108,0.12)",
+      center: "rgba(61,139,110,0.06)",
+      left: "rgba(200,170,130,0.08)",
+      right: "rgba(196,122,58,0.06)",
+      bottom: "rgba(91,122,157,0.06)",
+      wash: "rgba(255,252,248,0.25)",
     };
   }, [isDark]);
 

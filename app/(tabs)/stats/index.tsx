@@ -58,18 +58,18 @@ const barStyles = StyleSheet.create({
 const HeroStat = React.memo(function HeroStat({ label, value, icon, color, index }: { label: string; value: string; icon: React.ReactNode; color: string; index: number }) {
   const { colors } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(16)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 350, delay: index * 60, useNativeDriver: true }),
-      Animated.spring(slideAnim, { toValue: 0, delay: index * 60, speed: 22, bounciness: 4, useNativeDriver: true }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 400, delay: index * 80, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, delay: index * 80, speed: 18, bounciness: 3, useNativeDriver: true }),
     ]).start();
   }, [fadeAnim, slideAnim, index]);
 
   return (
     <Animated.View style={[styles.heroCard, { backgroundColor: colors.bgCard, shadowColor: colors.shadow, opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-      <View style={[styles.heroIconWrap, { backgroundColor: color + "12" }]}>{icon}</View>
+      <View style={[styles.heroIconWrap, { backgroundColor: color + "15" }]}>{icon}</View>
       <Text style={[styles.heroValue, { color: colors.textPrimary }]}>{value}</Text>
       <Text style={[styles.heroLabel, { color: colors.textMuted }]}>{label}</Text>
     </Animated.View>
@@ -183,21 +183,21 @@ const ComparisonCard = React.memo(function ComparisonCard({ mxHours, sfHours, mx
 
 const compStyles = StyleSheet.create({
   card: {
-    borderRadius: DesignTokens.radius.xl,
-    padding: DesignTokens.spacing.lg,
-    marginBottom: DesignTokens.spacing.md,
+    borderRadius: DesignTokens.radius.xxl,
+    padding: DesignTokens.spacing.xl,
+    marginBottom: DesignTokens.spacing.lg,
     ...DesignTokens.shadow.float,
   },
-  title: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1.2, marginBottom: 10 },
-  barWrap: { flexDirection: "row", height: 24, borderRadius: 6, overflow: "hidden", marginBottom: 12 },
+  title: { fontSize: 11, fontWeight: "600" as const, letterSpacing: 1.5, marginBottom: 12 },
+  barWrap: { flexDirection: "row", height: 28, borderRadius: 8, overflow: "hidden", marginBottom: 14 },
   barLeft: { justifyContent: "center", alignItems: "center" },
   barRight: { justifyContent: "center", alignItems: "center" },
-  barLabel: { color: "#fff", fontSize: 10, fontWeight: "800" as const, letterSpacing: 1 },
+  barLabel: { color: "#fff", fontSize: 11, fontWeight: "700" as const, letterSpacing: 1.2 },
   statsWrap: { flexDirection: "row", alignItems: "center" },
   statCol: { flex: 1, alignItems: "center" },
-  statValue: { fontSize: 15, fontWeight: "700" as const },
-  statSub: { fontSize: 9, marginTop: 2 },
-  divider: { width: 1, height: 24 },
+  statValue: { fontSize: 16, fontWeight: "700" as const },
+  statSub: { fontSize: 10, marginTop: 3 },
+  divider: { width: 1, height: 28 },
 });
 
 export default function StatsScreen() {
@@ -1042,33 +1042,34 @@ const styles = StyleSheet.create({
     fontWeight: "600" as const,
     textTransform: "uppercase",
   },
-  heroGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  heroGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   // Hero cards — shadow only, no border
   heroCard: {
     flex: 1,
     minWidth: "44%",
-    borderRadius: DesignTokens.radius.xl,
-    padding: DesignTokens.spacing.lg,
+    borderRadius: DesignTokens.radius.xxl,
+    padding: DesignTokens.spacing.xl,
     ...DesignTokens.shadow.float,
   },
   heroIconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: DesignTokens.radius.md,
+    width: 42,
+    height: 42,
+    borderRadius: DesignTokens.radius.lg,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  heroValue: { fontSize: 26, letterSpacing: -0.5, fontWeight: "700" as const },
+  heroValue: { fontSize: 28, letterSpacing: -0.3, fontWeight: "700" as const },
   heroLabel: {
-    fontSize: DesignTokens.fontSize.caption1,
-    marginTop: 3,
+    fontSize: DesignTokens.fontSize.footnote,
+    marginTop: 4,
     fontWeight: "500" as const,
+    letterSpacing: 0.2,
   },
   // Carryover card
   carryoverCard: {
-    borderRadius: DesignTokens.radius.xl,
-    padding: DesignTokens.spacing.lg,
+    borderRadius: DesignTokens.radius.xxl,
+    padding: DesignTokens.spacing.xl,
     ...DesignTokens.shadow.float,
   },
   carryoverHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 },
@@ -1197,58 +1198,58 @@ const styles = StyleSheet.create({
   startPlanTasks: { fontSize: DesignTokens.fontSize.caption1, lineHeight: 17 },
   // Week stats card
   weekCard: {
-    borderRadius: DesignTokens.radius.xl,
-    padding: 18,
+    borderRadius: DesignTokens.radius.xxl,
+    padding: 20,
     ...DesignTokens.shadow.float,
   },
   weekRow: { flexDirection: "row", alignItems: "center" },
-  weekSep: { width: StyleSheet.hairlineWidth, height: 32 },
+  weekSep: { width: StyleSheet.hairlineWidth, height: 36 },
   weekItem: { flex: 1, alignItems: "center" },
-  weekVal: { fontSize: DesignTokens.fontSize.callout, fontWeight: "600" as const },
-  weekLbl: { fontSize: DesignTokens.fontSize.caption2, marginTop: 4 },
+  weekVal: { fontSize: DesignTokens.fontSize.headline, fontWeight: "600" as const },
+  weekLbl: { fontSize: DesignTokens.fontSize.caption1, marginTop: 5 },
   // Period switcher
   periodSwitchRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    borderRadius: DesignTokens.radius.md,
-    borderWidth: 1,
-    padding: 5,
+    borderRadius: DesignTokens.radius.lg,
+    borderWidth: 0,
+    padding: 6,
   },
   periodBtn: {
     flex: 1,
-    borderRadius: DesignTokens.radius.xs,
-    borderWidth: 1,
+    borderRadius: DesignTokens.radius.md,
+    borderWidth: 0,
     borderColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 8,
+    paddingVertical: 10,
   },
   periodBtnText: {
-    fontSize: DesignTokens.fontSize.caption1,
-    letterSpacing: 0.2,
+    fontSize: DesignTokens.fontSize.footnote,
+    letterSpacing: 0.3,
   },
   // Leaderboard tabs
   lbTabRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    borderRadius: DesignTokens.radius.md,
-    borderWidth: 1,
-    padding: 5,
+    gap: 6,
+    borderRadius: DesignTokens.radius.lg,
+    borderWidth: 0,
+    padding: 6,
   },
   lbTabBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: DesignTokens.radius.xs,
-    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: DesignTokens.radius.md,
+    borderWidth: 0,
     borderColor: "transparent",
   },
-  lbTabText: { fontSize: DesignTokens.fontSize.caption1, letterSpacing: 0.2 },
+  lbTabText: { fontSize: DesignTokens.fontSize.footnote, letterSpacing: 0.3 },
   // Leaderboard card
   leaderboardCard: {
-    borderRadius: DesignTokens.radius.xl,
-    padding: 14,
+    borderRadius: DesignTokens.radius.xxl,
+    padding: 16,
     ...DesignTokens.shadow.float,
   },
   lbHeaderRow: {
@@ -1284,22 +1285,22 @@ const styles = StyleSheet.create({
     fontWeight: "600" as const,
   },
   lbMoreBtn: {
-    marginTop: 8,
-    borderWidth: 1,
-    borderRadius: DesignTokens.radius.sm,
-    paddingVertical: 10,
+    marginTop: 10,
+    borderWidth: 0,
+    borderRadius: DesignTokens.radius.md,
+    paddingVertical: 12,
     alignItems: "center",
     justifyContent: "center",
   },
   lbMoreText: {
-    fontSize: DesignTokens.fontSize.caption1,
+    fontSize: DesignTokens.fontSize.footnote,
     fontWeight: "600" as const,
-    letterSpacing: 0.2,
+    letterSpacing: 0.3,
   },
   // Recommended tasks
   recommendCard: {
-    borderRadius: DesignTokens.radius.xl,
-    padding: DesignTokens.spacing.lg,
+    borderRadius: DesignTokens.radius.xxl,
+    padding: DesignTokens.spacing.xl,
     ...DesignTokens.shadow.float,
   },
   recommendHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
@@ -1325,8 +1326,8 @@ const styles = StyleSheet.create({
   recommendMeta: { fontSize: DesignTokens.fontSize.caption1, fontWeight: "600" as const },
   // Recent collectors
   recentCard: {
-    borderRadius: DesignTokens.radius.xl,
-    padding: DesignTokens.spacing.lg,
+    borderRadius: DesignTokens.radius.xxl,
+    padding: DesignTokens.spacing.xl,
     ...DesignTokens.shadow.float,
   },
   recentTitle: {
@@ -1370,25 +1371,25 @@ const styles = StyleSheet.create({
   loadingText: { fontSize: DesignTokens.fontSize.footnote },
   // All-time card
   allTimeCard: {
-    borderRadius: DesignTokens.radius.xl,
-    padding: DesignTokens.spacing.lg,
+    borderRadius: DesignTokens.radius.xxl,
+    padding: DesignTokens.spacing.xl,
     ...DesignTokens.shadow.float,
   },
-  allTimeGrid: { flexDirection: "row", alignItems: "center", marginBottom: DesignTokens.spacing.md },
+  allTimeGrid: { flexDirection: "row", alignItems: "center", marginBottom: DesignTokens.spacing.lg },
   allTimeItem: { flex: 1, alignItems: "center" },
-  allTimeSep: { width: StyleSheet.hairlineWidth, height: 28 },
-  allTimeVal: { fontSize: DesignTokens.fontSize.subhead, fontWeight: "600" as const },
-  allTimeLbl: { fontSize: DesignTokens.fontSize.caption2, marginTop: 4 },
-  allTimeDivider: { height: StyleSheet.hairlineWidth, marginBottom: 12 },
+  allTimeSep: { width: StyleSheet.hairlineWidth, height: 32 },
+  allTimeVal: { fontSize: DesignTokens.fontSize.headline, fontWeight: "600" as const },
+  allTimeLbl: { fontSize: DesignTokens.fontSize.caption1, marginTop: 5 },
+  allTimeDivider: { height: StyleSheet.hairlineWidth, marginBottom: 14 },
   allTimeSub: {
-    fontSize: DesignTokens.fontSize.caption2,
+    fontSize: DesignTokens.fontSize.caption1,
     marginTop: DesignTokens.spacing.sm,
     textAlign: "center",
   },
   // Recent tasks
   topTasksCard: {
-    borderRadius: DesignTokens.radius.xl,
-    padding: DesignTokens.spacing.lg,
+    borderRadius: DesignTokens.radius.xxl,
+    padding: DesignTokens.spacing.xl,
     ...DesignTokens.shadow.float,
   },
   topTasksTitle: {

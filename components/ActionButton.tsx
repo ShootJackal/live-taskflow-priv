@@ -100,21 +100,21 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   button: {
-    borderRadius: DesignTokens.radius.md,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+    borderRadius: DesignTokens.radius.lg,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 50,
+    minHeight: 54,
   },
   content: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: 8,
   },
   text: {
-    fontSize: DesignTokens.fontSize.footnote + 1,
+    fontSize: DesignTokens.fontSize.subhead,
     fontWeight: "600" as const,
-    letterSpacing: 0.15,
+    letterSpacing: 0.2,
   },
 });
