@@ -277,6 +277,7 @@ function doGet(e) {
       case 'getCollectorStats':     result = handleGetCollectorStats(e.parameter.collector || ''); break;
       case 'getTodayLog':           result = handleGetTodayLog(e.parameter.collector || ''); break;
       case 'getDailyCarryover':     result = handleGetDailyCarryover(e.parameter.collector || ''); break;
+      case 'getPendingReview':      result = handleGetPendingReview(e.parameter); break;
       case 'getRecollections':      result = handleGetRecollections(); break;
       case 'getFullLog':            result = handleGetFullLog(e.parameter.collector || ''); break;
       case 'getTaskActualsSheet':   result = handleGetTaskActuals(); break;
@@ -2381,6 +2382,111 @@ function handleGetTodayLog(collectorName) {
     delete results[r]._rowOrder;
   }
   writeCache('todayLog_' + normName, results);
+  return results;
+}
+
+/**
+ * Returns today's Redash-detected tasks for the collector's rig
+ * that haven't yet been completed or canceled in the Assignment Log.
+ * Used by the "Ready to Review" EOD approval flow in the app.
+ *
+ * Reads from "Collector Actuals | RedashPull" (written by RS import sync).
+ * Falls back to empty array if the RS pipeline hasn't run yet.
+ *
+ * @param {object} params  { collector: string, rig: string }
+ */
+function handleGetPendingReview(params) {
+  var collectorName = safeStr(params && params.collector);
+  var rig           = safeStr(params && params.rig);
+  if (!collectorName || !rig) return [];
+
+  var normName = normalizeCollectorKey(collectorName);
+  var rigLower = rig.toLowerCase().trim();
+  var today    = getScriptTodayDate();
+  var todayStr = Utilities.formatDate(today, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+
+  // ── Read Collector Actuals | RedashPull ──────────────────────────────────
+  var ss = getSS();
+  var caSheet = ss.getSheetByName('Collector Actuals | RedashPull');
+  if (!caSheet || caSheet.getLastRow() < 3) return [];
+
+  var caData = caSheet.getDataRange().getValues();
+  // Row index 0: blank/title  |  Row index 1: headers  |  Row index 2+: data
+  var rawHeaders = caData[1] || [];
+  var headers = rawHeaders.map(function(h) { return safeStr(h).trim().toLowerCase(); });
+
+  var idxDate = headers.indexOf('date');
+  var idxRig  = headers.indexOf('rig id');
+  var idxTask = headers.indexOf('task name');
+  var idxHrs  = headers.indexOf('hours uploaded');
+
+  if (idxDate < 0 || idxRig < 0 || idxTask < 0 || idxHrs < 0) return [];
+
+  // Aggregate hours per task for this rig today
+  var taskAgg = {};
+  for (var i = 2; i < caData.length; i++) {
+    var row = caData[i];
+    if (!row || !row[idxDate]) continue;
+
+    var rowDate = toDateSafe(row[idxDate]);
+    if (!rowDate) continue;
+    var rowDateStr = Utilities.formatDate(rowDate, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    if (rowDateStr !== todayStr) continue;
+
+    var rowRig = safeStr(row[idxRig]).toLowerCase().trim();
+    if (rowRig !== rigLower) continue;
+
+    var taskName = safeStr(row[idxTask]).trim();
+    if (!taskName) continue;
+
+    var hrs = idxHrs >= 0 ? safeNum(row[idxHrs]) : 0;
+    if (hrs <= 0) continue;
+
+    var taskKey = normalizeTaskKey(taskName);
+    if (!taskAgg[taskKey]) {
+      taskAgg[taskKey] = { taskName: taskName, hours: 0 };
+    }
+    taskAgg[taskKey].hours += hrs;
+  }
+
+  if (Object.keys(taskAgg).length === 0) return [];
+
+  // ── Find already-resolved tasks for this collector today ─────────────────
+  var assignData;
+  try { assignData = getSheetData(TASKFLOW_SHEETS.ASSIGNMENTS); } catch (e) { assignData = []; }
+
+  var resolvedKeys = {};
+  for (var j = 1; j < assignData.length; j++) {
+    var aRow = assignData[j];
+    if (normalizeCollectorKey(safeStr(aRow[3])) !== normName) continue;
+
+    var status = safeStr(aRow[6]).toLowerCase();
+    if (status !== 'completed' && status !== 'canceled') continue;
+
+    var closedDate   = toDateSafe(aRow[9]);
+    var assignedDate = toDateSafe(aRow[4]);
+    var closedStr    = closedDate   ? Utilities.formatDate(closedDate,   Session.getScriptTimeZone(), 'yyyy-MM-dd') : '';
+    var assignedStr  = assignedDate ? Utilities.formatDate(assignedDate, Session.getScriptTimeZone(), 'yyyy-MM-dd') : '';
+    if (closedStr !== todayStr && assignedStr !== todayStr) continue;
+
+    resolvedKeys[normalizeTaskKey(safeStr(aRow[2]))] = true;
+  }
+
+  // ── Build result ─────────────────────────────────────────────────────────
+  var results = [];
+  for (var key in taskAgg) {
+    if (resolvedKeys[key]) continue;
+    results.push({
+      rig:          rig,
+      taskName:     taskAgg[key].taskName,
+      taskKey:      key,
+      redashHours:  Math.round(taskAgg[key].hours * 100) / 100,
+      date:         todayStr
+    });
+  }
+
+  results.sort(function(a, b) { return b.redashHours - a.redashHours; });
+  writeCache('pendingReview_' + normName, results);
   return results;
 }
 

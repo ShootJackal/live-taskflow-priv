@@ -223,3 +223,11 @@ export interface DailyCarryoverItem {
   actualHours: number;
   status: string;
 }
+
+export interface PendingReviewItem {
+  rig: string;
+  taskName: string;
+  taskKey: string;
+  redashHours: number;
+  date: string;
+}

@@ -12,12 +12,14 @@ import {
   SubmitPayload,
   AssignmentStatus,
   DailyCarryoverItem,
+  PendingReviewItem,
 } from "@/types";
 import {
   fetchCollectors,
   fetchTasks,
   fetchTodayLog,
   fetchDailyCarryover,
+  fetchPendingReview,
   submitAction,
   isApiConfigured,
   warmServerCache,
@@ -100,6 +102,15 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     queryFn: () => fetchDailyCarryover(selectedCollectorName),
     enabled: configured && !!selectedCollectorName,
     staleTime: 30000,
+    retry: 1,
+  });
+
+  const pendingReviewQuery = useQuery<PendingReviewItem[]>({
+    queryKey: ["pendingReview", selectedCollectorName, selectedRig],
+    queryFn: () => fetchPendingReview(selectedCollectorName, selectedRig),
+    enabled: configured && !!selectedCollectorName && !!selectedRig,
+    staleTime: 120000,        // refresh every 2 min — Redash data doesn't change that fast
+    refetchInterval: 120000,
     retry: 1,
   });
 
@@ -476,6 +487,32 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     [dailyCarryoverQuery.data]
   );
 
+  const pendingReview = useMemo<PendingReviewItem[]>(
+    () => pendingReviewQuery.data ?? [],
+    [pendingReviewQuery.data]
+  );
+
+  // Direct COMPLETE submit for Redash-sourced tasks — bypasses the form state
+  // and the single-in-flight guard so the review sheet can batch-approve.
+  const approveRedashTask = useCallback(
+    async (taskName: string, hours: number, rig: string): Promise<void> => {
+      const payload: SubmitPayload = {
+        collector: selectedCollectorName,
+        task: taskName,
+        hours,
+        actionType: "COMPLETE",
+        notes: "Redash auto-approved",
+        rig: rig || selectedRig || undefined,
+        requestId: createRequestId("COMPLETE", taskName, hours),
+      };
+      await submitAction(payload);
+      queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] });
+      queryClient.invalidateQueries({ queryKey: ["pendingReview", selectedCollectorName, selectedRig] });
+      queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] });
+    },
+    [selectedCollectorName, selectedRig, createRequestId, queryClient]
+  );
+
   const refreshData = useCallback(async () => {
     log("[Provider] Refreshing all data");
     await Promise.allSettled([
@@ -495,6 +532,8 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     activity,
     carryoverItems,
     hasCarryover: carryoverItems.length > 0,
+    pendingReview,
+    hasPendingReview: pendingReview.length > 0,
     selectedCollectorName,
     selectedCollector,
     selectedRig,
@@ -519,6 +558,7 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     completeTask,
     cancelTask,
     addNote,
+    approveRedashTask,
     refreshData,
     authenticateAdmin,
     logoutAdmin,

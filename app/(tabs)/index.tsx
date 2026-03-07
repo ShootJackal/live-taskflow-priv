@@ -37,6 +37,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import SelectPicker from "@/components/SelectPicker";
 import ActionButton from "@/components/ActionButton";
 import MarqueeText from "@/components/MarqueeText";
+import ReviewSheet from "@/components/ReviewSheet";
 import type { LogEntry } from "@/types";
 import type { ThemeColors } from "@/constants/colors";
 import { Image } from "expo-image";
@@ -221,6 +222,8 @@ export default function DashboardScreen() {
     todayLog,
     carryoverItems,
     hasCarryover,
+    pendingReview,
+    hasPendingReview,
     isLoadingCollectors,
     isLoadingTasks,
     isLoadingLog,
@@ -241,6 +244,7 @@ export default function DashboardScreen() {
   const [taskSearch, setTaskSearch] = useState("");
   const [showTaskSearch, setShowTaskSearch] = useState(false);
   const [logVisibleCount, setLogVisibleCount] = useState(5);
+  const [showReviewSheet, setShowReviewSheet] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(18)).current;
   const searchAnim = useRef(new Animated.Value(0)).current;
@@ -986,6 +990,34 @@ export default function DashboardScreen() {
                 />
               )}
 
+              {/* ── Ready to Review (Redash EOD flow) ────────────────── */}
+              {hasPendingReview && (
+                <TouchableOpacity
+                  style={[
+                    styles.reviewBanner,
+                    {
+                      backgroundColor: colors.completeBg,
+                      borderColor: colors.complete + "55",
+                    },
+                  ]}
+                  onPress={() => setShowReviewSheet(true)}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.reviewBadge, { backgroundColor: colors.complete }]}>
+                    <Text style={styles.reviewBadgeText}>{pendingReview.length}</Text>
+                  </View>
+                  <View style={styles.reviewBannerInfo}>
+                    <Text style={[styles.reviewBannerTitle, { color: colors.complete }]}>
+                      Ready to Review
+                    </Text>
+                    <Text style={[styles.reviewBannerSub, { color: colors.textMuted }]}>
+                      Redash detected {pendingReview.length} task{pendingReview.length === 1 ? "" : "s"} on your rig today
+                    </Text>
+                  </View>
+                  <CheckCircle size={18} color={colors.complete} />
+                </TouchableOpacity>
+              )}
+
               {/* ── Today's activity log ─────────────────────────────── */}
               {selectedCollectorName !== "" && todayLog.length > 0 && (
                 <View style={styles.logSection}>
@@ -1096,6 +1128,11 @@ export default function DashboardScreen() {
           </Animated.View>
         </KeyboardAvoidingView>
       </ScreenContainer>
+
+      <ReviewSheet
+        visible={showReviewSheet}
+        onClose={() => setShowReviewSheet(false)}
+      />
     </ErrorBoundary>
   );
 }
@@ -1172,6 +1209,40 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: DesignTokens.fontSize.footnote,
     lineHeight: 19,
+  },
+
+  // Ready to Review banner
+  reviewBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: DesignTokens.radius.lg,
+    paddingHorizontal: DesignTokens.spacing.lg,
+    paddingVertical: DesignTokens.spacing.md,
+    borderWidth: 1,
+    gap: 10,
+  },
+  reviewBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reviewBadgeText: {
+    color: "#fff",
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "700" as const,
+  },
+  reviewBannerInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  reviewBannerTitle: {
+    fontSize: DesignTokens.fontSize.footnote,
+    fontWeight: "700" as const,
+  },
+  reviewBannerSub: {
+    fontSize: DesignTokens.fontSize.caption2,
   },
 
   // Carryover warning banner

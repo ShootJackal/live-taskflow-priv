@@ -274,6 +274,7 @@ function doGet(e) {
       case 'getCollectorStats':     result = handleGetCollectorStats(e.parameter.collector || ''); break;
       case 'getTodayLog':           result = handleGetTodayLog(e.parameter.collector || ''); break;
       case 'getDailyCarryover':     result = handleGetDailyCarryover(e.parameter.collector || ''); break;
+      case 'getPendingReview':      result = handleGetPendingReview(e.parameter); break;
       case 'getRecollections':      result = handleGetRecollections(); break;
       case 'getFullLog':            result = handleGetFullLog(e.parameter.collector || ''); break;
       case 'getTaskActualsSheet':   result = handleGetTaskActuals(); break;
@@ -2379,6 +2380,72 @@ function handleGetTodayLog(collectorName) {
     delete results[r]._rowOrder;
   }
   writeCache('todayLog_' + normName, results);
+  return results;
+}
+
+function handleGetPendingReview(params) {
+  var collectorName = safeStr(params && params.collector);
+  var rig           = safeStr(params && params.rig);
+  if (!collectorName || !rig) return [];
+
+  var normName = normalizeCollectorKey(collectorName);
+  var rigLower = rig.toLowerCase().trim();
+  var today    = getScriptTodayDate();
+  var todayStr = Utilities.formatDate(today, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+
+  var ss = getSS();
+  var caSheet = ss.getSheetByName('Collector Actuals | RedashPull');
+  if (!caSheet || caSheet.getLastRow() < 3) return [];
+
+  var caData   = caSheet.getDataRange().getValues();
+  var headers  = (caData[1] || []).map(function(h) { return safeStr(h).trim().toLowerCase(); });
+  var idxDate  = headers.indexOf('date');
+  var idxRig   = headers.indexOf('rig id');
+  var idxTask  = headers.indexOf('task name');
+  var idxHrs   = headers.indexOf('hours uploaded');
+  if (idxDate < 0 || idxRig < 0 || idxTask < 0 || idxHrs < 0) return [];
+
+  var taskAgg = {};
+  for (var i = 2; i < caData.length; i++) {
+    var row = caData[i];
+    if (!row || !row[idxDate]) continue;
+    var rowDate = toDateSafe(row[idxDate]);
+    if (!rowDate) continue;
+    if (Utilities.formatDate(rowDate, Session.getScriptTimeZone(), 'yyyy-MM-dd') !== todayStr) continue;
+    if (safeStr(row[idxRig]).toLowerCase().trim() !== rigLower) continue;
+    var taskName = safeStr(row[idxTask]).trim();
+    if (!taskName) continue;
+    var hrs = safeNum(row[idxHrs]);
+    if (hrs <= 0) continue;
+    var taskKey = normalizeTaskKey(taskName);
+    if (!taskAgg[taskKey]) taskAgg[taskKey] = { taskName: taskName, hours: 0 };
+    taskAgg[taskKey].hours += hrs;
+  }
+
+  if (Object.keys(taskAgg).length === 0) return [];
+
+  var assignData;
+  try { assignData = getSheetData(TASKFLOW_SHEETS.ASSIGNMENTS); } catch (e) { assignData = []; }
+  var resolvedKeys = {};
+  for (var j = 1; j < assignData.length; j++) {
+    var aRow = assignData[j];
+    if (normalizeCollectorKey(safeStr(aRow[3])) !== normName) continue;
+    var status = safeStr(aRow[6]).toLowerCase();
+    if (status !== 'completed' && status !== 'canceled') continue;
+    var closedStr   = (function(d) { return d ? Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd') : ''; })(toDateSafe(aRow[9]));
+    var assignedStr = (function(d) { return d ? Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd') : ''; })(toDateSafe(aRow[4]));
+    if (closedStr !== todayStr && assignedStr !== todayStr) continue;
+    resolvedKeys[normalizeTaskKey(safeStr(aRow[2]))] = true;
+  }
+
+  var results = [];
+  for (var key in taskAgg) {
+    if (resolvedKeys[key]) continue;
+    results.push({ rig: rig, taskName: taskAgg[key].taskName, taskKey: key,
+                   redashHours: Math.round(taskAgg[key].hours * 100) / 100, date: todayStr });
+  }
+  results.sort(function(a, b) { return b.redashHours - a.redashHours; });
+  writeCache('pendingReview_' + normName, results);
   return results;
 }
 

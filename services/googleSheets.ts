@@ -14,6 +14,7 @@ import {
   CollectorProfile,
   AdminStartPlanData,
   DailyCarryoverItem,
+  PendingReviewItem,
 } from "@/types";
 import { normalizeCollectorName } from "@/utils/normalize";
 import { log } from "@/utils/logger";
@@ -585,6 +586,23 @@ export async function fetchDailyCarryover(collectorName: string): Promise<DailyC
     const cached = readFirstCachedValue<DailyCarryoverItem[]>(cache, cacheKeys);
     if (Array.isArray(cached)) return cached;
     throw err;
+  }
+}
+
+export async function fetchPendingReview(
+  collectorName: string,
+  rig: string,
+): Promise<PendingReviewItem[]> {
+  if (!collectorName || !rig) return [];
+  try {
+    return await apiGet<PendingReviewItem[]>(
+      "getPendingReview",
+      { collector: collectorName, rig },
+      false,
+    );
+  } catch {
+    // Non-fatal — feature degrades silently if GAS endpoint not deployed yet
+    return [];
   }
 }
 
