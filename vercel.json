@@ -4,6 +4,14 @@
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "dist",
   "cleanUrls": true,
+  "headers": [
+    {
+      "source": "/version.json",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0" }
+      ]
+    }
+  ],
   "rewrites": [
     { "source": "/:path*", "destination": "/index.html" }
   ]

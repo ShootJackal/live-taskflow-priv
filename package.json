@@ -15,7 +15,7 @@
     "prepare:web": "node scripts/prepare-pwa.js",
     "build:web": "npm run prepare:web && expo export --platform web",
     "build": "npm run build:web",
-    "vercel-build": "npm run build:web"
+    "vercel-build": "node scripts/generate-version.js && npm run build:web"
   },
   "dependencies": {
     "@expo-google-fonts/lexend": "^0.4.1",

@@ -10,6 +10,7 @@ import { LocaleProvider } from "@/providers/LocaleProvider";
 import { UiPrefsProvider, useUiPrefs } from "@/providers/UiPrefsProvider";
 import { CollectionProvider } from "@/providers/CollectionProvider";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import UpdateBanner from "@/components/UpdateBanner";
 import { useFonts, Lexend_300Light, Lexend_400Regular, Lexend_500Medium, Lexend_600SemiBold, Lexend_700Bold, Lexend_800ExtraBold } from "@expo-google-fonts/lexend";
 import { Image } from "expo-image";
 
@@ -320,10 +321,14 @@ function AppWithBoot() {
   const [booted, setBooted] = useState(false);
   const handleBootComplete = useCallback(() => setBooted(true), []);
   return (
-    <>
-      <RootLayoutNav />
+    <View style={{ flex: 1 }}>
+      {/* Sits at the top of the flex column — pushes content down when visible */}
+      <UpdateBanner />
+      <View style={{ flex: 1 }}>
+        <RootLayoutNav />
+      </View>
       {!booted && <BootSequence onComplete={handleBootComplete} />}
-    </>
+    </View>
   );
 }
 
