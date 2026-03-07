@@ -600,8 +600,10 @@ export async function fetchPendingReview(
       { collector: collectorName, rig },
       false,
     );
-  } catch {
-    // Non-fatal — feature degrades silently if GAS endpoint not deployed yet
+  } catch (err) {
+    // Non-fatal — degrades to empty list if GAS endpoint not deployed yet.
+    // Log so it's visible in dev without crashing production.
+    log("[API] fetchPendingReview failed (non-fatal):", err instanceof Error ? err.message : String(err));
     return [];
   }
 }

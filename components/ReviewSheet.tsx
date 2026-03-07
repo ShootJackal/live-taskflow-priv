@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect } from "react";
+import React, { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -46,10 +46,12 @@ export default function ReviewSheet({ visible, onClose }: ReviewSheetProps) {
   const [approveAllLoading, setApproveAllLoading] = useState(false);
 
   useEffect(() => {
+    let anim: Animated.CompositeAnimation | null = null;
+
     if (visible) {
       slideAnim.setValue(600);
       overlayAnim.setValue(0);
-      Animated.parallel([
+      anim = Animated.parallel([
         Animated.spring(slideAnim, {
           toValue: 0,
           useNativeDriver: true,
@@ -61,9 +63,10 @@ export default function ReviewSheet({ visible, onClose }: ReviewSheetProps) {
           duration: 220,
           useNativeDriver: true,
         }),
-      ]).start();
+      ]);
+      anim.start();
     } else {
-      Animated.parallel([
+      anim = Animated.parallel([
         Animated.timing(slideAnim, {
           toValue: 600,
           duration: 200,
@@ -74,8 +77,13 @@ export default function ReviewSheet({ visible, onClose }: ReviewSheetProps) {
           duration: 180,
           useNativeDriver: true,
         }),
-      ]).start();
+      ]);
+      anim.start();
     }
+
+    return () => {
+      anim?.stop();
+    };
   }, [visible, slideAnim, overlayAnim]);
 
   const getHoursForItem = useCallback(
@@ -118,41 +126,68 @@ export default function ReviewSheet({ visible, onClose }: ReviewSheetProps) {
     setSkipped((prev) => new Set([...prev, item.taskKey]));
   }, []);
 
-  const visibleItems = pendingReview.filter((i) => !skipped.has(i.taskKey));
+  const visibleItems = useMemo(
+    () => pendingReview.filter((i) => !skipped.has(i.taskKey)),
+    [pendingReview, skipped]
+  );
 
   const handleApproveAll = useCallback(async () => {
     if (visibleItems.length === 0) return;
+    const approvable = visibleItems.filter((i) => getHoursForItem(i) > 0);
+    const zeroHours = visibleItems.length - approvable.length;
+
+    if (approvable.length === 0) {
+      Alert.alert(
+        "No hours to submit",
+        "All pending tasks have 0 hours. Enter hours before approving."
+      );
+      return;
+    }
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setApproveAllLoading(true);
-    try {
-      for (const item of visibleItems) {
-        const hours = getHoursForItem(item);
-        if (hours > 0) {
-          await approveRedashTask(item.taskName, hours, item.rig);
-        }
+
+    let succeeded = 0;
+    const errors: string[] = [];
+
+    for (const item of approvable) {
+      try {
+        await approveRedashTask(item.taskName, getHoursForItem(item), item.rig);
+        succeeded++;
+      } catch {
+        errors.push(item.taskName);
       }
-      onClose();
-    } catch (e) {
+    }
+
+    setApproveAllLoading(false);
+
+    if (errors.length === 0) {
+      if (zeroHours > 0) {
+        Alert.alert(
+          "Mostly done",
+          `${succeeded} task${succeeded === 1 ? "" : "s"} approved. ${zeroHours} skipped (0 hours — enter manually).`
+        );
+      } else {
+        onClose();
+      }
+    } else {
       Alert.alert(
-        "Approve All failed",
-        e instanceof Error ? e.message : "Unknown error"
+        `${succeeded} approved, ${errors.length} failed`,
+        `Failed: ${errors.join(", ")}`
       );
-    } finally {
-      setApproveAllLoading(false);
     }
   }, [visibleItems, getHoursForItem, approveRedashTask, onClose]);
 
   if (!visible) return null;
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"
-      onRequestClose={onClose}
-      statusBarTranslucent
-      presentationStyle="overFullScreen"
-    >
+      <Modal
+        visible={visible}
+        transparent
+        animationType="none"
+        onRequestClose={onClose}
+        statusBarTranslucent
+      >
       <View style={styles.overlay}>
         {/* Dim backdrop */}
         <Animated.View
@@ -195,7 +230,7 @@ export default function ReviewSheet({ visible, onClose }: ReviewSheetProps) {
                   { color: colors.textPrimary, fontFamily: "Lexend_700Bold" },
                 ]}
               >
-                Review Today&apos;s Collection
+                {"Review Today's Collection"}
               </Text>
               <Text style={[styles.headerSub, { color: colors.textMuted }]}>
                 {visibleItems.length} task

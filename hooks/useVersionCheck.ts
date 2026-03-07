@@ -24,6 +24,8 @@ async function fetchVersion(): Promise<string | null> {
 
 export function useVersionCheck() {
   const launchVersion = useRef<string | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mountedRef = useRef(true);
   const [updateAvailable, setUpdateAvailable] = useState(false);
 
   const reload = useCallback(() => {
@@ -35,27 +37,39 @@ export function useVersionCheck() {
   useEffect(() => {
     if (Platform.OS !== "web") return;
 
-    let timer: ReturnType<typeof setInterval>;
+    mountedRef.current = true;
 
-    const init = async () => {
-      const v = await fetchVersion();
+    // Record the version this session launched with, then start polling.
+    fetchVersion().then((v) => {
+      if (!mountedRef.current) return;
       launchVersion.current = v;
 
-      timer = setInterval(async () => {
+      timerRef.current = setInterval(async () => {
+        if (!mountedRef.current) return;
         const latest = await fetchVersion();
         if (
+          mountedRef.current &&
           latest &&
           launchVersion.current &&
           latest !== launchVersion.current
         ) {
           setUpdateAvailable(true);
-          clearInterval(timer); // stop polling once we know there's an update
+          // Stop polling — we already know there's an update
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
         }
       }, POLL_INTERVAL_MS);
-    };
+    });
 
-    void init();
-    return () => clearInterval(timer);
+    return () => {
+      mountedRef.current = false;
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
   }, []);
 
   return { updateAvailable, reload };

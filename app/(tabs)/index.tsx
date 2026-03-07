@@ -1069,7 +1069,6 @@ export default function DashboardScreen() {
                       {
                         backgroundColor: colors.bgCard,
                         ...cardShadow,
-                        shadowColor: colors.shadow,
                       },
                     ]}
                   >
@@ -1366,25 +1365,9 @@ const styles = StyleSheet.create({
     minHeight: 60,
     fontSize: DesignTokens.fontSize.footnote,
   },
-  hintRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 5,
-    marginTop: 5,
-  },
-  hintText: {
-    flex: 1,
-    fontSize: DesignTokens.fontSize.caption2,
-    lineHeight: 15,
-    fontWeight: "500" as const,
-  },
   optionalTag: {
     fontSize: DesignTokens.fontSize.caption2,
     fontWeight: "500" as const,
-  },
-  requiredTag: {
-    fontSize: DesignTokens.fontSize.caption2,
-    fontWeight: "700" as const,
   },
 
   // Secondary actions (Done / Cancel)

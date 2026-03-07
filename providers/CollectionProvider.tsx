@@ -109,8 +109,8 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     queryKey: ["pendingReview", selectedCollectorName, selectedRig],
     queryFn: () => fetchPendingReview(selectedCollectorName, selectedRig),
     enabled: configured && !!selectedCollectorName && !!selectedRig,
-    staleTime: 120000,        // refresh every 2 min — Redash data doesn't change that fast
-    refetchInterval: 120000,
+    staleTime: 60000,         // data considered fresh for 1 min
+    refetchInterval: 120000,  // background refetch every 2 min
     retry: 1,
   });
 
@@ -492,10 +492,12 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     [pendingReviewQuery.data]
   );
 
-  // Direct COMPLETE submit for Redash-sourced tasks — bypasses the form state
+  // Direct COMPLETE submit for Redash-sourced tasks — bypasses form state
   // and the single-in-flight guard so the review sheet can batch-approve.
   const approveRedashTask = useCallback(
     async (taskName: string, hours: number, rig: string): Promise<void> => {
+      if (!selectedCollectorName) throw new Error("No collector selected");
+      if (hours <= 0) throw new Error("Hours must be greater than 0");
       const payload: SubmitPayload = {
         collector: selectedCollectorName,
         task: taskName,
@@ -505,12 +507,23 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
         rig: rig || selectedRig || undefined,
         requestId: createRequestId("COMPLETE", taskName, hours),
       };
-      await submitAction(payload);
-      queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] });
-      queryClient.invalidateQueries({ queryKey: ["pendingReview", selectedCollectorName, selectedRig] });
-      queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] });
+      const result = await submitAction(payload);
+      // Keep local activity log in sync
+      await addActivityEntry(
+        "COMPLETE",
+        taskName,
+        hours,
+        0,
+        result.status ?? "Completed",
+        "Redash auto-approved"
+      );
+      await Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] }),
+        queryClient.invalidateQueries({ queryKey: ["pendingReview", selectedCollectorName, selectedRig] }),
+        queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] }),
+      ]);
     },
-    [selectedCollectorName, selectedRig, createRequestId, queryClient]
+    [selectedCollectorName, selectedRig, createRequestId, queryClient, addActivityEntry]
   );
 
   const refreshData = useCallback(async () => {
@@ -520,8 +533,10 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] }),
       queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] }),
       queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] }),
+      queryClient.invalidateQueries({ queryKey: ["dailyCarryover", selectedCollectorName] }),
+      queryClient.invalidateQueries({ queryKey: ["pendingReview", selectedCollectorName, selectedRig] }),
     ]);
-  }, [queryClient, selectedCollectorName]);
+  }, [queryClient, selectedCollectorName, selectedRig]);
 
   return {
     configured,
@@ -545,7 +560,6 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     isLoadingCollectors: collectorQuery.isLoading,
     isLoadingTasks: taskQuery.isLoading,
     isLoadingLog: todayLogQuery.isLoading,
-    isSubmitting: submitMutation.isPending,
     isSyncing: submitMutation.isPending,
     submitError: submitMutation.error?.message ?? null,
 
