@@ -928,38 +928,83 @@ export default function DashboardScreen() {
                 </View>
               </View>
 
-              {/* ── Primary CTA: Assign ───────────────────────────────── */}
-              <ActionButton
-                title="Assign Task"
-                icon={<UserCheck size={17} color={colors.white} />}
-                color={colors.white}
-                bgColor={colors.accent}
-                onPress={handleAssign}
-                disabled={!canSubmit}
-                fullWidth
-                testID="assign-btn"
-              />
-
-              {/* ── Secondary row: Done + Cancel ─────────────────────── */}
-              <View style={styles.secondaryRow}>
+              {/* ── Primary CTA ───────────────────────────────────────── */}
+              {/*  • Open task present → Done is primary, shows hours in label  */}
+              {/*  • No open task     → Assign Task is primary                  */}
+              {latestOpenTask ? (
                 <ActionButton
-                  title="Done"
-                  icon={<CheckCircle size={15} color={colors.complete} />}
-                  color={colors.complete}
-                  bgColor={colors.completeBg}
+                  title={
+                    hasValidHours
+                      ? `Log ${parseFloat(hoursToLog).toFixed(2)}h — Done`
+                      : "Enter hours above to complete"
+                  }
+                  icon={<CheckCircle size={17} color={hasValidHours ? colors.white : colors.complete} />}
+                  color={hasValidHours ? colors.white : colors.complete}
+                  bgColor={hasValidHours ? colors.complete : colors.completeBg}
                   onPress={handleComplete}
-                  disabled={!latestOpenTask || !hasValidHours}
+                  disabled={!hasValidHours}
+                  fullWidth
                   testID="complete-btn"
                 />
+              ) : (
                 <ActionButton
-                  title="Cancel"
-                  icon={<XCircle size={15} color={colors.cancel} />}
-                  color={colors.cancel}
-                  bgColor={colors.cancelBg}
-                  onPress={handleCancel}
-                  disabled={!latestOpenTask}
-                  testID="cancel-btn"
+                  title="Assign Task"
+                  icon={<UserCheck size={17} color={colors.white} />}
+                  color={colors.white}
+                  bgColor={colors.accent}
+                  onPress={handleAssign}
+                  disabled={!canSubmit}
+                  fullWidth
+                  testID="assign-btn"
                 />
+              )}
+
+              {/* ── Secondary row ─────────────────────────────────────────── */}
+              <View style={styles.secondaryRow}>
+                {latestOpenTask ? (
+                  // Open task: Assign new task + Cancel current
+                  <>
+                    <ActionButton
+                      title="Assign"
+                      icon={<UserCheck size={15} color={colors.assign} />}
+                      color={colors.assign}
+                      bgColor={colors.assignBg}
+                      onPress={handleAssign}
+                      disabled={!canSubmit}
+                      testID="assign-btn"
+                    />
+                    <ActionButton
+                      title="Cancel"
+                      icon={<XCircle size={15} color={colors.cancel} />}
+                      color={colors.cancel}
+                      bgColor={colors.cancelBg}
+                      onPress={handleCancel}
+                      testID="cancel-btn"
+                    />
+                  </>
+                ) : (
+                  // No open task: Done + Cancel are dormant secondaries
+                  <>
+                    <ActionButton
+                      title="Done"
+                      icon={<CheckCircle size={15} color={colors.complete} />}
+                      color={colors.complete}
+                      bgColor={colors.completeBg}
+                      onPress={handleComplete}
+                      disabled
+                      testID="complete-btn"
+                    />
+                    <ActionButton
+                      title="Cancel"
+                      icon={<XCircle size={15} color={colors.cancel} />}
+                      color={colors.cancel}
+                      bgColor={colors.cancelBg}
+                      onPress={handleCancel}
+                      disabled
+                      testID="cancel-btn"
+                    />
+                  </>
+                )}
               </View>
 
               {/* ── Syncing indicator ─────────────────────────────────── */}
