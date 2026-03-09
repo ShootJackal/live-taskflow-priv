@@ -103,6 +103,12 @@ const atStyles = StyleSheet.create({
     justifyContent: "center",
   },
   alertSendText: { fontSize: 12, fontWeight: "700" as const, letterSpacing: 0.35 },
+  clearAlertsBtn: { marginLeft: "auto", borderWidth: 1, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  clearAlertsBtnText: { fontSize: 11, fontWeight: "600" as const },
+  expiryRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, marginBottom: 4 },
+  expiryLabel: { fontSize: 12, marginRight: 2 },
+  expiryBtn: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 6, borderWidth: 1 },
+  expiryBtnText: { fontSize: 12, fontWeight: "600" as const },
   controlSpacer: { height: 8 },
   controlSearchRow: { flexDirection: "row", gap: 8, marginTop: 8 },
   controlSearchInput: {
@@ -189,6 +195,8 @@ export function AdminToolsPanel({
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [alertMessage, setAlertMessage] = useState("");
   const [isSendingAlert, setIsSendingAlert] = useState(false);
+  const [isClearingAlerts, setIsClearingAlerts] = useState(false);
+  const [alertExpiryHours, setAlertExpiryHours] = useState(0); // 0 = no expiry
   const [controlCollector, setControlCollector] = useState("");
   const [controlTask, setControlTask] = useState("");
   const [controlTaskSearch, setControlTaskSearch] = useState("");
@@ -298,7 +306,13 @@ export function AdminToolsPanel({
     if (!message) return;
     setIsSendingAlert(true);
     try {
-      await pushLiveAlert({ message, level: "INFO", target: "ALL", createdBy: "ADMIN" });
+      await pushLiveAlert({
+        message,
+        level: "INFO",
+        target: "ALL",
+        createdBy: "ADMIN",
+        expiryHours: alertExpiryHours > 0 ? alertExpiryHours : undefined,
+      } as Parameters<typeof pushLiveAlert>[0]);
       setAlertMessage("");
       queryClient.invalidateQueries({ queryKey: ["liveAlerts"] });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -308,7 +322,29 @@ export function AdminToolsPanel({
     } finally {
       setIsSendingAlert(false);
     }
-  }, [alertMessage, queryClient]);
+  }, [alertMessage, alertExpiryHours, queryClient]);
+
+  const handleClearAlerts = useCallback(async () => {
+    Alert.alert("Clear All Alerts", "Deactivate all active alerts?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Clear All",
+        style: "destructive",
+        onPress: async () => {
+          setIsClearingAlerts(true);
+          try {
+            await pushLiveAlert({ message: "__CLEAR_ALL__", level: "SYSTEM", target: "ADMIN", createdBy: "ADMIN" } as Parameters<typeof pushLiveAlert>[0]);
+            queryClient.invalidateQueries({ queryKey: ["liveAlerts"] });
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          } catch (err) {
+            Alert.alert("Failed", err instanceof Error ? err.message : "Unknown error");
+          } finally {
+            setIsClearingAlerts(false);
+          }
+        },
+      },
+    ]);
+  }, [queryClient]);
 
   const runTaskAction = useCallback(async (mode: "assign" | "cancel" | "edit") => {
     const collector = controlCollector.trim();
@@ -591,6 +627,17 @@ export function AdminToolsPanel({
         <View style={atStyles.cardHeader}>
           <AlertTriangle size={12} color={colors.alertYellow} />
           <Text style={[atStyles.cardTitle, { color: colors.alertYellow }]}>Broadcast Alert</Text>
+          {/* Clear all active alerts */}
+          <TouchableOpacity
+            onPress={handleClearAlerts}
+            disabled={isClearingAlerts}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={[atStyles.clearAlertsBtn, { borderColor: colors.cancel + "50" }]}
+          >
+            <Text style={[atStyles.clearAlertsBtnText, { color: colors.cancel }]}>
+              {isClearingAlerts ? "Clearing…" : "Clear All"}
+            </Text>
+          </TouchableOpacity>
         </View>
         <TextInput
           style={[atStyles.alertInput, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bgInput }]}
@@ -601,6 +648,27 @@ export function AdminToolsPanel({
           multiline
           numberOfLines={2}
         />
+        {/* Expiry picker */}
+        <View style={atStyles.expiryRow}>
+          <Text style={[atStyles.expiryLabel, { color: colors.textMuted }]}>Expires:</Text>
+          {[0, 1, 2, 4, 8].map(h => (
+            <TouchableOpacity
+              key={h}
+              style={[
+                atStyles.expiryBtn,
+                {
+                  backgroundColor: alertExpiryHours === h ? colors.alertYellowBg : colors.bgInput,
+                  borderColor: alertExpiryHours === h ? colors.alertYellow : colors.border,
+                },
+              ]}
+              onPress={() => setAlertExpiryHours(h)}
+            >
+              <Text style={[atStyles.expiryBtnText, { color: alertExpiryHours === h ? colors.alertYellow : colors.textMuted }]}>
+                {h === 0 ? "∞" : `${h}h`}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
         <TouchableOpacity
           style={[
             atStyles.alertSendBtn,
@@ -614,12 +682,7 @@ export function AdminToolsPanel({
           disabled={isSendingAlert || alertMessage.trim().length === 0}
           activeOpacity={0.8}
         >
-          <Text
-            style={[
-              atStyles.alertSendText,
-              { color: alertMessage.trim().length > 0 ? colors.alertYellow : colors.textMuted },
-            ]}
-          >
+          <Text style={[atStyles.alertSendText, { color: alertMessage.trim().length > 0 ? colors.alertYellow : colors.textMuted }]}>
             {isSendingAlert ? "Sending..." : "Send Alert"}
           </Text>
         </TouchableOpacity>

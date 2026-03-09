@@ -10,6 +10,7 @@ import {
   RefreshControl,
   Modal,
   useWindowDimensions,
+  Platform,
 } from "react-native";
 import {
   Sun, Moon,
@@ -48,47 +49,105 @@ interface RegionSnapshot {
 interface TickerSegment { label: string; color: string; items: string[]; speed: number; }
 
 // ─── News ticker ──────────────────────────────────────────────────────────────
+// Design:
+//   • pendingSegments ref — incoming prop changes are queued, never applied
+//     mid-animation. The current message always plays to completion first.
+//   • toValue scrolls the text fully off the left edge so nothing is clipped.
+//   • textWidth is derived from measured character count, not a hardcoded cap.
 const NewsTicker = React.memo(function NewsTicker({ segments }: { segments: TickerSegment[] }) {
   const { colors } = useTheme();
   const { width: screenWidth } = useWindowDimensions();
-  const [activeIndex, setActiveIndex] = useState(0);
-  const scrollX = useRef(new Animated.Value(screenWidth)).current;
+
+  // Displayed segments — only updated at the START of a new cycle
+  const [liveSegments, setLiveSegments] = useState<TickerSegment[]>(segments);
+  const [activeIndex, setActiveIndex]   = useState(0);
+
+  // Queue incoming changes without disrupting the current animation
+  const pendingSegments = useRef<TickerSegment[]>(segments);
+  useEffect(() => { pendingSegments.current = segments; }, [segments]);
+
+  const scrollX   = useRef(new Animated.Value(screenWidth + 20)).current;
   const pillSlide = useRef(new Animated.Value(0)).current;
-  const animRef = useRef<Animated.CompositeAnimation | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const seg = segments[activeIndex] ?? segments[0];
+  const animRef   = useRef<Animated.CompositeAnimation | null>(null);
+  const timerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startScroll = useCallback((segIndex: number) => {
-    const segment = segments[segIndex];
-    if (!segment) return;
+    // Apply any queued segment update at the very start of a new cycle
+    const segs = pendingSegments.current;
+    const safeIdx = segs.length > 0 ? segIndex % segs.length : 0;
+    setLiveSegments(segs);
+    setActiveIndex(safeIdx);
+
+    const segment = segs[safeIdx];
+    if (!segment || !segment.items.length) return;
+
+    // Build the full ticker string
     const text = segment.items.join("     |     ");
-    const textWidth = text.length * 7 + screenWidth;
-    const duration = Math.max(textWidth * (segment.speed || 28), 10000);
-    scrollX.setValue(screenWidth * 1.2);
+
+    // Generous character-width estimate (accounts for wide chars, letter-spacing)
+    const charPx  = 8;
+    const textPx  = text.length * charPx;
+
+    // Start: text begins just off the right edge
+    const startX = screenWidth + 20;
+    // End: text is fully past the left edge with a small overshoot buffer
+    const endX   = -(textPx + 40);
+
+    const totalTravel = startX - endX; // total pixels the text travels
+    const msPerPx     = segment.speed || 28;
+    const duration    = Math.max(totalTravel * msPerPx, 12000);
+
+    scrollX.setValue(startX);
     if (animRef.current) animRef.current.stop();
-    const anim = Animated.timing(scrollX, { toValue: -textWidth + screenWidth * 0.3, duration, useNativeDriver: true });
+
+    const anim = Animated.timing(scrollX, {
+      toValue: endX,
+      duration,
+      useNativeDriver: true,
+    });
     animRef.current = anim;
+
     anim.start(({ finished }) => {
-      if (finished && segments.length > 1) {
-        const next = (segIndex + 1) % segments.length;
+      // Only advance when the animation completed naturally.
+      // If stopped early (finished=false), we do nothing — the outer
+      // restarter will kick off a fresh cycle.
+      if (!finished) return;
+
+      const nextSegs = pendingSegments.current;
+      if (nextSegs.length > 1) {
+        const next = (safeIdx + 1) % nextSegs.length;
         Animated.timing(pillSlide, { toValue: 1, duration: 300, useNativeDriver: true }).start(() => {
-          setActiveIndex(next); pillSlide.setValue(0);
-          timerRef.current = setTimeout(() => startScroll(next), 400);
+          pillSlide.setValue(0);
+          timerRef.current = setTimeout(() => startScroll(next), 300);
         });
-      } else if (finished) {
-        timerRef.current = setTimeout(() => startScroll(segIndex), 2000);
+      } else {
+        timerRef.current = setTimeout(() => startScroll(safeIdx), 2000);
       }
     });
-  }, [segments, scrollX, pillSlide, screenWidth]);
+  // screenWidth is the only external dep — segment data comes from the ref
+  }, [screenWidth, scrollX, pillSlide]);
 
+  // Boot once; re-boot only if screen width changes (e.g. rotation / web resize)
   useEffect(() => {
-    setActiveIndex(0); pillSlide.setValue(0); startScroll(0);
-    return () => { if (animRef.current) animRef.current.stop(); if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [segments, pillSlide, startScroll]);
+    startScroll(0);
+    return () => {
+      if (animRef.current) animRef.current.stop();
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [startScroll]);
 
+  const seg = liveSegments[activeIndex] ?? liveSegments[0];
   if (!seg) return null;
-  const tickerText = seg.items.join("   |   ");
-  const fadeOpacity = scrollX.interpolate({ inputRange: [screenWidth * 0.8, screenWidth * 1.2], outputRange: [1, 0], extrapolate: "clamp" });
+
+  const tickerText    = seg.items.join("   |   ");
+  const textBoxWidth  = Math.max(tickerText.length * 8 + 100, 800); // never too narrow
+
+  // Fade in as text enters from the right
+  const fadeOpacity = scrollX.interpolate({
+    inputRange: [screenWidth * 0.6, screenWidth + 20],
+    outputRange: [1, 0],
+    extrapolate: "clamp",
+  });
 
   return (
     <View style={[tStyles.container, { backgroundColor: colors.bgCard, borderBottomColor: colors.border }]}>
@@ -100,7 +159,17 @@ const NewsTicker = React.memo(function NewsTicker({ segments }: { segments: Tick
       </Animated.View>
       <View style={[tStyles.separator, { backgroundColor: colors.border }]} />
       <View style={tStyles.scrollWrap}>
-        <Animated.Text style={[tStyles.scrollText, { color: seg.color, opacity: fadeOpacity, transform: [{ translateX: scrollX }] }]} numberOfLines={1}>{tickerText}</Animated.Text>
+        <Animated.Text
+          style={[tStyles.scrollText, {
+            color: seg.color,
+            width: textBoxWidth,
+            opacity: fadeOpacity,
+            transform: [{ translateX: scrollX }],
+          }]}
+          numberOfLines={1}
+        >
+          {tickerText}
+        </Animated.Text>
         <View style={[tStyles.fadeL, { backgroundColor: colors.bgCard }]} pointerEvents="none" accessible={false} />
         <View style={[tStyles.fadeR, { backgroundColor: colors.bgCard }]} pointerEvents="none" accessible={false} />
       </View>
@@ -116,7 +185,7 @@ const tStyles = StyleSheet.create({
   pillText: { fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.5 },
   separator: { width: 1, height: 16 },
   scrollWrap: { flex: 1, overflow: "hidden", height: 34, justifyContent: "center", marginLeft: 8, position: "relative" as const },
-  scrollText: { fontSize: 12, letterSpacing: 0.2, width: 5000 },
+  scrollText: { fontSize: 12, letterSpacing: 0.2 }, // width set dynamically per render
   fadeL: { position: "absolute" as const, top: 0, left: 0, bottom: 0, width: 14, opacity: 0.85 },
   fadeR: { position: "absolute" as const, top: 0, right: 0, bottom: 0, width: 22, opacity: 0.9 },
 });
@@ -188,6 +257,24 @@ export default function LiveScreen() {
   const [alertExpanded, setAlertExpanded] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const livePulse = useRef(new Animated.Value(0)).current;
+
+  // ── Operational log (terminal) ─────────────────────────────────────────────
+  type LogEntry = { id: string; ts: string; type: "sync"|"change"|"alert"|"recollect"|"error"; text: string };
+  const [opLog, setOpLog] = useState<LogEntry[]>([]);
+  const prevLeaderboard = useRef<Record<string, number>>({});  // collectorName → hoursLogged
+  const prevAlertIds    = useRef<Set<string>>(new Set());
+  const prevRecollect   = useRef<Set<string>>(new Set());
+  const logScrollRef    = useRef<ScrollView>(null);
+  const logInitialized  = useRef(false);
+
+  const addLogEntries = useCallback((entries: Omit<LogEntry, "id">[]) => {
+    if (!entries.length) return;
+    const now = new Date();
+    const ts = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}:${String(now.getSeconds()).padStart(2,"0")}`;
+    const stamped = entries.map((e, i) => ({ ...e, id: `${Date.now()}_${i}`, ts }));
+    setOpLog(prev => [...prev, ...stamped].slice(-80)); // keep last 80 entries
+    setTimeout(() => logScrollRef.current?.scrollToEnd({ animated: true }), 80);
+  }, []);
 
   // ── Queries (unchanged) ────────────────────────────────────────────────────
   const statsQuery = useQuery({
@@ -313,6 +400,63 @@ export default function LiveScreen() {
       { label: "Stats",   color: colors.statsGreen,   items: statsItems,     speed: 36 },
     ];
   }, [liveAlerts, recollectItems, regionOverview, stats, selectedCollectorName, colors]);
+
+  // ── Diff leaderboard → log collector hour changes ─────────────────────────
+  useEffect(() => {
+    const entries = leaderboardQuery.data ?? [];
+    if (!entries.length) return;
+    const changes: Omit<LogEntry, "id">[] = [];
+    const next: Record<string, number> = {};
+    for (const e of entries) {
+      const key = e.collectorName;
+      next[key] = e.hoursLogged;
+      const prev = prevLeaderboard.current[key];
+      if (!logInitialized.current) continue;
+      if (prev === undefined) {
+        changes.push({ ts: "", type: "change", text: `${key} — first entry: ${e.hoursLogged.toFixed(2)}h` });
+      } else if (e.hoursLogged > prev + 0.01) {
+        const delta = (e.hoursLogged - prev).toFixed(2);
+        changes.push({ ts: "", type: "change", text: `${key}  +${delta}h  →  ${e.hoursLogged.toFixed(2)}h total` });
+      }
+    }
+    prevLeaderboard.current = next;
+    if (!logInitialized.current) { logInitialized.current = true; return; }
+    if (changes.length) {
+      addLogEntries([
+        { ts: "", type: "sync", text: `Sync — ${changes.length} update${changes.length === 1 ? "" : "s"}` },
+        ...changes,
+      ]);
+    }
+  }, [leaderboardQuery.data, addLogEntries]);
+
+  // ── Diff alerts ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const alerts = alertsQuery.data ?? [];
+    const changes: Omit<LogEntry, "id">[] = [];
+    for (const a of alerts) {
+      if (a.id && !prevAlertIds.current.has(a.id)) {
+        changes.push({ ts: "", type: "alert", text: `⚑ ${a.level ?? "INFO"}: ${a.message}` });
+        prevAlertIds.current.add(a.id);
+      }
+    }
+    if (changes.length) addLogEntries(changes);
+  }, [alertsQuery.data, addLogEntries]);
+
+  // ── Diff recollections ─────────────────────────────────────────────────────
+  useEffect(() => {
+    const items = recollectionsQuery.data ?? [];
+    const currentSet = new Set(items.map(s => s.split("(")[0].trim()));
+    const added: string[] = [];
+    const resolved: string[] = [];
+    currentSet.forEach(k => { if (!prevRecollect.current.has(k)) added.push(k); });
+    prevRecollect.current.forEach(k => { if (!currentSet.has(k)) resolved.push(k); });
+    prevRecollect.current = currentSet;
+    const changes: Omit<LogEntry, "id">[] = [
+      ...added.map(k => ({ ts: "", type: "recollect" as const, text: `↑ Recollect added: ${k}` })),
+      ...resolved.map(k => ({ ts: "", type: "recollect" as const, text: `✓ Recollect cleared: ${k}` })),
+    ];
+    if (changes.length) addLogEntries(changes);
+  }, [recollectionsQuery.data, addLogEntries]);
 
   // ── Effects ────────────────────────────────────────────────────────────────
   useEffect(() => { setIsOnline(configured); }, [configured]);
@@ -654,6 +798,48 @@ export default function LiveScreen() {
           </View>
         )}
 
+        {/* ── Operational log ──────────────────────────────────────────── */}
+        {opLog.length > 0 && (
+          <View style={[s.section, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
+            <View style={[s.sectionHeader, { borderBottomColor: colors.border }]}>
+              <View style={s.sectionHeaderLeft}>
+                <Text style={[s.sectionTitle, { color: colors.textPrimary, fontFamily: Platform.select({ ios: "Courier New", default: "monospace" }) }]}>
+                  Ops Log
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setOpLog([])}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={[s.showMoreText, { color: colors.textMuted, fontSize: 12 }]}>Clear</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              ref={logScrollRef}
+              style={s.termScroll}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+            >
+              {opLog.map(entry => {
+                const entryColor =
+                  entry.type === "alert" ? colors.alertYellow :
+                  entry.type === "recollect" ? colors.recollectRed :
+                  entry.type === "sync" ? colors.accent :
+                  entry.type === "error" ? colors.cancel :
+                  colors.terminalGreen;
+                return (
+                  <View key={entry.id} style={s.termRow}>
+                    <Text style={[s.termTs, { color: colors.textMuted }]}>{entry.ts}</Text>
+                    <Text style={[s.termText, { color: entryColor }]} numberOfLines={2}>
+                      {entry.text}
+                    </Text>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
         <View style={s.bottomSpacer} />
       </ScrollView>
 
@@ -702,6 +888,12 @@ const s = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { padding: 12, gap: 10 },
   bottomSpacer: { height: 110 },
+
+  // Operational log (terminal)
+  termScroll: { maxHeight: 200 },
+  termRow: { flexDirection: "row", gap: 8, paddingHorizontal: 14, paddingVertical: 5, alignItems: "flex-start" },
+  termTs: { fontSize: 11, fontFamily: Platform.select({ ios: "Courier New", default: "monospace" }), opacity: 0.6, width: 54, flexShrink: 0, paddingTop: 1 },
+  termText: { flex: 1, fontSize: 12, fontFamily: Platform.select({ ios: "Courier New", default: "monospace" }), lineHeight: 17 },
 
   // Section surface
   section: {
