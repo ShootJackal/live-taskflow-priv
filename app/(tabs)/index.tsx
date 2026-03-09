@@ -23,10 +23,6 @@ import {
   Clock,
   Search,
   X,
-  ListTodo,
-  Hash,
-  FileText,
-  User,
 } from "lucide-react-native";
 import { useCollection } from "@/providers/CollectionProvider";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -40,8 +36,6 @@ import MarqueeText from "@/components/MarqueeText";
 import ReviewSheet from "@/components/ReviewSheet";
 import type { LogEntry } from "@/types";
 import type { ThemeColors } from "@/constants/colors";
-import { Image } from "expo-image";
-
 // ─── Log entry row ───────────────────────────────────────────────────────────
 
 const LogEntryRow = React.memo(function LogEntryRow({
@@ -461,35 +455,29 @@ export default function DashboardScreen() {
                 />
               }
             >
-              {/* ── Header card — matches Live tab style ───────────────── */}
-              <View style={[styles.pageHeader, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
-                {/* Tag row */}
-                <View style={styles.headerTopRow}>
-                  <View style={[styles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
-                    <Text style={[styles.headerTagText, { color: colors.accent }]}>COLLECT HUB</Text>
-                  </View>
-                  <View style={styles.headerRight}>
-                    {selectedRig !== "" && (
-                      <Text style={[styles.rigLabel, { color: colors.textMuted }]}>{selectedRig}</Text>
-                    )}
-                    {openTasks.length > 0 && (
-                      <View style={[styles.openPill, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
-                        <Circle size={5} color={colors.accent} fill={colors.accent} />
-                        <Text style={[styles.openPillText, { color: colors.accent }]}>{openTasks.length} open</Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-                {/* Brand row */}
-                <View style={styles.brandRow}>
-                  <Image source={require("../../assets/images/icon.png")} style={styles.brandLogo} contentFit="contain" />
-                  <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>
+              {/* ── Compact screen title ──────────────────────────────── */}
+              <View style={styles.screenTitle}>
+                <View style={styles.screenTitleLeft}>
+                  <Text style={[styles.screenTitleText, { color: colors.textPrimary, fontFamily: "Lexend_700Bold" }]}>
                     {t("collect", "Collect")}
                   </Text>
+                  {firstName && (
+                    <Text style={[styles.screenTitleSub, { color: colors.textMuted }]}>
+                      {`${firstName}'s Workspace`}
+                    </Text>
+                  )}
                 </View>
-                <Text style={[styles.brandSub, { color: colors.textSecondary, fontFamily: "Lexend_400Regular" }]}>
-                  {firstName ? `${firstName}'s Workspace` : "Task Management"}
-                </Text>
+                <View style={styles.screenTitleRight}>
+                  {selectedRig !== "" && (
+                    <Text style={[styles.rigLabel, { color: colors.textMuted }]}>{selectedRig}</Text>
+                  )}
+                  {openTasks.length > 0 && (
+                    <View style={[styles.openPill, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
+                      <Circle size={5} color={colors.accent} fill={colors.accent} />
+                      <Text style={[styles.openPillText, { color: colors.accent }]}>{openTasks.length} open</Text>
+                    </View>
+                  )}
+                </View>
               </View>
 
               {/* ── Banners ───────────────────────────────────────────── */}
@@ -608,28 +596,12 @@ export default function DashboardScreen() {
                 {!selectedCollectorName && (
                   <>
                     <View style={styles.formRow}>
-                      <View
-                        style={[
-                          styles.formRowIcon,
-                          { backgroundColor: colors.accentSoft },
-                        ]}
-                      >
-                        <User size={16} color={colors.accent} />
-                      </View>
                       <View style={styles.formRowContent}>
-                        <Text
-                          style={[
-                            styles.formRowLabel,
-                            { color: colors.textSecondary },
-                          ]}
-                        >
+                        <Text style={[styles.formRowLabel, { color: colors.textSecondary }]}>
                           Collector
                         </Text>
                         {isLoadingCollectors ? (
-                          <ActivityIndicator
-                            size="small"
-                            color={colors.accent}
-                          />
+                          <ActivityIndicator size="small" color={colors.accent} />
                         ) : (
                           <SelectPicker
                             label=""
@@ -642,25 +614,12 @@ export default function DashboardScreen() {
                         )}
                       </View>
                     </View>
-                    <View
-                      style={[
-                        styles.insetSeparator,
-                        { backgroundColor: colors.border },
-                      ]}
-                    />
+                    <View style={[styles.insetSeparator, { backgroundColor: colors.border }]} />
                   </>
                 )}
 
                 {/* Task field */}
                 <View style={styles.formRow}>
-                  <View
-                    style={[
-                      styles.formRowIcon,
-                      { backgroundColor: colors.completeBg },
-                    ]}
-                  >
-                    <ListTodo size={16} color={colors.complete} />
-                  </View>
                   <View style={styles.formRowContent}>
                     <View style={styles.formRowLabelRow}>
                       <Text
@@ -778,14 +737,6 @@ export default function DashboardScreen() {
 
                 {/* Hours field */}
                 <View style={styles.formRow}>
-                  <View
-                    style={[
-                      styles.formRowIcon,
-                      { backgroundColor: colors.assignBg },
-                    ]}
-                  >
-                    <Hash size={16} color={colors.assign} />
-                  </View>
                   <View style={styles.formRowContent}>
                     <View style={styles.formRowLabelRow}>
                       <Text
@@ -834,14 +785,6 @@ export default function DashboardScreen() {
 
                 {/* Notes field */}
                 <View style={[styles.formRow, { alignItems: "flex-start" }]}>
-                  <View
-                    style={[
-                      styles.formRowIcon,
-                      { backgroundColor: colors.bgInput, marginTop: 2 },
-                    ]}
-                  >
-                    <FileText size={16} color={colors.textMuted} />
-                  </View>
                   <View style={styles.formRowContent}>
                     <View style={styles.formRowLabelRow}>
                       <Text
@@ -915,53 +858,20 @@ export default function DashboardScreen() {
                 />
               )}
 
-              {/* ── Secondary row ─────────────────────────────────────────── */}
-              <View style={styles.secondaryRow}>
-                {latestOpenTask ? (
-                  // Open task: Assign new task + Cancel current
-                  <>
-                    <ActionButton
-                      title="Assign"
-                      icon={<UserCheck size={15} color={colors.assign} />}
-                      color={colors.assign}
-                      bgColor={colors.assignBg}
-                      onPress={handleAssign}
-                      disabled={!canSubmit}
-                      testID="assign-btn"
-                    />
-                    <ActionButton
-                      title="Cancel"
-                      icon={<XCircle size={15} color={colors.cancel} />}
-                      color={colors.cancel}
-                      bgColor={colors.cancelBg}
-                      onPress={handleCancel}
-                      testID="cancel-btn"
-                    />
-                  </>
-                ) : (
-                  // No open task: Done + Cancel are dormant secondaries
-                  <>
-                    <ActionButton
-                      title="Done"
-                      icon={<CheckCircle size={15} color={colors.complete} />}
-                      color={colors.complete}
-                      bgColor={colors.completeBg}
-                      onPress={handleComplete}
-                      disabled
-                      testID="complete-btn"
-                    />
-                    <ActionButton
-                      title="Cancel"
-                      icon={<XCircle size={15} color={colors.cancel} />}
-                      color={colors.cancel}
-                      bgColor={colors.cancelBg}
-                      onPress={handleCancel}
-                      disabled
-                      testID="cancel-btn"
-                    />
-                  </>
-                )}
-              </View>
+              {/* ── Cancel current task (only when open) ──────────────── */}
+              {latestOpenTask && (
+                <TouchableOpacity
+                  style={styles.cancelLink}
+                  onPress={handleCancel}
+                  activeOpacity={0.7}
+                  testID="cancel-btn"
+                >
+                  <XCircle size={14} color={colors.cancel} />
+                  <Text style={[styles.cancelLinkText, { color: colors.cancel }]}>
+                    {`Cancel "${latestOpenTask.taskName.split("|").pop()?.trim() ?? latestOpenTask.taskName}"`}
+                  </Text>
+                </TouchableOpacity>
+              )}
 
               {/* ── Syncing indicator ─────────────────────────────────── */}
               {isSyncing && (
@@ -1141,82 +1051,44 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1 },
   content: {
-    paddingHorizontal: DesignTokens.spacing.xl,
-    paddingTop: DesignTokens.spacing.lg,
-    paddingBottom: 150,
-    gap: DesignTokens.spacing.md,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 140,
+    gap: 8,
   },
 
-  // Header card — same visual language as Live tab
-  pageHeader: {
-    marginHorizontal: 0,
-    marginBottom: DesignTokens.spacing.md,
-    padding: DesignTokens.spacing.lg,
-    borderRadius: DesignTokens.radius.xl,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.10,
-    shadowRadius: 16,
-    elevation: 6,
-  },
-  headerTopRow: {
+  // Compact screen title — no card, no large brand text
+  screenTitle: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: DesignTokens.spacing.xs,
+    paddingVertical: 8,
+    paddingHorizontal: 2,
   },
-  headerTag: {
-    alignSelf: "flex-start",
-    borderRadius: 7,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  headerTagText: {
-    fontSize: 12,
-    fontWeight: "700" as const,
-    letterSpacing: 0.7,
-  },
-  brandRow: {
+  screenTitleLeft: { gap: 1 },
+  screenTitleText: { fontSize: 20, fontWeight: "700" as const },
+  screenTitleSub: { fontSize: 13 },
+  screenTitleRight: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    marginTop: DesignTokens.spacing.xs,
-  },
-  brandLogo: { width: 28, height: 28, borderRadius: 8 },
-  brandText: {
-    fontSize: DesignTokens.fontSize.largeTitle,
-    fontWeight: "700" as const,
-    letterSpacing: 0.1,
-  },
-  brandSub: {
-    fontSize: DesignTokens.fontSize.footnote,
-    letterSpacing: 0.3,
-    marginTop: 3,
-    marginLeft: 38,
-  },
-  headerRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: DesignTokens.spacing.sm,
+    gap: 8,
   },
   rigLabel: {
-    fontSize: DesignTokens.fontSize.caption1,
-    letterSpacing: 0.4,
-    fontWeight: "500" as const,
+    fontSize: 13,
+    letterSpacing: 0.2,
   },
   openPill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     borderRadius: DesignTokens.radius.pill,
     borderWidth: 1,
   },
   openPillText: {
-    fontSize: DesignTokens.fontSize.caption2,
-    fontWeight: "700" as const,
-    letterSpacing: 0.3,
+    fontSize: 12,
+    fontWeight: "600" as const,
   },
 
   // Banners
@@ -1310,49 +1182,37 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // iOS-grouped form section — no border, shadow only
+  // Form section — single grouped surface
   formSection: {
-    borderRadius: DesignTokens.radius.xl,
+    borderRadius: 14,
     overflow: "hidden",
-    marginBottom: DesignTokens.spacing.xs,
   },
   formRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: DesignTokens.spacing.lg,
-    paddingVertical: DesignTokens.spacing.md,
-    gap: DesignTokens.spacing.md,
-    minHeight: 52,
-  },
-  formRowIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: DesignTokens.radius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    minHeight: 44,
   },
   formRowContent: { flex: 1 },
   formRowLabelRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 5,
+    marginBottom: 4,
   },
   formRowLabel: {
-    fontSize: DesignTokens.fontSize.caption1,
-    fontWeight: "700" as const,
-    letterSpacing: 0.3,
+    fontSize: 12,
+    fontWeight: "600" as const,
+    letterSpacing: 0.1,
   },
   formRowLabelRight: {
     flexDirection: "row",
     alignItems: "center",
-    gap: DesignTokens.spacing.sm,
+    gap: 8,
   },
-  // Inset separator — starts after icon column
+  // Full-width hairline separator
   insetSeparator: {
     height: StyleSheet.hairlineWidth,
-    marginLeft: 66, // 16 padding + 34 icon + 16 gap
+    marginLeft: 14,
   },
   searchToggle: {
     width: 32,
@@ -1393,10 +1253,18 @@ const styles = StyleSheet.create({
     fontWeight: "500" as const,
   },
 
-  // Secondary actions (Done / Cancel)
-  secondaryRow: {
+  // Cancel task — text link, only shown when open task exists
+  cancelLink: {
     flexDirection: "row",
-    gap: DesignTokens.spacing.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    minHeight: 44,
+  },
+  cancelLinkText: {
+    fontSize: 14,
+    fontWeight: "500" as const,
   },
 
   // Sync indicator
