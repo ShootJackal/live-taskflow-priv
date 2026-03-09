@@ -44,18 +44,14 @@ function BootSequence({ onComplete }: { onComplete: () => void }) {
 
   useEffect(() => {
     // Fire warm-up ping immediately — GAS cold start happens here
-    if (Platform.OS === "web" || true) {
-      try {
-        const url = process.env.EXPO_PUBLIC_GOOGLE_SCRIPT_URL
-          || process.env.EXPO_PUBLIC_GAS_CORE_URL
-          || "https://script.google.com/macros/s/AKfycbxNNZjODqxTEehH8iylSUMxdLvJ5UrHLp4uqDmMGaeAzpnwFxqWXIyPVfAHsExl7bCfOw/exec";
-        if (url) {
-          void fetch(`${url}?action=refreshCache&scope=light`, {
-            redirect: "follow",
-            signal: AbortSignal.timeout?.(8000),
-          }).catch(() => {/* ignore — just a warm-up */});
-        }
-      } catch { /* ignore */ }
+    const gasUrl = process.env.EXPO_PUBLIC_GOOGLE_SCRIPT_URL
+      || process.env.EXPO_PUBLIC_GAS_CORE_URL
+      || "";
+    if (gasUrl) {
+      void fetch(`${gasUrl}?action=refreshCache&scope=light`, {
+        redirect: "follow",
+        signal: AbortSignal.timeout?.(8000),
+      }).catch(() => {/* ignore — just a warm-up ping */});
     }
 
     Animated.parallel([

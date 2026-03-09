@@ -269,6 +269,7 @@ function doGet(e) {
     var result;
     switch (action) {
       case 'getCollectors':         result = handleGetCollectors(); break;
+      case 'authenticateAdmin':     result = handleAuthenticateAdmin(e.parameter); break;
       case 'getTasks':              result = handleGetTasks(); break;
       case 'getLeaderboard':        result = handleGetLeaderboard(period); break;
       case 'getCollectorStats':     result = handleGetCollectorStats(e.parameter.collector || ''); break;
@@ -327,18 +328,22 @@ function doPost(e) {
       return jsonOut({ success: true, data: alertResult, message: alertResult.message || 'Alert sent' });
     }
     if (metaAction === 'ADMIN_ASSIGN_TASK') {
+      requireAdminToken_(body);
       var adminAssign = handleAdminAssignTask(body);
       return jsonOut({ success: true, data: adminAssign, message: adminAssign.message || 'Task assigned' });
     }
     if (metaAction === 'ADMIN_CANCEL_TASK') {
+      requireAdminToken_(body);
       var adminCancel = handleAdminCancelTask(body);
       return jsonOut({ success: true, data: adminCancel, message: adminCancel.message || 'Task canceled' });
     }
     if (metaAction === 'ADMIN_EDIT_HOURS') {
+      requireAdminToken_(body);
       var adminEdit = handleAdminEditHours(body);
       return jsonOut({ success: true, data: adminEdit, message: adminEdit.message || 'Hours updated' });
     }
     if (metaAction === 'GRANT_AWARD') {
+      requireAdminToken_(body);
       var awardResult = handleGrantAward(body);
       return jsonOut({ success: true, data: awardResult, message: awardResult.message || 'Award granted' });
     }
@@ -913,8 +918,48 @@ function runDailyRolloverForDate_(targetDate) {
   }
 }
 
+function handleAuthenticateAdmin(params) {
+  var submitted = safeStr(params && params.password);
+  var collector = safeStr(params && params.collector);
+  var props = PropertiesService.getScriptProperties();
+  var stored = props.getProperty('ADMIN_PASSWORD') || '';
+  if (!stored || submitted !== stored) { Utilities.sleep(500); return { success: false, error: 'Invalid credentials' }; }
+  return { success: true, token: mintAdminToken_(collector), expiresIn: 86400 };
+}
+function mintAdminToken_(collector) {
+  var secret = PropertiesService.getScriptProperties().getProperty('ADMIN_HMAC_SECRET') || 'change-this-fallback-secret';
+  var ts = Date.now().toString();
+  var sig = Utilities.computeHmacSha256Signature(collector + '|' + ts, secret)
+    .map(function(b) { return ('0' + (b & 0xFF).toString(16)).slice(-2); }).join('');
+  return ts + '.' + sig;
+}
+function isValidAdminToken_(token, collector) {
+  if (!token) return false;
+  var secret = PropertiesService.getScriptProperties().getProperty('ADMIN_HMAC_SECRET') || 'change-this-fallback-secret';
+  var parts = String(token).split('.');
+  if (parts.length !== 2) return false;
+  var ts = parseInt(parts[0], 10);
+  if (!isFinite(ts) || Date.now() - ts > 86400000) return false;
+  var expected = Utilities.computeHmacSha256Signature(collector + '|' + ts, secret)
+    .map(function(b) { return ('0' + (b & 0xFF).toString(16)).slice(-2); }).join('');
+  return parts[1] === expected;
+}
+function requireAdminToken_(body) {
+  if (!isValidAdminToken_(safeStr(body && body.adminToken), safeStr(body && body.collector))) {
+    throw new Error('Admin token missing or expired — re-authenticate in the app.');
+  }
+}
+
 function safeStr(v) { return String(v == null ? '' : v).trim(); }
 function safeNum(v) { var n = Number(v); return isFinite(n) ? n : 0; }
+function sanitizeForSheet(v) {
+  var s = safeStr(v);
+  if (s.length === 0) return s;
+  if (s[0] === '=' || s[0] === '+' || s[0] === '-' || s[0] === '@' || s[0] === '\t' || s[0] === '\r') {
+    return "'" + s;
+  }
+  return s;
+}
 function safeHours(v) {
   if (v instanceof Date) return 0;
   var n = Number(v);
@@ -3130,14 +3175,16 @@ function handleSubmit(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new Error('Invalid submit payload: expected JSON object with collector/task/actionType');
   }
-  var collector = safeStr(body.collector);
-  var task = safeStr(body.task);
-  var hours = safeNum(body.hours);
-  var actionType = safeStr(body.actionType);
-  var notes = safeStr(body.notes);
-  var rig = safeStr(body.rig);
-  var requestId = safeStr(body.requestId);
+  var collector  = sanitizeForSheet(safeStr(body.collector));
+  var task       = sanitizeForSheet(safeStr(body.task));
+  var hours      = safeNum(body.hours);
+  var actionType = safeStr(body.actionType).toUpperCase();
+  var notes      = sanitizeForSheet(safeStr(body.notes));
+  var rig        = sanitizeForSheet(safeStr(body.rig));
+  var requestId  = safeStr(body.requestId);
   if (!collector) throw new Error('Missing collector');
+  if (hours < 0) throw new Error('hours cannot be negative');
+  if (hours > 24) throw new Error('hours cannot exceed 24 per submission');
   if (!task) throw new Error('Missing task');
   if (!actionType) throw new Error('Missing actionType');
 

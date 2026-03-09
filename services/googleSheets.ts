@@ -19,9 +19,9 @@ import {
 import { normalizeCollectorName } from "@/utils/normalize";
 import { log } from "@/utils/logger";
 
-// Single deployment — all actions route through this URL.
-// EXPO_PUBLIC_GOOGLE_SCRIPT_URL in your env overrides this at build time.
-const DEFAULT_SCRIPT_URL_LEGACY = "https://script.google.com/macros/s/AKfycbxNNZjODqxTEehH8iylSUMxdLvJ5UrHLp4uqDmMGaeAzpnwFxqWXIyPVfAHsExl7bCfOw/exec";
+// Set EXPO_PUBLIC_GOOGLE_SCRIPT_URL in your Vercel environment variables.
+// Never hardcode the live URL here — it gets embedded in the public JS bundle.
+const DEFAULT_SCRIPT_URL_LEGACY = "";
 const DEFAULT_SCRIPT_URL_CORE = "";
 const DEFAULT_SCRIPT_URL_ANALYTICS = "";
 const REQUEST_TIMEOUT_MS = 12000; // GAS rarely exceeds 8-10 s even cold
@@ -607,6 +607,26 @@ export async function fetchPendingReview(
     // Log so it's visible in dev without crashing production.
     log("[API] fetchPendingReview failed (non-fatal):", err instanceof Error ? err.message : String(err));
     return [];
+  }
+}
+
+/**
+ * Authenticate admin credentials against the GAS server.
+ * The password is validated server-side (never compared in the JS bundle).
+ * On success, GAS returns an HMAC-signed 24-hour token.
+ */
+export async function authenticateAdminGAS(
+  password: string,
+  collector: string,
+): Promise<{ success: boolean; token?: string; error?: string }> {
+  try {
+    return await apiGet<{ success: boolean; token?: string; error?: string }>(
+      "authenticateAdmin",
+      { password, collector },
+      false,
+    );
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Auth failed" };
   }
 }
 

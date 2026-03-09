@@ -273,6 +273,7 @@ function doGet(e) {
     switch (action) {
       case 'getCollectors':         result = handleGetCollectors(); break;
       case 'getTasks':              result = handleGetTasks(); break;
+      case 'authenticateAdmin':     result = handleAuthenticateAdmin(e.parameter); break;
       case 'getLeaderboard':        result = handleGetLeaderboard(period); break;
       case 'getCollectorStats':     result = handleGetCollectorStats(e.parameter.collector || ''); break;
       case 'getTodayLog':           result = handleGetTodayLog(e.parameter.collector || ''); break;
@@ -333,18 +334,22 @@ function doPost(e) {
       return jsonOut({ success: true, data: alertResult, message: alertResult.message || 'Alert sent' });
     }
     if (metaAction === 'ADMIN_ASSIGN_TASK') {
+      requireAdminToken_(body);
       var adminAssign = handleAdminAssignTask(body);
       return jsonOut({ success: true, data: adminAssign, message: adminAssign.message || 'Task assigned' });
     }
     if (metaAction === 'ADMIN_CANCEL_TASK') {
+      requireAdminToken_(body);
       var adminCancel = handleAdminCancelTask(body);
       return jsonOut({ success: true, data: adminCancel, message: adminCancel.message || 'Task canceled' });
     }
     if (metaAction === 'ADMIN_EDIT_HOURS') {
+      requireAdminToken_(body);
       var adminEdit = handleAdminEditHours(body);
       return jsonOut({ success: true, data: adminEdit, message: adminEdit.message || 'Hours updated' });
     }
     if (metaAction === 'GRANT_AWARD') {
+      requireAdminToken_(body);
       var awardResult = handleGrantAward(body);
       return jsonOut({ success: true, data: awardResult, message: awardResult.message || 'Award granted' });
     }
@@ -919,8 +924,82 @@ function runDailyRolloverForDate_(targetDate) {
   }
 }
 
+// ── Server-side admin authentication ─────────────────────────────────────────
+//
+// Setup (run once in the GAS editor after deploying):
+//   Extensions → Apps Script → Project Settings → Script Properties
+//   Add: ADMIN_PASSWORD = <your password or PIN>
+//   Add: ADMIN_HMAC_SECRET = <64+ random hex chars — generate with openssl rand -hex 32>
+//
+// The client calls ?action=authenticateAdmin&password=X&collector=Y.
+// GAS verifies the password against Script Properties (never in the bundle),
+// returns a short-lived HMAC-signed token.
+// The token is included in subsequent admin write requests and verified here.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function handleAuthenticateAdmin(params) {
+  var submitted = safeStr(params && params.password);
+  var collector = safeStr(params && params.collector);
+  var props  = PropertiesService.getScriptProperties();
+  var stored = props.getProperty('ADMIN_PASSWORD') || '';
+  if (!stored || submitted !== stored) {
+    Utilities.sleep(500); // constant-time delay to blunt brute-force
+    return { success: false, error: 'Invalid credentials' };
+  }
+  var token = mintAdminToken_(collector);
+  return { success: true, token: token, expiresIn: 86400 };
+}
+
+function mintAdminToken_(collector) {
+  var secret = PropertiesService.getScriptProperties().getProperty('ADMIN_HMAC_SECRET')
+               || 'change-this-fallback-secret';
+  var ts  = Date.now().toString();
+  var sig = Utilities.computeHmacSha256Signature(collector + '|' + ts, secret)
+    .map(function(b) { return ('0' + (b & 0xFF).toString(16)).slice(-2); }).join('');
+  return ts + '.' + sig;
+}
+
+function isValidAdminToken_(token, collector) {
+  if (!token) return false;
+  var secret = PropertiesService.getScriptProperties().getProperty('ADMIN_HMAC_SECRET')
+               || 'change-this-fallback-secret';
+  var parts = String(token).split('.');
+  if (parts.length !== 2) return false;
+  var ts = parseInt(parts[0], 10);
+  if (!isFinite(ts) || Date.now() - ts > 86400000) return false; // 24-hour TTL
+  var expected = Utilities.computeHmacSha256Signature(collector + '|' + ts, secret)
+    .map(function(b) { return ('0' + (b & 0xFF).toString(16)).slice(-2); }).join('');
+  return parts[1] === expected;
+}
+
+function requireAdminToken_(body) {
+  var token     = safeStr(body && body.adminToken);
+  var collector = safeStr(body && body.collector);
+  if (!isValidAdminToken_(token, collector)) {
+    throw new Error('Admin token missing or expired — re-authenticate in the app.');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function safeStr(v) { return String(v == null ? '' : v).trim(); }
 function safeNum(v) { var n = Number(v); return isFinite(n) ? n : 0; }
+
+/**
+ * Sanitize any user-supplied string before writing it to a Sheets cell.
+ * Strings that start with formula-triggering characters are prefixed with
+ * a single quote so Google Sheets treats them as plain text, not formulas.
+ * This prevents formula-injection attacks (e.g. =IMPORTRANGE(...)).
+ */
+function sanitizeForSheet(v) {
+  var s = safeStr(v);
+  if (s.length === 0) return s;
+  // Characters that trigger formula evaluation in Google Sheets
+  if (s[0] === '=' || s[0] === '+' || s[0] === '-' || s[0] === '@' || s[0] === '\t' || s[0] === '\r') {
+    return "'" + s; // prepend apostrophe → treated as literal string
+  }
+  return s;
+}
 function safeHours(v) {
   if (v instanceof Date) return 0;
   var n = Number(v);
@@ -3162,16 +3241,21 @@ function handleSubmit(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new Error('Invalid submit payload: expected JSON object with collector/task/actionType');
   }
-  var collector = safeStr(body.collector);
-  var task = safeStr(body.task);
-  var hours = safeNum(body.hours);
-  var actionType = safeStr(body.actionType);
-  var notes = safeStr(body.notes);
-  var rig = safeStr(body.rig);
-  var requestId = safeStr(body.requestId);
+  var collector  = sanitizeForSheet(safeStr(body.collector));
+  var task       = sanitizeForSheet(safeStr(body.task));
+  var hours      = safeNum(body.hours);
+  var actionType = safeStr(body.actionType).toUpperCase();
+  var notes      = sanitizeForSheet(safeStr(body.notes));
+  var rig        = sanitizeForSheet(safeStr(body.rig));
+  var requestId  = safeStr(body.requestId);
+
   if (!collector) throw new Error('Missing collector');
   if (!task) throw new Error('Missing task');
   if (!actionType) throw new Error('Missing actionType');
+
+  // Bounds-check hours — reject absurd values that could corrupt analytics
+  if (hours < 0) throw new Error('hours cannot be negative');
+  if (hours > 24) throw new Error('hours cannot exceed 24 per submission');
 
   var normCol = normalizeCollectorKey(collector);
   var normTask = normalizeTaskKey(task);

@@ -21,6 +21,7 @@ import {
   fetchDailyCarryover,
   fetchPendingReview,
   submitAction,
+  authenticateAdminGAS,
   isApiConfigured,
   warmServerCache,
   logCollectorRigSelection,
@@ -35,11 +36,8 @@ const STORAGE_KEYS = {
   ADMIN_AUTH: "ci_admin_auth",
 };
 
-// WARNING: Client-side password check is not secure. Anyone can inspect the
-// JS bundle and extract this value. For production use, validate the password
-// server-side (e.g. inside your Google Apps Script doPost handler) and return
-// a signed session token.
-const ADMIN_PASSWORD = process.env.EXPO_PUBLIC_ADMIN_PASSWORD ?? "";
+// Admin authentication is handled server-side via GAS (see handleAuthenticateAdmin
+// in appscript-core.gs). No password is stored in the client bundle.
 
 function mergeCollectors(raw: Collector[]): Collector[] {
   const map = new Map<string, Collector>();
@@ -142,11 +140,15 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     queryKey: ["adminAuth"],
     queryFn: async () => {
       const stored = await AsyncStorage.getItem(STORAGE_KEYS.ADMIN_AUTH);
-      if (!stored) return false;
-      const parsed = JSON.parse(stored) as { authenticated: boolean; ts: number };
-      const ONE_DAY = 24 * 60 * 60 * 1000;
-      if (Date.now() - parsed.ts > ONE_DAY) return false;
-      return parsed.authenticated;
+      if (!stored) return { authenticated: false, token: "" };
+      try {
+        const parsed = JSON.parse(stored) as { authenticated: boolean; ts: number; token?: string };
+        const ONE_DAY = 24 * 60 * 60 * 1000;
+        if (Date.now() - parsed.ts > ONE_DAY) return { authenticated: false, token: "" };
+        return { authenticated: !!parsed.authenticated, token: parsed.token ?? "" };
+      } catch {
+        return { authenticated: false, token: "" };
+      }
     },
   });
 
@@ -170,7 +172,7 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
 
   useEffect(() => {
     if (adminAuthQuery.data !== undefined) {
-      setIsAdmin(adminAuthQuery.data);
+      setIsAdmin(adminAuthQuery.data.authenticated ?? false);
     }
   }, [adminAuthQuery.data]);
 
@@ -207,17 +209,18 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   );
 
   const authenticateAdmin = useCallback(async (password: string): Promise<boolean> => {
-    log("[Provider] authenticateAdmin attempt");
-    if (password === ADMIN_PASSWORD) {
+    log("[Provider] authenticateAdmin — server-side verify");
+    const result = await authenticateAdminGAS(password, selectedCollectorName || "admin");
+    if (result.success && result.token) {
       setIsAdmin(true);
       await AsyncStorage.setItem(
         STORAGE_KEYS.ADMIN_AUTH,
-        JSON.stringify({ authenticated: true, ts: Date.now() })
+        JSON.stringify({ authenticated: true, ts: Date.now(), token: result.token })
       );
       return true;
     }
     return false;
-  }, []);
+  }, [selectedCollectorName]);
 
   const logoutAdmin = useCallback(async () => {
     log("[Provider] logoutAdmin");
@@ -554,6 +557,7 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     hoursToLog,
     notes,
     isAdmin,
+    adminToken: adminAuthQuery.data?.token ?? "",
 
     isLoadingCollectors: collectorQuery.isLoading,
     isLoadingTasks: taskQuery.isLoading,
