@@ -317,7 +317,4 @@ export const DarkTheme: ThemeColors = {
   cardDepth: 'rgba(255,255,255,0.04)',
 };
 
-// FrostedGlassTheme and TintedGlassTheme removed — use LightTheme and DarkTheme only
-export const FrostedGlassTheme: ThemeColors = LightTheme;
-export const TintedGlassTheme: ThemeColors = DarkTheme;
 

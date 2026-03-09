@@ -544,7 +544,6 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     tasks,
     todayLog,
     openTasks,
-    activity,
     carryoverItems,
     hasCarryover: carryoverItems.length > 0,
     pendingReview,

@@ -381,8 +381,7 @@ export default function DashboardScreen() {
     const todayOnly = todayLog.filter((e) => e.assignedDate === todayDateStr);
     const completed = todayOnly.filter((e) => e.status === "Completed").length;
     const totalLogged = todayOnly.reduce((s, e) => s + e.loggedHours, 0);
-    const totalPlanned = todayOnly.reduce((s, e) => s + e.plannedHours, 0);
-    return { completed, totalLogged, totalPlanned, total: todayOnly.length };
+    return { completed, totalLogged, total: todayOnly.length };
   }, [todayLog, todayDateStr]);
 
   // Full log list keeps all entries (including carryovers) visible and actionable.

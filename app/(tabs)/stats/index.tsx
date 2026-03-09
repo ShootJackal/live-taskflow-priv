@@ -136,7 +136,6 @@ const lbStyles = StyleSheet.create({
   statsRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
   statVal: { fontSize: 13, fontWeight: "500" as const },
   statSep: { fontSize: 13 },
-  metaText: { fontSize: 13, marginBottom: 4 },
 });
 
 const ComparisonCard = React.memo(function ComparisonCard({ mxHours, sfHours, mxCompleted, sfCompleted, colors }: {
@@ -979,7 +978,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: DesignTokens.spacing.xs,
   },
-  headerGlow: { display: "none" },
   pageHeaderRight: {
     flexDirection: "row",
     alignItems: "center",
