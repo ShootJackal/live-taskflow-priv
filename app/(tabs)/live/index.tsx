@@ -751,117 +751,123 @@ export default function LiveScreen() {
   return (
     <ScreenContainer>
       <View style={[liveStyles.topBar, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
-        {/* subtle ambient glow — no hard border */}
-        <View style={liveStyles.topBarLeft}>
+
+        {/* ── Row 1: tag label + action buttons (own row — no width conflict) ── */}
+        <View style={liveStyles.topRow}>
           <View style={[liveStyles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
             <Text style={[liveStyles.headerTagText, { color: colors.accent }]}>{`${t("live", "Live").toUpperCase()} MONITOR`}</Text>
           </View>
-          <View style={liveStyles.brandRow}>
-            <Image source={require("../../../assets/images/icon.png")} style={liveStyles.brandLogo} contentFit="contain" />
-            <View style={liveStyles.brandStack}>
-              <Animated.Text
-                style={[
-                  liveStyles.brandStroke,
-                  {
-                    color: colors.accentDim,
-                    transform: [{ translateX: brandWave.interpolate({ inputRange: [0, 1], outputRange: [-2, 2] }) }],
-                  },
-                ]}
-              >
-                TASKFLOW
-              </Animated.Text>
-              <Animated.Text
-                style={[
-                  liveStyles.brandText,
-                  {
-                    color: colors.accent,
-                    fontFamily: "Lexend_700Bold",
-                    textShadowColor: colors.accent + "33",
-                    textShadowRadius: 9,
-                    transform: [{ translateX: brandWave.interpolate({ inputRange: [0, 1], outputRange: [2, -2] }) }],
-                  },
-                ]}
-              >
-                TASKFLOW
-              </Animated.Text>
-            </View>
-            <View style={[liveStyles.liveBadge, {
-              backgroundColor: isOnline ? livePillColor + '14' : colors.cancel + '14',
-              borderColor: isOnline ? livePillColor + '40' : colors.cancel + '40',
-            }]}>
-              <Animated.View
-                pointerEvents="none"
-                accessible={false}
-                style={[liveStyles.liveGlow, {
-                  backgroundColor: isOnline ? livePillColor : colors.cancel,
-                  opacity: livePulse.interpolate({ inputRange: [0, 1], outputRange: [0.1, 0.28] }),
-                  transform: [{ scale: livePulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] }) }],
-                }]}
-              />
-              <View style={[liveStyles.liveDot, { backgroundColor: isOnline ? livePillColor : colors.cancel }]} />
-              <Text style={[liveStyles.liveLabel, { color: isOnline ? livePillColor : colors.cancel, fontFamily: FONT_MONO }]}>
-                {isOnline ? "LIVE" : "OFF"}
-              </Text>
-            </View>
-          </View>
-          <View style={liveStyles.metaRow}>
-            <View style={[liveStyles.rigCountChip, {
-              borderColor: isOnline ? livePillColor + "40" : colors.border,
-              backgroundColor: isOnline ? livePillColor + "10" : colors.bgInput,
-            }]}>
-              <Animated.View
-                style={[liveStyles.rigCountDot, {
-                  backgroundColor: isOnline ? livePillColor : colors.statusPending,
-                  opacity: livePulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] }),
-                  transform: [{ scale: livePulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.22] }) }],
-                }]}
-              />
-              <Text style={[liveStyles.rigCountText, { color: colors.textSecondary, fontFamily: "Lexend_500Medium" }]}>
-                {totalRigCount} rigs active
-              </Text>
-            </View>
-            {liveAlerts.length > 0 && (
-              <View style={[liveStyles.alertChip, { borderColor: colors.alertYellow + "35", backgroundColor: colors.alertYellowBg }]}>
-                <Text style={[liveStyles.alertChipText, { color: colors.alertYellow, fontFamily: FONT_MONO }]}>
-                  {liveAlerts.length} alerts
-                </Text>
-              </View>
-            )}
-            <View style={[liveStyles.clockPill, {
-              backgroundColor: isSyncing ? colors.statusPending + "14" : colors.bgCard,
-              borderColor: isSyncing ? colors.statusPending + "3A" : colors.border,
-            }]}>
-              <Clock3 size={11} color={isSyncing ? colors.statusPending : colors.textMuted} />
-              <Text style={[liveStyles.clockText, {
-                color: isSyncing ? colors.statusPending : colors.textSecondary,
-                fontFamily: FONT_MONO,
-              }]}>
-                {liveClock}
-              </Text>
-            </View>
+          <View style={liveStyles.topBarRight}>
+            <TouchableOpacity
+              style={[liveStyles.iconBtn, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
+              onPress={handleToggleTheme}
+              activeOpacity={0.7}
+              testID="theme-toggle-live"
+            >
+              {resolvedMode === "dark" ? <Moon size={15} color={colors.accent} /> :
+               resolvedMode === "frosted" ? <Snowflake size={15} color={colors.accent} /> :
+               resolvedMode === "tinted" ? <Glasses size={15} color={colors.accent} /> :
+               <Sun size={15} color={colors.alertYellow} />}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[liveStyles.iconBtn, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowGuide(true); }}
+              activeOpacity={0.7}
+              testID="guide-btn"
+            >
+              <BookOpen size={15} color={colors.accent} />
+            </TouchableOpacity>
           </View>
         </View>
-        <View style={liveStyles.topBarRight}>
-          <TouchableOpacity
-            style={[liveStyles.iconBtn, { backgroundColor: colors.bgCard, borderColor: colors.border }]}
-            onPress={handleToggleTheme}
-            activeOpacity={0.7}
-            testID="theme-toggle-live"
-          >
-            {resolvedMode === "dark" ? <Moon size={15} color={colors.accent} /> :
-             resolvedMode === "frosted" ? <Snowflake size={15} color={colors.accent} /> :
-             resolvedMode === "tinted" ? <Glasses size={15} color={colors.accent} /> :
-             <Sun size={15} color={colors.alertYellow} />}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[liveStyles.iconBtn, { backgroundColor: colors.bgCard, borderColor: colors.border }]}
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowGuide(true); }}
-            activeOpacity={0.7}
-            testID="guide-btn"
-          >
-            <BookOpen size={15} color={colors.accent} />
-          </TouchableOpacity>
+
+        {/* ── Row 2: logo + TASKFLOW + LIVE badge (full width, no overlap) ── */}
+        <View style={liveStyles.brandRow}>
+          <Image source={require("../../../assets/images/icon.png")} style={liveStyles.brandLogo} contentFit="contain" />
+          <View style={liveStyles.brandStack}>
+            <Animated.Text
+              style={[
+                liveStyles.brandStroke,
+                {
+                  color: colors.accentDim,
+                  transform: [{ translateX: brandWave.interpolate({ inputRange: [0, 1], outputRange: [-2, 2] }) }],
+                },
+              ]}
+            >
+              TASKFLOW
+            </Animated.Text>
+            <Animated.Text
+              style={[
+                liveStyles.brandText,
+                {
+                  color: colors.accent,
+                  fontFamily: "Lexend_700Bold",
+                  textShadowColor: colors.accent + "33",
+                  textShadowRadius: 9,
+                  transform: [{ translateX: brandWave.interpolate({ inputRange: [0, 1], outputRange: [2, -2] }) }],
+                },
+              ]}
+            >
+              TASKFLOW
+            </Animated.Text>
+          </View>
+          <View style={[liveStyles.liveBadge, {
+            backgroundColor: isOnline ? livePillColor + '14' : colors.cancel + '14',
+            borderColor: isOnline ? livePillColor + '40' : colors.cancel + '40',
+          }]}>
+            <Animated.View
+              pointerEvents="none"
+              accessible={false}
+              style={[liveStyles.liveGlow, {
+                backgroundColor: isOnline ? livePillColor : colors.cancel,
+                opacity: livePulse.interpolate({ inputRange: [0, 1], outputRange: [0.1, 0.28] }),
+                transform: [{ scale: livePulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] }) }],
+              }]}
+            />
+            <View style={[liveStyles.liveDot, { backgroundColor: isOnline ? livePillColor : colors.cancel }]} />
+            <Text style={[liveStyles.liveLabel, { color: isOnline ? livePillColor : colors.cancel, fontFamily: FONT_MONO }]}>
+              {isOnline ? "LIVE" : "OFF"}
+            </Text>
+          </View>
         </View>
+
+        {/* ── Row 3: meta chips (rig count, alerts, clock) ── */}
+        <View style={liveStyles.metaRow}>
+          <View style={[liveStyles.rigCountChip, {
+            borderColor: isOnline ? livePillColor + "40" : colors.border,
+            backgroundColor: isOnline ? livePillColor + "10" : colors.bgInput,
+          }]}>
+            <Animated.View
+              style={[liveStyles.rigCountDot, {
+                backgroundColor: isOnline ? livePillColor : colors.statusPending,
+                opacity: livePulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] }),
+                transform: [{ scale: livePulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.22] }) }],
+              }]}
+            />
+            <Text style={[liveStyles.rigCountText, { color: colors.textSecondary, fontFamily: "Lexend_500Medium" }]}>
+              {totalRigCount} rigs active
+            </Text>
+          </View>
+          {liveAlerts.length > 0 && (
+            <View style={[liveStyles.alertChip, { borderColor: colors.alertYellow + "35", backgroundColor: colors.alertYellowBg }]}>
+              <Text style={[liveStyles.alertChipText, { color: colors.alertYellow, fontFamily: FONT_MONO }]}>
+                {liveAlerts.length} alerts
+              </Text>
+            </View>
+          )}
+          <View style={[liveStyles.clockPill, {
+            backgroundColor: isSyncing ? colors.statusPending + "14" : colors.bgCard,
+            borderColor: isSyncing ? colors.statusPending + "3A" : colors.border,
+          }]}>
+            <Clock3 size={11} color={isSyncing ? colors.statusPending : colors.textMuted} />
+            <Text style={[liveStyles.clockText, {
+              color: isSyncing ? colors.statusPending : colors.textSecondary,
+              fontFamily: FONT_MONO,
+            }]}>
+              {liveClock}
+            </Text>
+          </View>
+        </View>
+
       </View>
 
       <View style={liveStyles.tickerWrap}>
@@ -978,9 +984,6 @@ const liveStyles = StyleSheet.create({
     paddingTop: 8,
   },
   topBar: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
     marginHorizontal: DesignTokens.spacing.md,
     marginTop: DesignTokens.spacing.sm,
     padding: DesignTokens.spacing.lg,
@@ -991,7 +994,13 @@ const liveStyles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 6,
   },
-  topBarLeft: { flex: 1 },
+  // Tag label + icon buttons on their own row — prevents overlap with brand text
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: DesignTokens.spacing.xs,
+  },
   headerTag: {
     alignSelf: "flex-start",
     borderRadius: 7,
@@ -1065,7 +1074,7 @@ const liveStyles = StyleSheet.create({
     paddingVertical: 3,
   },
   clockText: { fontSize: 10, letterSpacing: 0.3 },
-  topBarRight: { flexDirection: "row", gap: 8 },
+  topBarRight: { flexDirection: "row", gap: 8, flexShrink: 0 },
   iconBtn: {
     width: 44,
     height: 44,

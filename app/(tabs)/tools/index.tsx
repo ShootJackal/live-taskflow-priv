@@ -239,46 +239,32 @@ export default function ToolsScreen() {
           contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        {/* Large-title header — no card container */}
-        <View style={styles.pageHeader}>
-          <View>
-            <View style={styles.brandRow}>
-              <Image
-                source={require("../../../assets/images/icon.png")}
-                style={styles.brandLogo}
-                contentFit="contain"
-              />
-              <Text
-                style={[
-                  styles.brandText,
-                  { color: colors.accent, fontFamily: "Lexend_700Bold" },
-                ]}
-              >
-                {t("tools", "Tools")}
-              </Text>
+        {/* Header card — matches Live tab style */}
+        <View style={[styles.pageHeader, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
+          {/* Tag row: label left, admin badge right */}
+          <View style={styles.headerTopRow}>
+            <View style={[styles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
+              <Text style={[styles.headerTagText, { color: colors.accent }]}>SETTINGS</Text>
             </View>
-            <Text
-              style={[
-                styles.brandSub,
-                { color: colors.textSecondary, fontFamily: "Lexend_400Regular" },
-              ]}
-            >
-              {t("settings", "Settings & Utilities")}
+            <View style={styles.pageHeaderRight}>
+              {isAdmin && (
+                <View style={[styles.adminBadge, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
+                  <Shield size={11} color={colors.accent} />
+                  <Text style={[styles.adminBadgeText, { color: colors.accent }]}>Admin</Text>
+                </View>
+              )}
+            </View>
+          </View>
+          {/* Brand row */}
+          <View style={styles.brandRow}>
+            <Image source={require("../../../assets/images/icon.png")} style={styles.brandLogo} contentFit="contain" />
+            <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>
+              {t("tools", "Tools")}
             </Text>
           </View>
-          <View style={styles.pageHeaderRight}>
-            {isAdmin && (
-              <View
-                style={[
-                  styles.adminBadge,
-                  { backgroundColor: colors.accentSoft, borderColor: colors.accentDim },
-                ]}
-              >
-                <Shield size={11} color={colors.accent} />
-                <Text style={[styles.adminBadgeText, { color: colors.accent }]}>Admin</Text>
-              </View>
-            )}
-          </View>
+          <Text style={[styles.brandSub, { color: colors.textSecondary, fontFamily: "Lexend_400Regular" }]}>
+            {t("settings", "Settings & Utilities")}
+          </Text>
         </View>
 
         <SectionHeader label={t("my_profile", "My Profile")} icon={<User size={11} color={colors.textMuted} />} />
@@ -483,16 +469,45 @@ const styles = StyleSheet.create({
     gap: DesignTokens.spacing.xs,
   },
 
-  // Header — plain text, no card
+  // Header card — matches Live tab style
   pageHeader: {
+    marginBottom: DesignTokens.spacing.md,
+    padding: DesignTokens.spacing.lg,
+    borderRadius: DesignTokens.radius.xl,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.10,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  headerTopRow: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    alignItems: "flex-end",
-    paddingVertical: DesignTokens.spacing.sm,
     marginBottom: DesignTokens.spacing.xs,
   },
-  pageHeaderRight: { alignItems: "flex-end", gap: DesignTokens.spacing.xs },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  headerTag: {
+    alignSelf: "flex-start",
+    borderRadius: 7,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  headerTagText: {
+    fontSize: 10,
+    fontWeight: "700" as const,
+    letterSpacing: 0.7,
+  },
+  pageHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: DesignTokens.spacing.sm,
+  },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: DesignTokens.spacing.xs,
+  },
   brandLogo: { width: 28, height: 28, borderRadius: 8 },
   brandText: {
     fontSize: DesignTokens.fontSize.largeTitle,
@@ -504,7 +519,7 @@ const styles = StyleSheet.create({
     fontWeight: "500" as const,
     letterSpacing: 0.3,
     marginLeft: 38,
-    marginTop: 2,
+    marginTop: 3,
   },
   adminBadge: {
     flexDirection: "row",

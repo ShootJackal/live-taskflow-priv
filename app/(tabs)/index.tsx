@@ -461,79 +461,35 @@ export default function DashboardScreen() {
                 />
               }
             >
-              {/* ── Large-title header ─────────────────────────────────── */}
-              <View style={styles.pageHeader}>
-                <View style={styles.headerLeft}>
-                  <View style={styles.brandRow}>
-                    <Image
-                      source={require("../../assets/images/icon.png")}
-                      style={styles.brandLogo}
-                      contentFit="contain"
-                    />
-                    <Text
-                      style={[
-                        styles.brandText,
-                        {
-                          color: colors.accent,
-                          fontFamily: "Lexend_700Bold",
-                        },
-                      ]}
-                    >
-                      {t("collect", "Collect")}
-                    </Text>
+              {/* ── Header card — matches Live tab style ───────────────── */}
+              <View style={[styles.pageHeader, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
+                {/* Tag row */}
+                <View style={styles.headerTopRow}>
+                  <View style={[styles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
+                    <Text style={[styles.headerTagText, { color: colors.accent }]}>COLLECT HUB</Text>
                   </View>
-                  <Text
-                    style={[
-                      styles.brandSub,
-                      {
-                        color: colors.textSecondary,
-                        fontFamily: "Lexend_400Regular",
-                      },
-                    ]}
-                  >
-                    {firstName
-                      ? `${firstName}'s Workspace`
-                      : "Task Management"}
+                  <View style={styles.headerRight}>
+                    {selectedRig !== "" && (
+                      <Text style={[styles.rigLabel, { color: colors.textMuted }]}>{selectedRig}</Text>
+                    )}
+                    {openTasks.length > 0 && (
+                      <View style={[styles.openPill, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
+                        <Circle size={5} color={colors.accent} fill={colors.accent} />
+                        <Text style={[styles.openPillText, { color: colors.accent }]}>{openTasks.length} open</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+                {/* Brand row */}
+                <View style={styles.brandRow}>
+                  <Image source={require("../../assets/images/icon.png")} style={styles.brandLogo} contentFit="contain" />
+                  <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>
+                    {t("collect", "Collect")}
                   </Text>
                 </View>
-
-                <View style={styles.headerRight}>
-                  {selectedRig !== "" && (
-                    <Text
-                      style={[
-                        styles.rigLabel,
-                        { color: colors.textMuted },
-                      ]}
-                    >
-                      {selectedRig}
-                    </Text>
-                  )}
-                  {openTasks.length > 0 && (
-                    <View
-                      style={[
-                        styles.openPill,
-                        {
-                          backgroundColor: colors.accentSoft,
-                          borderColor: colors.accentDim,
-                        },
-                      ]}
-                    >
-                      <Circle
-                        size={5}
-                        color={colors.accent}
-                        fill={colors.accent}
-                      />
-                      <Text
-                        style={[
-                          styles.openPillText,
-                          { color: colors.accent },
-                        ]}
-                      >
-                        {openTasks.length} open
-                      </Text>
-                    </View>
-                  )}
-                </View>
+                <Text style={[styles.brandSub, { color: colors.textSecondary, fontFamily: "Lexend_400Regular" }]}>
+                  {firstName ? `${firstName}'s Workspace` : "Task Management"}
+                </Text>
               </View>
 
               {/* ── Banners ───────────────────────────────────────────── */}
@@ -1191,19 +1147,40 @@ const styles = StyleSheet.create({
     gap: DesignTokens.spacing.md,
   },
 
-  // Header — plain text, no card
+  // Header card — same visual language as Live tab
   pageHeader: {
+    marginHorizontal: 0,
+    marginBottom: DesignTokens.spacing.md,
+    padding: DesignTokens.spacing.lg,
+    borderRadius: DesignTokens.radius.xl,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.10,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  headerTopRow: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    paddingVertical: DesignTokens.spacing.sm,
     marginBottom: DesignTokens.spacing.xs,
   },
-  headerLeft: { gap: 3 },
+  headerTag: {
+    alignSelf: "flex-start",
+    borderRadius: 7,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  headerTagText: {
+    fontSize: 10,
+    fontWeight: "700" as const,
+    letterSpacing: 0.7,
+  },
   brandRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+    marginTop: DesignTokens.spacing.xs,
   },
   brandLogo: { width: 28, height: 28, borderRadius: 8 },
   brandText: {
@@ -1214,11 +1191,13 @@ const styles = StyleSheet.create({
   brandSub: {
     fontSize: DesignTokens.fontSize.footnote,
     letterSpacing: 0.3,
-    marginLeft: 38, // align under text
+    marginTop: 3,
+    marginLeft: 38,
   },
   headerRight: {
-    alignItems: "flex-end",
-    gap: DesignTokens.spacing.xs,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: DesignTokens.spacing.sm,
   },
   rigLabel: {
     fontSize: DesignTokens.fontSize.caption1,
