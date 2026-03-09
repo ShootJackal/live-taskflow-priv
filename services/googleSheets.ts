@@ -59,6 +59,14 @@ const memoryCache = new Map<string, { data: unknown; ts: number }>();
 const appCacheSnapshotMemo = new Map<string, { data: Record<string, AppCacheEntry>; ts: number }>();
 const warmServerLastRunByKey = new Map<string, number>();
 
+// Actions that must always hit GAS directly (bypass the CDN proxy).
+// These are internal GAS-side cache operations or rarely-used admin reads.
+const BYPASS_PROXY_ACTIONS = new Set([
+  "refreshCache",
+  "forceServerRepull",
+  "getAppCache",
+]);
+
 const CACHE_TTL_MS: Record<string, number> = {
   getCollectors: 5 * 60 * 1000,
   getTasks: 5 * 60 * 1000,
@@ -266,12 +274,21 @@ async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T>> 
   return tryParseResponseText<T>(text);
 }
 
-async function apiGet<T>(action: string, params: Record<string, string> = {}, useCache = true): Promise<T> {
-  const scriptUrl = getScriptUrlForAction(action);
-  if (!scriptUrl) {
-    throw getMissingScriptUrlError(ANALYTICS_GET_ACTIONS.has(action) ? "analytics" : "core");
+/**
+ * Returns the Vercel CDN proxy URL for a given action when running on web.
+ * The proxy (api/gas.ts) caches GAS responses at the edge, shielding users
+ * from GAS cold-start latency. Falls back to direct GAS if proxy is unavailable.
+ */
+function getProxyUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return new URL("/api/gas", window.location.origin).toString();
+  } catch {
+    return null;
   }
+}
 
+async function apiGet<T>(action: string, params: Record<string, string> = {}, useCache = true): Promise<T> {
   const cacheKey = `${action}?${JSON.stringify(params)}`;
 
   if (useCache) {
@@ -292,6 +309,24 @@ async function apiGet<T>(action: string, params: Record<string, string> = {}, us
     }
   }
 
+  // On web: route through the Vercel CDN proxy so GAS cold-start latency is
+  // absorbed at the edge and responses are cached globally.
+  // Certain internal actions bypass the proxy and always go direct to GAS.
+  const proxyUrl = !BYPASS_PROXY_ACTIONS.has(action) ? getProxyUrl() : null;
+  if (proxyUrl) {
+    try {
+      return await fetchFromApi<T>(action, params, cacheKey, proxyUrl);
+    } catch (proxyErr) {
+      // Proxy unavailable (local dev without Vercel, misconfigured env, etc.)
+      // — fall through to direct GAS below.
+      log("[API] CDN proxy failed, falling back to direct GAS:", proxyErr);
+    }
+  }
+
+  const scriptUrl = getScriptUrlForAction(action);
+  if (!scriptUrl) {
+    throw getMissingScriptUrlError(ANALYTICS_GET_ACTIONS.has(action) ? "analytics" : "core");
+  }
   return fetchFromApi<T>(action, params, cacheKey, scriptUrl);
 }
 
@@ -352,10 +387,11 @@ async function fetchFromApi<T>(action: string, params: Record<string, string>, c
 }
 
 function backgroundRefresh<T>(action: string, params: Record<string, string>, cacheKey: string): void {
-  const scriptUrl = getScriptUrlForAction(action);
-  if (!scriptUrl) return;
   setTimeout(() => {
-    fetchFromApi<T>(action, params, cacheKey, scriptUrl).catch((err) => {
+    const proxyUrl = !BYPASS_PROXY_ACTIONS.has(action) ? getProxyUrl() : null;
+    const url = proxyUrl ?? getScriptUrlForAction(action);
+    if (!url) return;
+    fetchFromApi<T>(action, params, cacheKey, url).catch((err) => {
       log("[API] Background refresh failed:", action, err);
     });
   }, 100);
