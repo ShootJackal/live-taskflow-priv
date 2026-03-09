@@ -2,11 +2,41 @@ export interface Collector {
   id: string;
   name: string;
   rigs: string[];
+  team?: "SF" | "MX";
   email?: string;
   weeklyCap?: number;
   active?: boolean;
   hoursUploaded?: number;
   rating?: string;
+}
+
+export interface RigStatus {
+  rig: number;
+  status: "available" | "in_use" | "pending_transfer";
+  assignedTo: string | null;
+  assignmentId: string | null;
+  assignedAt: string | null;
+  pendingSwitchBy: string | null;
+}
+
+export interface RigAssignment {
+  assignmentId: string;
+  collector: string;
+  team: string;
+  rig: number;
+  assignedAt: string;
+  releasedAt?: string;
+  status: "ACTIVE" | "RELEASED";
+  message?: string;
+}
+
+export interface RigSwitchRequest {
+  type: "incoming" | "outgoing";
+  assignmentId: string;
+  rig: number;
+  requestedBy?: string;
+  currentAssignee?: string;
+  requestedAt: string | null;
 }
 
 export interface Task {

@@ -13,6 +13,8 @@ import {
   AssignmentStatus,
   DailyCarryoverItem,
   PendingReviewItem,
+  RigAssignment,
+  RigSwitchRequest,
 } from "@/types";
 import {
   fetchCollectors,
@@ -24,6 +26,8 @@ import {
   isApiConfigured,
   warmServerCache,
   logCollectorRigSelection,
+  assignRigSOD,
+  fetchPendingSwitchRequests,
 } from "@/services/googleSheets";
 import { normalizeCollectorName } from "@/utils/normalize";
 import { log } from "@/utils/logger";
@@ -109,9 +113,19 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     queryKey: ["pendingReview", selectedCollectorName, selectedRig],
     queryFn: () => fetchPendingReview(selectedCollectorName, selectedRig),
     enabled: configured && !!selectedCollectorName && !!selectedRig,
-    staleTime: 60000,         // data considered fresh for 1 min
-    refetchInterval: 120000,  // background refetch every 2 min
+    staleTime: 60000,
+    refetchInterval: 120000,
     retry: 1,
+  });
+
+  // Poll for incoming/outgoing rig switch requests every 20 s.
+  const switchRequestsQuery = useQuery<RigSwitchRequest[]>({
+    queryKey: ["rigSwitchRequests", selectedCollectorName],
+    queryFn: () => fetchPendingSwitchRequests(selectedCollectorName),
+    enabled: configured && !!selectedCollectorName,
+    staleTime: 15000,
+    refetchInterval: 20000,
+    retry: 0,
   });
 
   const savedCollectorQuery = useQuery({
@@ -579,5 +593,14 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     refreshData,
     authenticateAdmin,
     logoutAdmin,
+
+    // Rig assignment
+    pendingSwitchRequests: switchRequestsQuery.data ?? [] as RigSwitchRequest[],
+    assignRigForDay: async (rig: number): Promise<RigAssignment> => {
+      const result = await assignRigSOD({ collector: selectedCollectorName, rig });
+      // Mirror to the app's selectedRig so form/submit flows use the assigned rig.
+      await setSelectedRig(String(rig));
+      return result;
+    },
   };
 });

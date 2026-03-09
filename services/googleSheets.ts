@@ -15,6 +15,9 @@ import {
   AdminStartPlanData,
   DailyCarryoverItem,
   PendingReviewItem,
+  RigStatus,
+  RigAssignment,
+  RigSwitchRequest,
 } from "@/types";
 import { normalizeCollectorName } from "@/utils/normalize";
 import { log } from "@/utils/logger";
@@ -65,6 +68,8 @@ const BYPASS_PROXY_ACTIONS = new Set([
   "refreshCache",
   "forceServerRepull",
   "getAppCache",
+  "getRigStatus",
+  "getPendingSwitchRequests",
 ]);
 
 const CACHE_TTL_MS: Record<string, number> = {
@@ -82,6 +87,8 @@ const CACHE_TTL_MS: Record<string, number> = {
   getCollectorProfile: 60 * 1000,
   getAdminStartPlan: 60 * 1000,
   getDailyCarryover: 20 * 1000,
+  getRigStatus: 15 * 1000,
+  getPendingSwitchRequests: 15 * 1000,
 };
 
 const STORAGE_TTL_MS: Record<string, number> = {
@@ -1105,6 +1112,70 @@ export async function forceServerRepull(options?: {
   if (reason) params.reason = reason;
   return await apiGet<Record<string, unknown>>("forceServerRepull", params, false);
 }
+
+// ── Rig Assignment System ────────────────────────────────────────────────────
+
+export async function fetchRigStatus(): Promise<RigStatus[]> {
+  return await apiGet<RigStatus[]>("getRigStatus", {}, false);
+}
+
+export async function assignRigSOD(payload: {
+  collector: string;
+  rig: number;
+}): Promise<RigAssignment> {
+  return await apiMetaPost<RigAssignment>({
+    metaAction: "ASSIGN_RIG_SOD",
+    collector: String(payload.collector ?? "").trim(),
+    rig: payload.rig,
+  });
+}
+
+export async function releaseRig(payload: {
+  assignmentId: string;
+  reason?: string;
+}): Promise<{ message: string; hours?: number }> {
+  return await apiMetaPost({
+    metaAction: "RELEASE_RIG",
+    assignmentId: String(payload.assignmentId ?? "").trim(),
+    reason: String(payload.reason ?? "MANUAL").trim(),
+  });
+}
+
+export async function requestRigSwitch(payload: {
+  requestingCollector: string;
+  rig: number;
+}): Promise<{ assignmentId: string; currentAssignee: string; message: string }> {
+  return await apiMetaPost({
+    metaAction: "REQUEST_RIG_SWITCH",
+    requestingCollector: String(payload.requestingCollector ?? "").trim(),
+    rig: payload.rig,
+  });
+}
+
+export async function respondRigSwitch(payload: {
+  assignmentId: string;
+  action: "APPROVE" | "DENY";
+}): Promise<{ result: string; message: string }> {
+  memoryCache.clear();
+  return await apiMetaPost({
+    metaAction: "RESPOND_RIG_SWITCH",
+    assignmentId: String(payload.assignmentId ?? "").trim(),
+    action: payload.action,
+  });
+}
+
+export async function fetchPendingSwitchRequests(
+  collectorName: string
+): Promise<RigSwitchRequest[]> {
+  if (!collectorName) return [];
+  return await apiGet<RigSwitchRequest[]>(
+    "getPendingSwitchRequests",
+    { collector: collectorName },
+    false
+  );
+}
+
+// ── End Rig Assignment System ────────────────────────────────────────────────
 
 async function clearStorageApiCache(): Promise<void> {
   const keys = await AsyncStorage.getAllKeys();
