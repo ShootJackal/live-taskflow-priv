@@ -781,6 +781,7 @@ export async function pushLiveAlert(payload: {
   level?: string;
   target?: string;
   createdBy?: string;
+  expiryHours?: number;
 }): Promise<void> {
   const scriptUrl = getScriptUrlForMetaAction("PUSH_ALERT");
   if (!scriptUrl) {
@@ -789,16 +790,21 @@ export async function pushLiveAlert(payload: {
 
   const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
   try {
+    const body: Record<string, unknown> = {
+      metaAction: "PUSH_ALERT",
+      message: String(payload.message ?? "").trim(),
+      level: String(payload.level ?? "INFO").trim(),
+      target: String(payload.target ?? "ALL").trim(),
+      createdBy: String(payload.createdBy ?? "").trim(),
+    };
+    if (payload.expiryHours && payload.expiryHours > 0) {
+      body.expiryHours = payload.expiryHours;
+    }
+
     const response = await fetch(scriptUrl, {
       method: "POST",
       headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify({
-        metaAction: "PUSH_ALERT",
-        message: String(payload.message ?? "").trim(),
-        level: String(payload.level ?? "INFO").trim(),
-        target: String(payload.target ?? "ALL").trim(),
-        createdBy: String(payload.createdBy ?? "").trim(),
-      }),
+      body: JSON.stringify(body),
       redirect: "follow",
       signal: timeout.controller.signal,
       cache: "no-store",
@@ -814,6 +820,33 @@ export async function pushLiveAlert(payload: {
       throw new Error(json.error ?? json.message ?? "Alert push failed");
     }
 
+    memoryCache.clear();
+    appCacheSnapshotMemo.clear();
+  } finally {
+    timeout.cancel();
+  }
+}
+
+export async function clearAllAlerts(): Promise<void> {
+  const scriptUrl = getScriptUrlForMetaAction("CLEAR_ALL_ALERTS");
+  if (!scriptUrl) throw getMissingScriptUrlError("core");
+
+  const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(scriptUrl, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ metaAction: "CLEAR_ALL_ALERTS" }),
+      redirect: "follow",
+      signal: timeout.controller.signal,
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text || "Clear alerts failed"}`);
+    }
+    const json = await parseApiResponse<Record<string, unknown>>(response);
+    if (!json.success) throw new Error(json.error ?? json.message ?? "Clear alerts failed");
     memoryCache.clear();
     appCacheSnapshotMemo.clear();
   } finally {

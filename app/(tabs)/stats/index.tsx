@@ -80,9 +80,6 @@ const LeaderboardRow = React.memo(function LeaderboardRow({ entry, index, isCurr
   const rankColor = entry.rank === 1 ? colors.gold : entry.rank === 2 ? colors.silver : entry.rank === 3 ? colors.bronze : colors.textMuted;
   const rankBg = entry.rank === 1 ? colors.goldBg : entry.rank === 2 ? colors.silverBg : entry.rank === 3 ? colors.bronzeBg : colors.bgInput;
   const regionColor = entry.region === "MX" ? colors.mxOrange : entry.region === "SF" ? colors.sfBlue : colors.accent;
-  const source = "ACTUAL";
-  const sourceColor = colors.terminalGreen;
-
   return (
     <View style={[lbStyles.row, {
       backgroundColor: isCurrentUser ? colors.accentSoft : "transparent",
@@ -105,8 +102,8 @@ const LeaderboardRow = React.memo(function LeaderboardRow({ entry, index, isCurr
           <View style={[lbStyles.regionTag, { backgroundColor: regionColor + '14' }]}>
             <Text style={[lbStyles.regionText, { color: regionColor }]}>{entry.region}</Text>
           </View>
-          <View style={[lbStyles.sourceTag, { backgroundColor: sourceColor + '16' }]}>
-            <Text style={[lbStyles.sourceText, { color: sourceColor }]}>{source}</Text>
+          <View style={[lbStyles.sourceTag, { backgroundColor: colors.terminalGreen + '16' }]}>
+            <Text style={[lbStyles.sourceText, { color: colors.terminalGreen }]}>ACTUAL</Text>
           </View>
         </View>
         <View style={lbStyles.statsRow}>

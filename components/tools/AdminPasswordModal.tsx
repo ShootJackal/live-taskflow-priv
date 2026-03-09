@@ -24,13 +24,13 @@ export function AdminPasswordModal({
 }) {
   const { colors } = useTheme();
   const [password, setPassword] = useState("");
-  const [error, setError] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = useCallback(async () => {
     if (!password.trim()) return;
     setLoading(true);
-    setError(false);
+    setErrorMsg("");
     try {
       const success = await onAuthenticate(password.trim());
       if (success) {
@@ -38,11 +38,11 @@ export function AdminPasswordModal({
         onClose();
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } else {
-        setError(true);
+        setErrorMsg("Incorrect password");
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
-    } catch {
-      setError(true);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Authentication failed");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setLoading(false);
@@ -52,7 +52,7 @@ export function AdminPasswordModal({
   return (
     <Modal visible={visible} transparent animationType="slide">
       <View style={styles.overlay}>
-        <TouchableOpacity style={styles.overlayDismiss} onPress={() => { setPassword(""); setError(false); onClose(); }} accessible={false} />
+        <TouchableOpacity style={styles.overlayDismiss} onPress={() => { setPassword(""); setErrorMsg(""); onClose(); }} accessible={false} />
         <View style={[styles.card, { backgroundColor: colors.bgCard }]}>
           <View style={[styles.handle, { backgroundColor: colors.border }]} />
           <View style={styles.header}>
@@ -71,14 +71,14 @@ export function AdminPasswordModal({
               styles.input,
               {
                 backgroundColor: colors.bgInput,
-                borderColor: error ? colors.cancel : colors.border,
+                borderColor: errorMsg ? colors.cancel : colors.border,
                 color: colors.textPrimary,
               },
             ]}
             value={password}
             onChangeText={(t) => {
               setPassword(t);
-              setError(false);
+              setErrorMsg("");
             }}
             placeholder="Enter password"
             placeholderTextColor={colors.textMuted}
@@ -88,9 +88,9 @@ export function AdminPasswordModal({
             autoFocus
             testID="admin-password-input"
           />
-          {error && (
+          {!!errorMsg && (
             <Text style={[styles.errorText, { color: colors.cancel }]}>
-              Incorrect password
+              {errorMsg}
             </Text>
           )}
           <View style={styles.actions}>
@@ -98,7 +98,7 @@ export function AdminPasswordModal({
               style={[styles.cancelBtn, { borderColor: colors.border }]}
               onPress={() => {
                 setPassword("");
-                setError(false);
+                setErrorMsg("");
                 onClose();
               }}
               activeOpacity={0.7}

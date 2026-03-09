@@ -36,15 +36,6 @@ export interface LogEntry {
   completedDate: string;
 }
 
-export interface TaskMeta {
-  taskId: string;
-  status: string;
-  requiredHours: number;
-  collectedHours: number;
-  remainingHours: number;
-  plannedChunk: number;
-  goodHours: number;
-}
 
 export interface SubmitPayload {
   collector: string;
@@ -66,7 +57,6 @@ export interface SubmitResponse {
   hours?: number;
   remaining?: number;
   status?: string;
-  dailyPlanned?: number;
 }
 
 export interface ActivityEntry {

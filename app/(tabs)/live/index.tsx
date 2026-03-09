@@ -250,7 +250,6 @@ export default function LiveScreen() {
   const { configured, collectors, todayLog, selectedCollectorName } = useCollection();
   const queryClient = useQueryClient();
 
-  const [isOnline, setIsOnline] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
   const [refreshing, setRefreshing] = useState(false);
   const [recollectExpanded, setRecollectExpanded] = useState(false);
@@ -459,7 +458,6 @@ export default function LiveScreen() {
   }, [recollectionsQuery.data, addLogEntries]);
 
   // ── Effects ────────────────────────────────────────────────────────────────
-  useEffect(() => { setIsOnline(configured); }, [configured]);
   useEffect(() => {
     const i = setInterval(() => setClockNow(new Date()), 1000);
     return () => clearInterval(i);
@@ -491,7 +489,7 @@ export default function LiveScreen() {
     setRefreshing(false);
   }, [queryClient]);
 
-  const liveDotColor = isOnline ? colors.terminalGreen : colors.cancel;
+  const liveDotColor = configured ? colors.terminalGreen : colors.cancel;
 
   // ── Render helpers ─────────────────────────────────────────────────────────
   const renderRegionCol = (
@@ -533,7 +531,7 @@ export default function LiveScreen() {
           <Text style={[s.statusTitle, { color: colors.textPrimary, fontFamily:"Lexend_700Bold" }]}>
             Live
           </Text>
-          {isOnline
+          {configured
             ? <Wifi size={13} color={colors.textMuted} />
             : <WifiOff size={13} color={colors.cancel} />}
           <Text style={[s.statusMeta, { color: colors.textMuted }]}>

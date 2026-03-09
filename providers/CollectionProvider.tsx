@@ -208,6 +208,11 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
 
   const authenticateAdmin = useCallback(async (password: string): Promise<boolean> => {
     log("[Provider] authenticateAdmin attempt");
+    if (!ADMIN_PASSWORD) {
+      // EXPO_PUBLIC_ADMIN_PASSWORD not set in the deployment environment.
+      // The variable must be added in Vercel → Project Settings → Environment Variables.
+      throw new Error("Admin password not configured. Add EXPO_PUBLIC_ADMIN_PASSWORD in Vercel environment variables.");
+    }
     if (password === ADMIN_PASSWORD) {
       setIsAdmin(true);
       await AsyncStorage.setItem(

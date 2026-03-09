@@ -42,6 +42,7 @@ import {
   clearAllCaches,
   forceServerRepull,
   pushLiveAlert,
+  clearAllAlerts,
   adminAssignTask,
   adminCancelTask,
   adminEditHours,
@@ -333,7 +334,7 @@ export function AdminToolsPanel({
         onPress: async () => {
           setIsClearingAlerts(true);
           try {
-            await pushLiveAlert({ message: "__CLEAR_ALL__", level: "SYSTEM", target: "ADMIN", createdBy: "ADMIN" } as Parameters<typeof pushLiveAlert>[0]);
+            await clearAllAlerts();
             queryClient.invalidateQueries({ queryKey: ["liveAlerts"] });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           } catch (err) {

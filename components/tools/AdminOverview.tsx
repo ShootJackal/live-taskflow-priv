@@ -26,7 +26,7 @@ export function AdminOverview({
   const adminQuery = useQuery<AdminDashboardData>({
     queryKey: ["adminDashboard"],
     queryFn: fetchAdminDashboardData,
-    enabled: configured,
+    enabled: configured && isAdmin,
     staleTime: 60000,
     retry: 1,
   });
@@ -34,7 +34,7 @@ export function AdminOverview({
   const taskActualsQuery = useQuery<TaskActualRow[]>({
     queryKey: ["adminTaskActualsOverview"],
     queryFn: fetchTaskActualsData,
-    enabled: configured,
+    enabled: configured && isAdmin,
     staleTime: 60000,
     retry: 1,
   });
