@@ -8,12 +8,16 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Modal,
+  useWindowDimensions,
 } from "react-native";
 import {
-  Sun, Moon, Snowflake, Glasses,
+  Sun, Moon,
   AlertTriangle, TrendingUp, Radio,
   RotateCcw, Wifi, WifiOff, Clock,
+  BookOpen, X,
 } from "lucide-react-native";
+import { DesignTokens } from "@/constants/colors";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "@/providers/ThemeProvider";
 import { useCollection } from "@/providers/CollectionProvider";
@@ -40,6 +44,138 @@ interface RegionSnapshot {
   hoursLogged: number; completionRate: number;
 }
 
+// ─── Ticker segment ───────────────────────────────────────────────────────────
+interface TickerSegment { label: string; color: string; items: string[]; speed: number; }
+
+// ─── News ticker ──────────────────────────────────────────────────────────────
+const NewsTicker = React.memo(function NewsTicker({ segments }: { segments: TickerSegment[] }) {
+  const { colors } = useTheme();
+  const { width: screenWidth } = useWindowDimensions();
+  const [activeIndex, setActiveIndex] = useState(0);
+  const scrollX = useRef(new Animated.Value(screenWidth)).current;
+  const pillSlide = useRef(new Animated.Value(0)).current;
+  const animRef = useRef<Animated.CompositeAnimation | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seg = segments[activeIndex] ?? segments[0];
+
+  const startScroll = useCallback((segIndex: number) => {
+    const segment = segments[segIndex];
+    if (!segment) return;
+    const text = segment.items.join("     |     ");
+    const textWidth = text.length * 7 + screenWidth;
+    const duration = Math.max(textWidth * (segment.speed || 28), 10000);
+    scrollX.setValue(screenWidth * 1.2);
+    if (animRef.current) animRef.current.stop();
+    const anim = Animated.timing(scrollX, { toValue: -textWidth + screenWidth * 0.3, duration, useNativeDriver: true });
+    animRef.current = anim;
+    anim.start(({ finished }) => {
+      if (finished && segments.length > 1) {
+        const next = (segIndex + 1) % segments.length;
+        Animated.timing(pillSlide, { toValue: 1, duration: 300, useNativeDriver: true }).start(() => {
+          setActiveIndex(next); pillSlide.setValue(0);
+          timerRef.current = setTimeout(() => startScroll(next), 400);
+        });
+      } else if (finished) {
+        timerRef.current = setTimeout(() => startScroll(segIndex), 2000);
+      }
+    });
+  }, [segments, scrollX, pillSlide, screenWidth]);
+
+  useEffect(() => {
+    setActiveIndex(0); pillSlide.setValue(0); startScroll(0);
+    return () => { if (animRef.current) animRef.current.stop(); if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [segments, pillSlide, startScroll]);
+
+  if (!seg) return null;
+  const tickerText = seg.items.join("   |   ");
+  const fadeOpacity = scrollX.interpolate({ inputRange: [screenWidth * 0.8, screenWidth * 1.2], outputRange: [1, 0], extrapolate: "clamp" });
+
+  return (
+    <View style={[tStyles.container, { backgroundColor: colors.bgCard, borderBottomColor: colors.border }]}>
+      <Animated.View style={[tStyles.pillWrap, { opacity: pillSlide.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0.3, 1] }) }]}>
+        <View style={[tStyles.pill, { backgroundColor: seg.color + "22" }]}>
+          <View style={[tStyles.pillDot, { backgroundColor: seg.color }]} />
+          <Text style={[tStyles.pillText, { color: seg.color }]}>{seg.label}</Text>
+        </View>
+      </Animated.View>
+      <View style={[tStyles.separator, { backgroundColor: colors.border }]} />
+      <View style={tStyles.scrollWrap}>
+        <Animated.Text style={[tStyles.scrollText, { color: seg.color, opacity: fadeOpacity, transform: [{ translateX: scrollX }] }]} numberOfLines={1}>{tickerText}</Animated.Text>
+        <View style={[tStyles.fadeL, { backgroundColor: colors.bgCard }]} pointerEvents="none" accessible={false} />
+        <View style={[tStyles.fadeR, { backgroundColor: colors.bgCard }]} pointerEvents="none" accessible={false} />
+      </View>
+    </View>
+  );
+});
+
+const tStyles = StyleSheet.create({
+  container: { flexDirection: "row", alignItems: "center", height: 36, overflow: "hidden", borderBottomWidth: StyleSheet.hairlineWidth },
+  pillWrap: { paddingHorizontal: 10 },
+  pill: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 5 },
+  pillDot: { width: 5, height: 5, borderRadius: 3 },
+  pillText: { fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.5 },
+  separator: { width: 1, height: 16 },
+  scrollWrap: { flex: 1, overflow: "hidden", height: 34, justifyContent: "center", marginLeft: 8, position: "relative" as const },
+  scrollText: { fontSize: 12, letterSpacing: 0.2, width: 5000 },
+  fadeL: { position: "absolute" as const, top: 0, left: 0, bottom: 0, width: 14, opacity: 0.85 },
+  fadeR: { position: "absolute" as const, top: 0, right: 0, bottom: 0, width: 22, opacity: 0.9 },
+});
+
+// ─── Guide modal ──────────────────────────────────────────────────────────────
+const GuideModal = React.memo(function GuideModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const { colors } = useTheme();
+  const steps = [
+    { num: "01", title: "Set Your Profile", desc: "Tools → pick your name and rig." },
+    { num: "02", title: "Assign a Task", desc: "Collect → choose a task → Assign Task." },
+    { num: "03", title: "Log Hours", desc: "Enter hours → tap Log Xh — Done." },
+    { num: "04", title: "Check Stats", desc: "Stats → your performance and leaderboard." },
+  ];
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+      <View style={gStyles.overlay}>
+        <TouchableOpacity style={gStyles.dim} onPress={onClose} accessible={false} />
+        <View style={[gStyles.card, { backgroundColor: colors.bgCard }]}>
+          <View style={[gStyles.handle, { backgroundColor: colors.border }]} />
+          <View style={gStyles.header}>
+            <Text style={[gStyles.title, { color: colors.textPrimary, fontFamily: "Lexend_700Bold" }]}>Quick Start</Text>
+            <TouchableOpacity onPress={onClose} style={gStyles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <X size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+          {steps.map((step, idx) => (
+            <View key={step.num} style={[gStyles.step, idx < steps.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
+              <View style={[gStyles.num, { backgroundColor: colors.accentSoft }]}>
+                <Text style={[gStyles.numText, { color: colors.accent }]}>{step.num}</Text>
+              </View>
+              <View style={gStyles.content}>
+                <Text style={[gStyles.stepTitle, { color: colors.textPrimary }]}>{step.title}</Text>
+                <Text style={[gStyles.stepDesc, { color: colors.textSecondary }]}>{step.desc}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+    </Modal>
+  );
+});
+
+const gStyles = StyleSheet.create({
+  overlay: { flex: 1, justifyContent: "flex-end" },
+  dim: { flex: 1, backgroundColor: "rgba(0,0,0,0.38)" },
+  card: { borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 20, paddingBottom: 36, shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 14 },
+  handle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 16 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },
+  title: { fontSize: DesignTokens.fontSize.headline },
+  closeBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  step: { flexDirection: "row", alignItems: "flex-start", gap: 14, paddingVertical: 14 },
+  num: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  numText: { fontSize: 12, fontWeight: "800" as const },
+  content: { flex: 1 },
+  stepTitle: { fontSize: 15, fontWeight: "600" as const, marginBottom: 3 },
+  stepDesc: { fontSize: 13, lineHeight: 19 },
+});
+
+// ─── Main screen ──────────────────────────────────────────────────────────────
 export default function LiveScreen() {
   const { colors, resolvedMode, toggleTheme } = useTheme();
   const { configured, collectors, todayLog, selectedCollectorName } = useCollection();
@@ -50,6 +186,7 @@ export default function LiveScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [recollectExpanded, setRecollectExpanded] = useState(false);
   const [alertExpanded, setAlertExpanded] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const livePulse = useRef(new Animated.Value(0)).current;
 
   // ── Queries (unchanged) ────────────────────────────────────────────────────
@@ -151,6 +288,32 @@ export default function LiveScreen() {
   const stats = statsQuery.data;
   const isSyncing = leaderboardQuery.isFetching || recollectionsQuery.isFetching || alertsQuery.isFetching;
 
+  // ── Ticker segments ────────────────────────────────────────────────────────
+  const tickerSegments = useMemo((): TickerSegment[] => {
+    const alertItems = liveAlerts.length > 0
+      ? liveAlerts.slice(0, 6).map(a => `${a.level || "INFO"}: ${a.message}`)
+      : ["No active alerts"];
+    const recollectItems2 = recollectItems.length > 0
+      ? recollectItems.slice(0, 5)
+      : ["No pending recollections"];
+    const regionItems = regionOverview.hasData
+      ? [
+          `MX ${regionOverview.mx.hoursLogged.toFixed(2)}h · ${regionOverview.mx.tasksCompleted}/${regionOverview.mx.tasksAssigned} done`,
+          `SF ${regionOverview.sf.hoursLogged.toFixed(2)}h · ${regionOverview.sf.tasksCompleted}/${regionOverview.sf.tasksAssigned} done`,
+          `Combined ${regionOverview.totalHoursLogged.toFixed(2)}h · ${regionOverview.combinedRate.toFixed(1)}%`,
+        ]
+      : ["Waiting for feed…"];
+    const statsItems = stats
+      ? [`${normalizeCollectorName(selectedCollectorName || "—")} · ${stats.completionRate.toFixed(0)}% · ${stats.weeklyLoggedHours.toFixed(2)}h this week`]
+      : ["Set your profile to see personal stats"];
+    return [
+      { label: "Alerts",  color: colors.alertYellow,  items: alertItems,     speed: 32 },
+      { label: "Recollect", color: colors.recollectRed, items: recollectItems2, speed: 24 },
+      { label: "Regions", color: colors.mxOrange,     items: regionItems,    speed: 34 },
+      { label: "Stats",   color: colors.statsGreen,   items: statsItems,     speed: 36 },
+    ];
+  }, [liveAlerts, recollectItems, regionOverview, stats, selectedCollectorName, colors]);
+
   // ── Effects ────────────────────────────────────────────────────────────────
   useEffect(() => { setIsOnline(configured); }, [configured]);
   useEffect(() => {
@@ -250,13 +413,20 @@ export default function LiveScreen() {
             style={s.themeBtn}
             hitSlop={{ top:8, bottom:8, left:8, right:8 }}
           >
-            {resolvedMode === "dark"    ? <Moon size={16} color={colors.accent} />
-            : resolvedMode === "frosted" ? <Snowflake size={16} color={colors.accent} />
-            : resolvedMode === "tinted"  ? <Glasses size={16} color={colors.accent} />
-            : <Sun size={16} color={colors.statusPending} />}
+            {resolvedMode === "dark" ? <Moon size={16} color={colors.accent} /> : <Sun size={16} color={colors.statusPending} />}
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowGuide(true); }}
+            style={s.themeBtn}
+            hitSlop={{ top:8, bottom:8, left:8, right:8 }}
+          >
+            <BookOpen size={16} color={colors.textMuted} />
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* ── Ticker ──────────────────────────────────────────────────────── */}
+      <NewsTicker segments={tickerSegments} />
 
       {/* ── Scroll ──────────────────────────────────────────────────────── */}
       <ScrollView
@@ -434,6 +604,8 @@ export default function LiveScreen() {
 
         <View style={s.bottomSpacer} />
       </ScrollView>
+
+      <GuideModal visible={showGuide} onClose={() => setShowGuide(false)} />
     </ScreenContainer>
   );
 }

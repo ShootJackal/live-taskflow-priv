@@ -36,7 +36,7 @@ const TAB_CONFIG: Record<TabName, { titleKey: string; fallback: string; icon: (c
 };
 
 function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const { t } = useLocale();
   const { configured } = useCollection();
   const insets = useSafeAreaInsets();
@@ -156,14 +156,12 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
           {
             width: islandWidth,
             backgroundColor: colors.tabBar,
-            borderColor: isDark ? colors.border : colors.borderLight,
+            borderColor: colors.tabBarBorder,
             shadowColor: colors.shadow,
           },
         ]}
         {...(Platform.OS === "web" ? ({ role: "tablist", "aria-label": "TaskFlow navigation" } as any) : {})}
       >
-        {/* glass sheen removed — flatter, calmer island */}
-
         <Animated.View
           pointerEvents="none"
           accessible={false}
@@ -171,8 +169,8 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
             barStyles.activePill,
             {
               width: TAB_WIDTH - 10,
-              backgroundColor: colors.accent + "20",
-              borderColor: colors.accent + "42",
+              backgroundColor: colors.accent + "18",
+              borderColor: colors.accent + "38",
               transform: [{ translateX: sliderAnim }],
             },
           ]}
@@ -287,17 +285,17 @@ const barStyles = StyleSheet.create({
     paddingHorizontal: DesignTokens.spacing.lg,
   },
   island: {
-    borderRadius: 30,
+    borderRadius: 32,
     borderWidth: 1,
     paddingVertical: 6,
     paddingHorizontal: 4,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 18,
-    elevation: 11,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.28,
+    shadowRadius: 24,
+    elevation: 14,
     overflow: "hidden",
     position: "relative",
   },
@@ -306,7 +304,7 @@ const barStyles = StyleSheet.create({
     top: 4,
     bottom: 4,
     left: 5,
-    borderRadius: 24,
+    borderRadius: 26,
     borderWidth: 1,
   },
   tab: {
