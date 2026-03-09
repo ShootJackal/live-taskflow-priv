@@ -130,13 +130,13 @@ const lbStyles = StyleSheet.create({
   nameRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 3 },
   name: { fontSize: 14, fontWeight: "600" as const, flex: 1 },
   regionTag: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
-  regionText: { fontSize: 9, fontWeight: "700" as const, letterSpacing: 0.5 },
+  regionText: { fontSize: 12, fontWeight: "600" as const },
   sourceTag: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
-  sourceText: { fontSize: 9, fontWeight: "700" as const, letterSpacing: 0.4 },
+  sourceText: { fontSize: 12, fontWeight: "600" as const },
   statsRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
-  statVal: { fontSize: 11, fontWeight: "500" as const },
-  statSep: { fontSize: 10 },
-  metaText: { fontSize: 10, marginBottom: 4 },
+  statVal: { fontSize: 13, fontWeight: "500" as const },
+  statSep: { fontSize: 13 },
+  metaText: { fontSize: 13, marginBottom: 4 },
 });
 
 const ComparisonCard = React.memo(function ComparisonCard({ mxHours, sfHours, mxCompleted, sfCompleted, colors }: {
@@ -147,7 +147,7 @@ const ComparisonCard = React.memo(function ComparisonCard({ mxHours, sfHours, mx
 
   return (
     <View style={[compStyles.card, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
-      <Text style={[compStyles.title, { color: colors.textMuted }]}>MX vs SF THIS WEEK</Text>
+      <Text style={[compStyles.title, { color: colors.textMuted }]}>MX vs SF This Week</Text>
       <View style={compStyles.barWrap}>
         <View style={[compStyles.barLeft, { backgroundColor: colors.mxOrange, width: `${Math.max(mxPct, 5)}%` }]}>
           <Text style={compStyles.barLabel}>MX</Text>
@@ -188,15 +188,15 @@ const compStyles = StyleSheet.create({
     marginBottom: DesignTokens.spacing.md,
     ...DesignTokens.shadow.float,
   },
-  title: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1.2, marginBottom: 10 },
+  title: { fontSize: 13, fontWeight: "700" as const, marginBottom: 10 },
   barWrap: { flexDirection: "row", height: 24, borderRadius: 6, overflow: "hidden", marginBottom: 12 },
   barLeft: { justifyContent: "center", alignItems: "center" },
   barRight: { justifyContent: "center", alignItems: "center" },
-  barLabel: { color: "#fff", fontSize: 10, fontWeight: "800" as const, letterSpacing: 1 },
+  barLabel: { color: "#fff", fontSize: 12, fontWeight: "700" as const, letterSpacing: 1 },
   statsWrap: { flexDirection: "row", alignItems: "center" },
   statCol: { flex: 1, alignItems: "center" },
   statValue: { fontSize: 15, fontWeight: "700" as const },
-  statSub: { fontSize: 9, marginTop: 2 },
+  statSub: { fontSize: 12, marginTop: 2 },
   divider: { width: 1, height: 24 },
 });
 
@@ -434,7 +434,7 @@ export default function StatsScreen() {
     { key: "thisWeek", label: "This Week" },
     { key: "lastWeek", label: "Last Week" },
   ];
-  const periodLabel = lbPeriod === "thisWeek" ? "THIS WEEK" : "LAST WEEK";
+  const periodLabel = lbPeriod === "thisWeek" ? "This Week" : "Last Week";
 
   const currentLbEntries = lbTab === "sf" ? sfEntries : lbTab === "mx" ? mxEntries : leaderboard;
   const visibleLbEntries = useMemo(
@@ -524,7 +524,7 @@ export default function StatsScreen() {
 
       <View style={styles.sectionHeader}>
         <Calendar size={12} color={colors.accent} />
-        <Text style={[styles.sectionLabel, { color: colors.accent }]}>TODAY</Text>
+        <Text style={[styles.sectionLabel, { color: colors.accent }]}>Today</Text>
       </View>
 
       <View style={styles.heroGrid}>
@@ -538,7 +538,7 @@ export default function StatsScreen() {
         <View style={[styles.carryoverCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
           <View style={styles.carryoverHeader}>
             <AlertTriangle size={12} color={colors.alertYellow} />
-            <Text style={[styles.carryoverTitle, { color: colors.alertYellow }]}>INCOMPLETE FROM YESTERDAY</Text>
+            <Text style={[styles.carryoverTitle, { color: colors.alertYellow }]}>Incomplete from Yesterday</Text>
           </View>
           {dailyCarryover.map((item, idx) => {
             const pending = carryoverPendingId === item.assignmentId;
@@ -694,7 +694,7 @@ export default function StatsScreen() {
         <>
       <View style={[styles.sectionHeader, { marginTop: 20 }]}>
         <Calendar size={12} color={colors.complete} />
-        <Text style={[styles.sectionLabel, { color: colors.complete }]}>THIS WEEK (MON-SUN)</Text>
+        <Text style={[styles.sectionLabel, { color: colors.complete }]}>This Week (MON-SUN)</Text>
       </View>
       <View style={[styles.weekCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
         <View style={styles.weekRow}>
@@ -726,7 +726,7 @@ export default function StatsScreen() {
         <View style={[styles.recommendCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
           <View style={styles.recommendHeader}>
             <Target size={12} color={colors.mxOrange} />
-            <Text style={[styles.recommendTitle, { color: colors.mxOrange }]}>RECOMMENDED NEXT TASKS</Text>
+            <Text style={[styles.recommendTitle, { color: colors.mxOrange }]}>Recommended Tasks</Text>
           </View>
           {recommendedTasks.map((task, idx) => (
             <View
@@ -900,7 +900,7 @@ export default function StatsScreen() {
         <>
           <View style={[styles.sectionHeader, { marginTop: 24 }]}>
             <TrendingUp size={12} color={colors.textMuted} />
-            <Text style={[styles.sectionLabelMuted, { color: colors.textMuted }]}>ALL TIME</Text>
+            <Text style={[styles.sectionLabelMuted, { color: colors.textMuted }]}>All Time</Text>
           </View>
           <View style={[styles.allTimeCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
             <View style={styles.allTimeGrid}>
@@ -986,8 +986,8 @@ const styles = StyleSheet.create({
     gap: DesignTokens.spacing.sm,
   },
   webRefreshBtn: {
-    width: 34,
-    height: 34,
+    width: 44,
+    height: 44,
     borderRadius: 10,
     borderWidth: 1,
     alignItems: "center",
@@ -1001,7 +1001,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   headerTagText: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: "700" as const,
     letterSpacing: 0.7,
   },
@@ -1040,13 +1040,11 @@ const styles = StyleSheet.create({
     fontSize: DesignTokens.fontSize.caption1,
     letterSpacing: 0.8,
     fontWeight: "700" as const,
-    textTransform: "uppercase",
   },
   sectionLabelMuted: {
     fontSize: DesignTokens.fontSize.caption1,
     letterSpacing: 0.8,
     fontWeight: "600" as const,
-    textTransform: "uppercase",
   },
   heroGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   // Hero cards — shadow only, no border
@@ -1082,7 +1080,6 @@ const styles = StyleSheet.create({
     fontSize: DesignTokens.fontSize.caption1,
     fontWeight: "700" as const,
     letterSpacing: 0.8,
-    textTransform: "uppercase",
   },
   carryoverRow: { borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 10 },
   carryoverLast: { borderBottomWidth: 0, paddingBottom: 2 },
@@ -1111,7 +1108,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     borderRadius: DesignTokens.radius.sm,
-    minHeight: 36,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -1188,7 +1185,6 @@ const styles = StyleSheet.create({
     fontSize: DesignTokens.fontSize.caption1,
     fontWeight: "700" as const,
     letterSpacing: 0.8,
-    textTransform: "uppercase",
   },
   startPlanRegion: { marginTop: 8 },
   startPlanRegionLabel: {
@@ -1196,7 +1192,6 @@ const styles = StyleSheet.create({
     fontWeight: "700" as const,
     letterSpacing: 0.6,
     marginBottom: 4,
-    textTransform: "uppercase",
   },
   startPlanRow: { borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 8 },
   startPlanCollector: { fontSize: DesignTokens.fontSize.footnote, fontWeight: "700" as const, marginBottom: 2 },
@@ -1245,7 +1240,8 @@ const styles = StyleSheet.create({
   },
   lbTabBtn: {
     paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingVertical: 10,
+    minHeight: 44,
     borderRadius: DesignTokens.radius.xs,
     borderWidth: 1,
     borderColor: "transparent",
@@ -1269,7 +1265,6 @@ const styles = StyleSheet.create({
     fontSize: DesignTokens.fontSize.caption2,
     fontWeight: "600" as const,
     letterSpacing: 0.5,
-    textTransform: "uppercase",
   },
   lbEmpty: {
     borderRadius: DesignTokens.radius.lg,
@@ -1313,7 +1308,6 @@ const styles = StyleSheet.create({
     fontSize: DesignTokens.fontSize.caption1,
     fontWeight: "700" as const,
     letterSpacing: 0.8,
-    textTransform: "uppercase",
   },
   recommendRow: {
     flexDirection: "row",
@@ -1339,7 +1333,6 @@ const styles = StyleSheet.create({
     fontSize: DesignTokens.fontSize.caption1,
     fontWeight: "700" as const,
     letterSpacing: 0.8,
-    textTransform: "uppercase",
     marginBottom: 10,
   },
   recentRow: {
@@ -1400,7 +1393,6 @@ const styles = StyleSheet.create({
   topTasksTitle: {
     fontSize: DesignTokens.fontSize.caption1,
     letterSpacing: 0.8,
-    textTransform: "uppercase",
     marginBottom: 10,
     fontWeight: "600" as const,
   },

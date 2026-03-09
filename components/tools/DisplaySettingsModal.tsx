@@ -46,34 +46,32 @@ export function DisplaySettingsModal({
     <Modal
       visible={visible}
       transparent
-      animationType="fade"
+      animationType="slide"
       onRequestClose={onClose}
       statusBarTranslucent
       presentationStyle="overFullScreen"
     >
       <View style={styles.overlay}>
+        <TouchableOpacity style={styles.overlayDismiss} onPress={onClose} accessible={false} />
         <View
-          style={[
-            styles.card,
-            { backgroundColor: colors.bgCard, borderColor: colors.border },
-          ]}
+          style={[styles.card, { backgroundColor: colors.bgCard }]}
           accessible
           accessibilityViewIsModal
           accessibilityLabel={t("display_settings", "Display Settings")}
-          accessibilityHint="Adjust app theme, language, and visual behavior."
         >
+          <View style={[styles.handle, { backgroundColor: colors.border }]} />
           <View style={styles.header}>
             <Text style={[styles.title, { color: colors.textPrimary }]}>
               {t("display_settings", "Display Settings")}
             </Text>
             <TouchableOpacity
-              style={[styles.closeBtn, { borderColor: colors.border }]}
+              style={styles.closeBtn}
               onPress={onClose}
               activeOpacity={0.75}
               accessibilityRole="button"
               accessibilityLabel="Close display settings"
             >
-              <X size={14} color={colors.textMuted} />
+              <X size={16} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
 
@@ -244,48 +242,54 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.42)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 18,
+    justifyContent: "flex-end",
   },
+  overlayDismiss: { flex: 1 },
   card: {
-    width: "100%",
-    maxWidth: 380,
-    borderRadius: 20,
-    borderWidth: 1,
-    padding: 14,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    padding: 20,
+    paddingBottom: 36,
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 14,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 16,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
+    marginBottom: 16,
   },
   title: { fontSize: 17, fontWeight: "700" as const },
   closeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    borderWidth: 1,
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
   },
   sectionLabel: {
-    fontSize: 10,
-    letterSpacing: 1,
-    fontWeight: "700" as const,
+    fontSize: 13,
+    fontWeight: "600" as const,
     marginBottom: 8,
     marginTop: 6,
-    textTransform: "uppercase",
   },
-  listCard: { borderRadius: 14, borderWidth: 1, overflow: "hidden" },
+  listCard: { borderRadius: 14, overflow: "hidden" },
   row: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
+    minHeight: 48,
   },
-  rowLabel: { fontSize: 14, fontWeight: "600" as const },
-  divider: { height: 1 },
+  rowLabel: { fontSize: 15, fontWeight: "500" as const },
+  divider: { height: StyleSheet.hairlineWidth },
 });

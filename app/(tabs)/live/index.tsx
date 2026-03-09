@@ -6,23 +6,41 @@ import {
   ScrollView,
   Animated,
   TouchableOpacity,
-  Modal,
-  useWindowDimensions,
+  ActivityIndicator,
+  RefreshControl,
 } from "react-native";
-import { RefreshCw, Sun, Moon, Snowflake, Glasses, BookOpen, X, User, Clock3 } from "lucide-react-native";
+import {
+  Sun,
+  Moon,
+  Snowflake,
+  Glasses,
+  AlertTriangle,
+  TrendingUp,
+  Radio,
+  RotateCcw,
+  ChevronRight,
+  Wifi,
+  WifiOff,
+  Users,
+  Clock,
+} from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "@/providers/ThemeProvider";
-import { useLocale } from "@/providers/LocaleProvider";
 import { useCollection } from "@/providers/CollectionProvider";
 import { DesignTokens } from "@/constants/colors";
 import ScreenContainer from "@/components/ScreenContainer";
-import { useQuery } from "@tanstack/react-query";
-import { fetchTodayLog, fetchCollectorStats, fetchRecollections, fetchActiveRigsCount, fetchLeaderboard, fetchLiveAlerts } from "@/services/googleSheets";
-import { Image } from "expo-image";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  fetchCollectorStats,
+  fetchRecollections,
+  fetchActiveRigsCount,
+  fetchLeaderboard,
+  fetchLiveAlerts,
+  fetchTodayLog,
+} from "@/services/googleSheets";
 import { normalizeCollectorName } from "@/utils/normalize";
 import type { LiveAlert } from "@/types";
 
-const FONT_MONO = DesignTokens.fontMono;
 const SF_RIG_NUMBERS = new Set(["2", "3", "4", "5", "6", "9", "11"]);
 
 function getRigRegion(rig: unknown): "SF" | "MX" {
@@ -34,30 +52,6 @@ function getRigRegion(rig: unknown): "SF" | "MX" {
   return "MX";
 }
 
-function formatFeedError(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error ?? "unknown error");
-  const clean = raw
-    .replace(/^Request failed:\s*/i, "")
-    .replace(/^Leaderboard feed unavailable:\s*/i, "")
-    .trim();
-  if (!clean) return "unknown error";
-  return clean.length > 68 ? `${clean.slice(0, 65)}...` : clean;
-}
-
-interface TerminalLine {
-  id: string;
-  text: string;
-  type: "header" | "data" | "divider" | "empty" | "label" | "cmd" | "prompt";
-  color?: string;
-}
-
-interface TickerSegment {
-  label: string;
-  color: string;
-  items: string[];
-  speed: number;
-}
-
 interface RegionSnapshot {
   collectors: number;
   tasksAssigned: number;
@@ -66,316 +60,324 @@ interface RegionSnapshot {
   completionRate: number;
 }
 
-const NewsTicker = React.memo(function NewsTicker({ segments }: { segments: TickerSegment[] }) {
-  const { colors, isDark } = useTheme();
-  const { width: screenWidth } = useWindowDimensions();
-  const [activeIndex, setActiveIndex] = useState(0);
-  const scrollX = useRef(new Animated.Value(screenWidth)).current;
-  const pillSlide = useRef(new Animated.Value(0)).current;
-  const animRef = useRef<Animated.CompositeAnimation | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const seg = segments[activeIndex] ?? segments[0];
-
-  const startScroll = useCallback((segIndex: number) => {
-    const segment = segments[segIndex];
-    if (!segment) return;
-
-    const tickerText = segment.items.join("     |     ");
-    const textWidth = tickerText.length * 7 + screenWidth;
-    const charSpeed = segment.speed || 28;
-    const duration = Math.max(textWidth * charSpeed, 10000);
-
-    scrollX.setValue(screenWidth * 1.2);
-
-    if (animRef.current) animRef.current.stop();
-
-    const scrollAnim = Animated.timing(scrollX, {
-      toValue: -textWidth + screenWidth * 0.3,
-      duration,
-      useNativeDriver: true,
-    });
-
-    animRef.current = scrollAnim;
-
-    scrollAnim.start(({ finished }) => {
-      if (finished && segments.length > 1) {
-        const nextIdx = (segIndex + 1) % segments.length;
-
-        Animated.timing(pillSlide, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }).start(() => {
-          setActiveIndex(nextIdx);
-          pillSlide.setValue(0);
-
-          timerRef.current = setTimeout(() => {
-            startScroll(nextIdx);
-          }, 400);
-        });
-      } else if (finished && segments.length <= 1) {
-        timerRef.current = setTimeout(() => {
-          startScroll(segIndex);
-        }, 2000);
-      }
-    });
-  }, [segments, scrollX, pillSlide, screenWidth]);
-
-  useEffect(() => {
-    setActiveIndex(0);
-    pillSlide.setValue(0);
-    startScroll(0);
-
-    return () => {
-      if (animRef.current) animRef.current.stop();
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [segments, pillSlide, startScroll]);
-
-  if (!seg) return null;
-
-  const tickerText = seg.items.join("   |   ");
-
-  const fadeOpacity = scrollX.interpolate({
-    inputRange: [screenWidth * 0.8, screenWidth * 1.2],
-    outputRange: [1, 0],
-    extrapolate: 'clamp',
-  });
-
-  return (
-    <View style={[tickerStyles.container, {
-      backgroundColor: colors.bgSecondary,
-      borderBottomColor: colors.border,
-    }]}>
-      <Animated.View style={[tickerStyles.pillWrap, {
-        opacity: pillSlide.interpolate({ inputRange: [0, 0.5, 1], outputRange: [1, 0.3, 1] }),
-      }]}>
-        <View style={[tickerStyles.pill, { backgroundColor: seg.color + '22' }]}>
-          <View style={[tickerStyles.pillDot, { backgroundColor: seg.color }]} />
-          <Text style={[tickerStyles.pillText, { color: seg.color, fontFamily: FONT_MONO }]}>
-            {seg.label}
-          </Text>
-        </View>
-      </Animated.View>
-      <View style={[tickerStyles.separator, { backgroundColor: colors.border }]} />
-      <View style={tickerStyles.scrollWrap}>
-        <View style={[tickerStyles.scrollHighlight, { backgroundColor: seg.color + (isDark ? '12' : '0A') }]} />
-        <Animated.Text
-          style={[tickerStyles.scrollText, {
-            color: seg.color,
-            fontFamily: FONT_MONO,
-            opacity: fadeOpacity,
-            transform: [{ translateX: scrollX }],
-          }]}
-          numberOfLines={1}
-        >
-          {tickerText}
-        </Animated.Text>
-        <View style={[tickerStyles.fadeEdgeLeft, { backgroundColor: colors.bgSecondary }]} pointerEvents="none" accessible={false} />
-        <View style={[tickerStyles.fadeEdgeRight, { backgroundColor: colors.bgSecondary }]} pointerEvents="none" accessible={false} />
-      </View>
-    </View>
-  );
-});
-
-const CmdTerminal = React.memo(function CmdTerminal({ lines, isLoading, activeRigs, onResync, onPersonalStats }: {
-  lines: TerminalLine[];
-  isLoading: boolean;
-  activeRigs: number;
-  onResync: () => void;
-  onPersonalStats: () => void;
+// ─── Metric row inside a region card ─────────────────────────────────────────
+function MetricRow({
+  label,
+  value,
+  color,
+  isLast,
+}: {
+  label: string;
+  value: string;
+  color: string;
+  isLast?: boolean;
 }) {
   const { colors } = useTheme();
-  const scrollRef = useRef<ScrollView>(null);
-  const cursorAnim = useRef(new Animated.Value(0)).current;
-  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    const blink = Animated.loop(
-      Animated.sequence([
-        Animated.timing(cursorAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
-        Animated.timing(cursorAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
-      ])
-    );
-    blink.start();
-    return () => blink.stop();
-  }, [cursorAnim]);
-
-  useEffect(() => {
-    if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-    scrollTimeoutRef.current = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-    return () => {
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
-        scrollTimeoutRef.current = null;
-      }
-    };
-  }, [lines.length]);
-
-  const termBg = colors.terminalBg;
-  const termBorder = colors.border;
-
-  const getLineColor = useCallback((line: TerminalLine) => {
-    if (line.type === "header") return colors.accent;
-    if (line.type === "cmd") return colors.terminalGreen;
-    if (line.type === "prompt") return colors.terminalDim;
-    if (line.type === "divider") return colors.terminalDim;
-    if (line.type === "label") return colors.mxOrange;
-    if (line.type === "empty") return "transparent";
-    return line.color ?? colors.textPrimary;
-  }, [colors]);
-
-  const getPrefix = useCallback((type: string) => {
-    if (type === "prompt") return "$ ";
-    if (type === "cmd") return "> ";
-    if (type === "header") return "# ";
-    if (type === "label") return "  ~ ";
-    return "  ";
-  }, []);
-
   return (
-    <View style={[cmdStyles.window, { backgroundColor: termBg, borderColor: termBorder }]}>
-      <View style={[cmdStyles.titleBar, { borderBottomColor: termBorder }]}>
-        <View style={cmdStyles.dots}>
-          <View style={[cmdStyles.dot, { backgroundColor: '#E87070' }]} />
-          <View style={[cmdStyles.dot, { backgroundColor: '#D4A843' }]} />
-          <View style={[cmdStyles.dot, { backgroundColor: '#5EBD8A' }]} />
-        </View>
-        <Text style={[cmdStyles.titleText, { color: colors.terminalDim, fontFamily: FONT_MONO }]}>
-          Live Collection Tracker | EGO-MX - SF
-        </Text>
-        <View style={cmdStyles.sessionMeta}>
-          <View style={[cmdStyles.sessionBadge, { backgroundColor: isLoading ? colors.statusPending + '18' : colors.terminalGreen + '18' }]}>
-            <View style={[cmdStyles.sessionDot, { backgroundColor: isLoading ? colors.statusPending : colors.terminalGreen }]} />
-            <Text style={[cmdStyles.sessionLabel, { color: isLoading ? colors.statusPending : colors.terminalGreen, fontFamily: FONT_MONO }]}>
-              {isLoading ? 'SYNCING' : 'SYNCED'}
-            </Text>
-          </View>
-          <Text style={[cmdStyles.rigCountMini, { color: colors.terminalDim, fontFamily: FONT_MONO }]}>
-            {activeRigs} rigs
-          </Text>
-        </View>
-      </View>
-
-      <ScrollView
-        ref={scrollRef}
-        style={cmdStyles.scrollArea}
-        contentContainerStyle={cmdStyles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {lines.map((line) => {
-          if (line.type === "empty") return <View key={line.id} style={{ height: 8 }} />;
-          const lineColor = getLineColor(line);
-          if (line.type === "divider") {
-            return (
-              <Text key={line.id} style={[cmdStyles.line, { color: lineColor, fontFamily: FONT_MONO, opacity: 0.25 }]}>
-                {line.text}
-              </Text>
-            );
-          }
-          return (
-            <Text
-              key={line.id}
-              style={[cmdStyles.line, {
-                color: lineColor,
-                fontFamily: FONT_MONO,
-                fontWeight: line.type === "header" ? "700" as const : "400" as const,
-                fontSize: line.type === "header" ? 12 : 11,
-              }]}
-            >
-              {getPrefix(line.type)}{line.text}
-            </Text>
-          );
-        })}
-
-        {isLoading && (
-          <Animated.Text style={[cmdStyles.line, {
-            color: colors.terminalGreen,
-            fontFamily: FONT_MONO,
-            opacity: cursorAnim,
-          }]}>
-            {"  \u2588"}
-          </Animated.Text>
-        )}
-
-        {!isLoading && lines.length > 3 && (
-          <View style={cmdStyles.actionRow}>
-            <TouchableOpacity
-              style={[cmdStyles.actionBtn, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}
-              onPress={onResync}
-              activeOpacity={0.7}
-            >
-              <RefreshCw size={11} color={colors.accent} />
-              <Text style={[cmdStyles.actionText, { color: colors.accent, fontFamily: FONT_MONO }]}>RESYNC</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[cmdStyles.actionBtn, { backgroundColor: colors.completeBg, borderColor: colors.complete + '30' }]}
-              onPress={onPersonalStats}
-              activeOpacity={0.7}
-            >
-              <User size={11} color={colors.complete} />
-              <Text style={[cmdStyles.actionText, { color: colors.complete, fontFamily: FONT_MONO }]}>MY STATS</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </ScrollView>
+    <View
+      style={[
+        s.metricRow,
+        !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+      ]}
+    >
+      <Text style={[s.metricLabel, { color: colors.textMuted }]}>{label}</Text>
+      <Text style={[s.metricValue, { color }]}>{value}</Text>
     </View>
   );
-});
+}
 
-const GuideModal = React.memo(function GuideModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+// ─── Region card (MX or SF) ───────────────────────────────────────────────────
+function RegionCard({
+  region,
+  snapshot,
+  rigCount,
+  isLoading,
+}: {
+  region: "MX" | "SF";
+  snapshot: RegionSnapshot;
+  rigCount: number;
+  isLoading: boolean;
+}) {
   const { colors } = useTheme();
-  const steps = [
-    { num: "01", title: "Select Your Profile", desc: "Go to Tools and pick your name & rig." },
-    { num: "02", title: "Assign a Task", desc: "Head to Collect, choose a task, and hit Assign." },
-    { num: "03", title: "Complete or Log Hours", desc: "Track your progress and mark tasks Done." },
-    { num: "04", title: "Check Your Stats", desc: "Visit Stats for performance and leaderboard." },
-  ];
+  const isMX = region === "MX";
+  const tint = isMX ? colors.mxOrange : colors.sfBlue;
+  const tintBg = isMX ? colors.mxOrangeBg : colors.sfBlueBg;
+  const label = isMX ? "EGO-MX · Los Cabos" : "EGO-SF · San Francisco";
+
+  const pct = snapshot.tasksAssigned > 0
+    ? Math.round((snapshot.tasksCompleted / snapshot.tasksAssigned) * 100)
+    : 0;
 
   return (
-    <Modal visible={visible} transparent animationType="fade">
-      <View style={guideStyles.overlay}>
-        <View style={[guideStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-          <View style={guideStyles.cardHeader}>
-            <Text style={[guideStyles.cardTitle, { color: colors.accent, fontFamily: FONT_MONO }]}>QUICK START</Text>
-            <TouchableOpacity onPress={onClose} activeOpacity={0.7}>
-              <X size={20} color={colors.textMuted} />
-            </TouchableOpacity>
-          </View>
-          {steps.map((step, idx) => (
-            <View key={step.num} style={[guideStyles.step, idx < steps.length - 1 && { borderBottomColor: colors.border, borderBottomWidth: 1 }]}>
-              <View style={[guideStyles.stepNum, { backgroundColor: colors.accentSoft }]}>
-                <Text style={[guideStyles.stepNumText, { color: colors.accent, fontFamily: FONT_MONO }]}>{step.num}</Text>
-              </View>
-              <View style={guideStyles.stepContent}>
-                <Text style={[guideStyles.stepTitle, { color: colors.textPrimary, fontWeight: "600" as const }]}>{step.title}</Text>
-                <Text style={[guideStyles.stepDesc, { color: colors.textSecondary }]}>{step.desc}</Text>
-              </View>
-            </View>
-          ))}
+    <View style={[s.card, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
+      {/* Region header */}
+      <View style={s.cardHeader}>
+        <View style={[s.regionTag, { backgroundColor: tintBg }]}>
+          <Text style={[s.regionTagText, { color: tint }]}>{label}</Text>
+        </View>
+        {isLoading && <ActivityIndicator size="small" color={tint} />}
+      </View>
+
+      {/* Completion progress bar */}
+      <View style={[s.progressTrack, { backgroundColor: colors.bgInput }]}>
+        <Animated.View
+          style={[
+            s.progressFill,
+            { backgroundColor: tint, width: `${pct}%` as any },
+          ]}
+        />
+      </View>
+      <Text style={[s.progressLabel, { color: colors.textMuted }]}>
+        {snapshot.tasksCompleted} of {snapshot.tasksAssigned} tasks · {pct}% complete
+      </Text>
+
+      {/* Metrics */}
+      <View style={[s.metricsSection, { borderTopColor: colors.border }]}>
+        <MetricRow
+          label="Hours logged"
+          value={`${snapshot.hoursLogged.toFixed(2)}h`}
+          color={tint}
+        />
+        <MetricRow
+          label="Collectors online"
+          value={String(snapshot.collectors)}
+          color={colors.textPrimary}
+        />
+        <MetricRow
+          label="Rigs mapped"
+          value={String(rigCount)}
+          color={colors.textPrimary}
+          isLast
+        />
+      </View>
+    </View>
+  );
+}
+
+// ─── Alert card ───────────────────────────────────────────────────────────────
+function AlertCard({ alerts }: { alerts: LiveAlert[] }) {
+  const { colors } = useTheme();
+  const [expanded, setExpanded] = useState(false);
+
+  const shown = expanded ? alerts : alerts.slice(0, 2);
+
+  return (
+    <View style={[s.card, { backgroundColor: colors.alertYellowBg, shadowColor: colors.shadow }]}>
+      <View style={s.cardHeader}>
+        <AlertTriangle size={16} color={colors.alertYellow} />
+        <Text style={[s.cardTitle, { color: colors.alertYellow }]}>
+          {alerts.length} Active Alert{alerts.length === 1 ? "" : "s"}
+        </Text>
+      </View>
+      {shown.map((a, i) => (
+        <View
+          key={a.id ?? i}
+          style={[
+            s.alertRow,
+            i < shown.length - 1 && {
+              borderBottomWidth: StyleSheet.hairlineWidth,
+              borderBottomColor: colors.alertYellow + "30",
+            },
+          ]}
+        >
+          <View style={[s.alertDot, { backgroundColor: colors.alertYellow }]} />
+          <Text style={[s.alertText, { color: colors.alertYellow }]} numberOfLines={2}>
+            {a.message}
+          </Text>
+        </View>
+      ))}
+      {alerts.length > 2 && (
+        <TouchableOpacity
+          style={s.expandBtn}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setExpanded((v) => !v);
+          }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={[s.expandText, { color: colors.alertYellow }]}>
+            {expanded ? "Show less" : `Show ${alerts.length - 2} more`}
+          </Text>
+          <ChevronRight
+            size={14}
+            color={colors.alertYellow}
+            style={{ transform: [{ rotate: expanded ? "-90deg" : "0deg" }] }}
+          />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+// ─── Recollections card ───────────────────────────────────────────────────────
+function RecollectionsCard({ items }: { items: string[] }) {
+  const { colors } = useTheme();
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? items : items.slice(0, 3);
+
+  return (
+    <View style={[s.card, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
+      <View style={s.cardHeader}>
+        <RotateCcw size={15} color={colors.recollectRed} />
+        <Text style={[s.cardTitle, { color: colors.recollectRed }]}>
+          Needs Recollection
+        </Text>
+        <View style={[s.countBadge, { backgroundColor: colors.recollectRed }]}>
+          <Text style={s.countBadgeText}>{items.length}</Text>
         </View>
       </View>
-    </Modal>
+      {shown.map((item, i) => (
+        <View
+          key={i}
+          style={[
+            s.recollectRow,
+            i < shown.length - 1 && {
+              borderBottomWidth: StyleSheet.hairlineWidth,
+              borderBottomColor: colors.border,
+            },
+          ]}
+        >
+          <View style={[s.alertDot, { backgroundColor: colors.recollectRed }]} />
+          <Text style={[s.recollectText, { color: colors.textSecondary }]} numberOfLines={2}>
+            {item}
+          </Text>
+        </View>
+      ))}
+      {items.length > 3 && (
+        <TouchableOpacity
+          style={s.expandBtn}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setExpanded((v) => !v);
+          }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={[s.expandText, { color: colors.accent }]}>
+            {expanded ? "Show less" : `Show ${items.length - 3} more`}
+          </Text>
+        </TouchableOpacity>
+      )}
+    </View>
   );
-});
+}
 
+// ─── Combined team card ───────────────────────────────────────────────────────
+function TeamOverviewCard({
+  totalHours,
+  totalCompleted,
+  totalAssigned,
+  avgHoursPerTask,
+  combinedRate,
+  isLoading,
+}: {
+  totalHours: number;
+  totalCompleted: number;
+  totalAssigned: number;
+  avgHoursPerTask: number;
+  combinedRate: number;
+  isLoading: boolean;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View style={[s.card, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
+      <View style={s.cardHeader}>
+        <TrendingUp size={15} color={colors.accent} />
+        <Text style={[s.cardTitle, { color: colors.textPrimary }]}>Combined Team · This Week</Text>
+        {isLoading && <ActivityIndicator size="small" color={colors.accent} />}
+      </View>
+      <View style={s.statGrid}>
+        <View style={s.statCell}>
+          <Text style={[s.statBigVal, { color: colors.accent }]}>
+            {totalHours.toFixed(1)}h
+          </Text>
+          <Text style={[s.statCellLabel, { color: colors.textMuted }]}>Total hours</Text>
+        </View>
+        <View style={[s.statDivider, { backgroundColor: colors.border }]} />
+        <View style={s.statCell}>
+          <Text style={[s.statBigVal, { color: colors.complete }]}>
+            {totalCompleted}
+          </Text>
+          <Text style={[s.statCellLabel, { color: colors.textMuted }]}>Completed</Text>
+        </View>
+        <View style={[s.statDivider, { backgroundColor: colors.border }]} />
+        <View style={s.statCell}>
+          <Text style={[s.statBigVal, { color: colors.accent }]}>
+            {combinedRate.toFixed(0)}%
+          </Text>
+          <Text style={[s.statCellLabel, { color: colors.textMuted }]}>Rate</Text>
+        </View>
+        <View style={[s.statDivider, { backgroundColor: colors.border }]} />
+        <View style={s.statCell}>
+          <Text style={[s.statBigVal, { color: colors.textSecondary }]}>
+            {avgHoursPerTask.toFixed(1)}h
+          </Text>
+          <Text style={[s.statCellLabel, { color: colors.textMuted }]}>Avg/task</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ─── Personal stats card ──────────────────────────────────────────────────────
+function PersonalStatsCard({
+  name,
+  completionRate,
+  weeklyHours,
+  totalCompleted,
+  totalAssigned,
+}: {
+  name: string;
+  completionRate: number;
+  weeklyHours: number;
+  totalCompleted: number;
+  totalAssigned: number;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View style={[s.card, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
+      <View style={s.cardHeader}>
+        <Users size={15} color={colors.accent} />
+        <Text style={[s.cardTitle, { color: colors.textPrimary }]}>My Stats</Text>
+        <Text style={[s.cardSubtitle, { color: colors.textMuted }]}>{name}</Text>
+      </View>
+      <View style={s.statGrid}>
+        <View style={s.statCell}>
+          <Text style={[s.statBigVal, { color: colors.accent }]}>
+            {weeklyHours.toFixed(1)}h
+          </Text>
+          <Text style={[s.statCellLabel, { color: colors.textMuted }]}>This week</Text>
+        </View>
+        <View style={[s.statDivider, { backgroundColor: colors.border }]} />
+        <View style={s.statCell}>
+          <Text style={[s.statBigVal, { color: colors.complete }]}>
+            {completionRate.toFixed(0)}%
+          </Text>
+          <Text style={[s.statCellLabel, { color: colors.textMuted }]}>Rate</Text>
+        </View>
+        <View style={[s.statDivider, { backgroundColor: colors.border }]} />
+        <View style={s.statCell}>
+          <Text style={[s.statBigVal, { color: colors.textSecondary }]}>
+            {totalCompleted}/{totalAssigned}
+          </Text>
+          <Text style={[s.statCellLabel, { color: colors.textMuted }]}>Done</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ─── Main screen ──────────────────────────────────────────────────────────────
 export default function LiveScreen() {
-  const { colors, isDark, resolvedMode, toggleTheme } = useTheme();
-  const { t } = useLocale();
+  const { colors, resolvedMode, toggleTheme } = useTheme();
   const { configured, collectors, todayLog, selectedCollectorName } = useCollection();
+  const queryClient = useQueryClient();
 
-  const [liveLines, setLiveLines] = useState<TerminalLine[]>([]);
   const [isOnline, setIsOnline] = useState(false);
-  const [isFeeding, setIsFeeding] = useState(true);
-  const [showGuide, setShowGuide] = useState(false);
   const [clockNow, setClockNow] = useState(() => new Date());
-  const lineIndexRef = useRef(0);
-  const hasBootedRef = useRef(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const livePulse = useRef(new Animated.Value(0)).current;
-  const brandWave = useRef(new Animated.Value(0)).current;
 
+  // ── Data queries (same as before) ──────────────────────────────────────────
   const statsQuery = useQuery({
     queryKey: ["liveStats", selectedCollectorName],
     queryFn: () => fetchCollectorStats(selectedCollectorName),
@@ -427,6 +429,7 @@ export default function LiveScreen() {
     retry: 1,
   });
 
+  // ── Derived data (same logic as before) ────────────────────────────────────
   const recollectItems = useMemo(() => {
     const sheetItems = recollectionsQuery.data;
     if (sheetItems && sheetItems.length > 0) return sheetItems;
@@ -462,18 +465,12 @@ export default function LiveScreen() {
   }, [collectors]);
 
   const leaderboardEntries = useMemo(() => leaderboardQuery.data ?? [], [leaderboardQuery.data]);
-  const hasLeaderboardError = leaderboardQuery.isError && leaderboardEntries.length === 0;
-  const leaderboardErrorText = useMemo(
-    () => (hasLeaderboardError ? formatFeedError(leaderboardQuery.error) : ""),
-    [hasLeaderboardError, leaderboardQuery.error]
-  );
 
   const regionOverview = useMemo(() => {
     const base: Record<"MX" | "SF", RegionSnapshot> = {
       MX: { collectors: 0, tasksAssigned: 0, tasksCompleted: 0, hoursLogged: 0, completionRate: 0 },
       SF: { collectors: 0, tasksAssigned: 0, tasksCompleted: 0, hoursLogged: 0, completionRate: 0 },
     };
-
     for (const entry of leaderboardEntries) {
       const region = String(entry.region).toUpperCase() === "SF" ? "SF" : "MX";
       const target = base[region];
@@ -482,206 +479,40 @@ export default function LiveScreen() {
       target.tasksCompleted += Number(entry.tasksCompleted) || 0;
       target.hoursLogged += Number(entry.hoursLogged) || 0;
     }
-
     for (const region of ["MX", "SF"] as const) {
-      const target = base[region];
-      target.completionRate = target.tasksAssigned > 0
-        ? (target.tasksCompleted / target.tasksAssigned) * 100
-        : 0;
+      const t = base[region];
+      t.completionRate = t.tasksAssigned > 0 ? (t.tasksCompleted / t.tasksAssigned) * 100 : 0;
     }
-
     const totalTasksAssigned = base.MX.tasksAssigned + base.SF.tasksAssigned;
     const totalTasksCompleted = base.MX.tasksCompleted + base.SF.tasksCompleted;
     const totalHoursLogged = base.MX.hoursLogged + base.SF.hoursLogged;
-    const combinedCompletionRate = totalTasksAssigned > 0
-      ? (totalTasksCompleted / totalTasksAssigned) * 100
-      : 0;
-
+    const combinedRate = totalTasksAssigned > 0 ? (totalTasksCompleted / totalTasksAssigned) * 100 : 0;
+    const avgHoursPerTask = totalTasksCompleted > 0 ? totalHoursLogged / totalTasksCompleted : 0;
     return {
       mx: base.MX,
       sf: base.SF,
-      hasLeaderboardData: leaderboardEntries.length > 0,
+      hasData: leaderboardEntries.length > 0,
       totalTasksAssigned,
       totalTasksCompleted,
       totalHoursLogged,
-      combinedCompletionRate,
-      avgHoursPerCompletedTask: totalTasksCompleted > 0 ? totalHoursLogged / totalTasksCompleted : 0,
+      combinedRate,
+      avgHoursPerTask,
     };
   }, [leaderboardEntries]);
 
-  const totalRigCountFallback = useMemo(() => {
-    if (mappedRigCounts.total > 0) return mappedRigCounts.total;
-    return Math.max(collectors.length, 1);
-  }, [mappedRigCounts.total, collectors.length]);
+  const totalRigCount = activeRigsQuery.data?.activeRigsToday
+    ?? (mappedRigCounts.total > 0 ? mappedRigCounts.total : Math.max(collectors.length, 1));
 
-  /** Active rigs = rigs with an upload today in collector actuals (CA_PLUS preferred, CA_TAGGED fallback). */
-  const totalRigCount = activeRigsQuery.data != null
-    ? activeRigsQuery.data.activeRigsToday
-    : totalRigCountFallback;
   const liveAlerts = useMemo(() => alertsQuery.data ?? [], [alertsQuery.data]);
-
   const stats = statsQuery.data;
-  const isSyncing = isFeeding || statsQuery.isFetching || leaderboardQuery.isFetching || todayLogQuery.isFetching || recollectionsQuery.isFetching || activeRigsQuery.isFetching || alertsQuery.isFetching;
+  const isSyncing = leaderboardQuery.isFetching || recollectionsQuery.isFetching || alertsQuery.isFetching;
 
-  const tickerSegments = useMemo((): TickerSegment[] => {
-    const segs: TickerSegment[] = [];
-    const alertItems = liveAlerts.length > 0
-      ? liveAlerts.slice(0, 8).map((item) => `${item.level || "INFO"}: ${item.message}`)
-      : ["Welcome to TaskFlow", "Check your daily assignments", "Stay on target"];
-    segs.push({
-      label: "ALERT", color: colors.alertYellow,
-      items: alertItems,
-      speed: 32,
-    });
-    segs.push({
-      label: "RECOLLECT", color: colors.recollectRed,
-      items: recollectItems.length > 0 ? recollectItems : ["No pending recollections"],
-      speed: recollectItems.length > 0 ? 22 : 32,
-    });
-    const regionItems: string[] = regionOverview.hasLeaderboardData
-      ? [
-        `MX ${regionOverview.mx.hoursLogged.toFixed(2)}h · ${regionOverview.mx.tasksCompleted}/${regionOverview.mx.tasksAssigned} done`,
-        `SF ${regionOverview.sf.hoursLogged.toFixed(2)}h · ${regionOverview.sf.tasksCompleted}/${regionOverview.sf.tasksAssigned} done`,
-        `Combined ${regionOverview.totalHoursLogged.toFixed(2)}h · ${regionOverview.combinedCompletionRate.toFixed(1)}%`,
-      ]
-      : (hasLeaderboardError
-        ? [`Leaderboard feed error: ${leaderboardErrorText}`]
-        : ["Waiting for weekly leaderboard feed..."]);
-    segs.push({ label: "REGIONS", color: colors.mxOrange, items: regionItems, speed: 34 });
-    const statsItems: string[] = [];
-    if (stats) {
-      statsItems.push(`Completion: ${stats.completionRate.toFixed(0)}%`);
-      statsItems.push(`Hours (this week): ${stats.weeklyLoggedHours.toFixed(2)}h`);
-      statsItems.push(`Done: ${stats.totalCompleted}`);
-      if (stats.topTasks?.length) {
-        stats.topTasks.slice(0, 5).forEach((t, i) => {
-          statsItems.push(`#${i + 1} ${t.name} (${Number(t.hours).toFixed(2)}h)`);
-        });
-      }
-    } else {
-      statsItems.push("Loading stats...");
-    }
-    segs.push({ label: "STATS", color: colors.statsGreen, items: statsItems, speed: 36 });
-    return segs;
-  }, [colors, recollectItems, stats, regionOverview, liveAlerts, hasLeaderboardError, leaderboardErrorText]);
-
-  const buildTerminalLines = useCallback((): TerminalLine[] => {
-    const lines: TerminalLine[] = [];
-    const ts = Date.now();
-    const mxRigs = mappedRigCounts.mxRigs;
-    const sfRigs = mappedRigCounts.sfRigs;
-    const mxCount = regionOverview.mx.collectors > 0 ? regionOverview.mx.collectors : fallbackCollectorCounts.mx;
-    const sfCount = regionOverview.sf.collectors > 0 ? regionOverview.sf.collectors : fallbackCollectorCounts.sf;
-
-    lines.push({ id: `p1_${ts}`, text: "taskflow --connect --live", type: "prompt" });
-    lines.push({ id: `c1_${ts}`, text: "Establishing connection to EGO data pipeline...", type: "cmd" });
-    lines.push({ id: `c2_${ts}`, text: "Authenticated. Pulling latest collection intel.", type: "cmd" });
-    lines.push({ id: `d1_${ts}`, text: "", type: "empty" });
-    lines.push({ id: `d2_${ts}`, text: "\u2500".repeat(44), type: "divider" });
-
-    lines.push({ id: `p2_${ts}`, text: "fetch --region mx --status live", type: "prompt" });
-    lines.push({ id: `mx_h_${ts}`, text: "EGO-MX  |  LOS CABOS", type: "header" });
-    lines.push({ id: `mx_c_${ts}`, text: `Collectors Online:  ${mxCount}`, type: "data", color: colors.textPrimary });
-    lines.push({ id: `mx_r_${ts}`, text: `Mapped Rigs:        ${mxRigs}`, type: "data", color: colors.textPrimary });
-    if (regionOverview.hasLeaderboardData) {
-      lines.push({ id: `mx_t_${ts}`, text: `Tasks Logged:       ${regionOverview.mx.tasksAssigned}`, type: "data", color: colors.mxOrange });
-      lines.push({ id: `mx_h2_${ts}`, text: `Hours Captured (wk): ${regionOverview.mx.hoursLogged.toFixed(2)}h`, type: "data", color: colors.mxOrange });
-      lines.push({ id: `mx_r2_${ts}`, text: `Completion Rate:    ${regionOverview.mx.completionRate.toFixed(1)}%`, type: "data", color: colors.terminalGreen });
-    } else if (hasLeaderboardError) {
-      lines.push({ id: `mx_w_${ts}`, text: `Leaderboard error: ${leaderboardErrorText}`, type: "label", color: colors.cancel });
-    } else {
-      lines.push({ id: `mx_w_${ts}`, text: "Awaiting data feed...", type: "label" });
-    }
-
-    lines.push({ id: `d3_${ts}`, text: "", type: "empty" });
-    lines.push({ id: `p3_${ts}`, text: "fetch --region sf --status live", type: "prompt" });
-    lines.push({ id: `sf_h_${ts}`, text: "EGO-SF  |  SAN FRANCISCO", type: "header" });
-    lines.push({ id: `sf_c_${ts}`, text: `Collectors Online:  ${sfCount}`, type: "data", color: colors.textPrimary });
-    lines.push({ id: `sf_r_${ts}`, text: `Mapped Rigs:        ${sfRigs}`, type: "data", color: colors.textPrimary });
-    if (regionOverview.hasLeaderboardData) {
-      lines.push({ id: `sf_t_${ts}`, text: `Tasks Logged:       ${regionOverview.sf.tasksAssigned}`, type: "data", color: colors.sfBlue });
-      lines.push({ id: `sf_h2_${ts}`, text: `Hours Captured (wk): ${regionOverview.sf.hoursLogged.toFixed(2)}h`, type: "data", color: colors.sfBlue });
-      lines.push({ id: `sf_r2_${ts}`, text: `Completion Rate:    ${regionOverview.sf.completionRate.toFixed(1)}%`, type: "data", color: colors.terminalGreen });
-    } else if (hasLeaderboardError) {
-      lines.push({ id: `sf_w_${ts}`, text: `Leaderboard error: ${leaderboardErrorText}`, type: "label", color: colors.cancel });
-    } else {
-      lines.push({ id: `sf_w_${ts}`, text: "Awaiting data feed...", type: "label" });
-    }
-
-    lines.push({ id: `d4_${ts}`, text: "", type: "empty" });
-    lines.push({ id: `d5_${ts}`, text: "\u2500".repeat(44), type: "divider" });
-    lines.push({ id: `p4_${ts}`, text: "aggregate --combined --weekly", type: "prompt" });
-    lines.push({ id: `cb_h_${ts}`, text: "COMBINED TEAM OVERVIEW", type: "header" });
-    if (regionOverview.hasLeaderboardData) {
-      lines.push({ id: `cb_1_${ts}`, text: `Overall Rate:       ${regionOverview.combinedCompletionRate.toFixed(1)}%`, type: "data", color: colors.terminalGreen });
-      lines.push({ id: `cb_2_${ts}`, text: `Avg Hours/Task:     ${regionOverview.avgHoursPerCompletedTask.toFixed(2)}h`, type: "data", color: colors.textPrimary });
-      lines.push({ id: `cb_3_${ts}`, text: `Weekly Hours:       ${regionOverview.totalHoursLogged.toFixed(2)}h`, type: "data", color: colors.accentLight });
-      lines.push({ id: `cb_4_${ts}`, text: `Weekly Completed:   ${regionOverview.totalTasksCompleted}`, type: "data", color: colors.terminalGreen });
-      lines.push({ id: `cb_5_${ts}`, text: `Total Rigs Active:  ${totalRigCount} (mapped MX: ${mxRigs} | SF: ${sfRigs})`, type: "data", color: colors.textPrimary });
-    } else if (hasLeaderboardError) {
-      lines.push({ id: `cb_w_${ts}`, text: "Leaderboard sync failed. Check endpoint config.", type: "label", color: colors.cancel });
-    } else {
-      lines.push({ id: `cb_w_${ts}`, text: "Syncing with server...", type: "label" });
-    }
-
-    if (recollectItems.length > 0) {
-      lines.push({ id: `d6_${ts}`, text: "", type: "empty" });
-      lines.push({ id: `p5_${ts}`, text: "query --recollections --pending", type: "prompt" });
-      lines.push({ id: `rc_h_${ts}`, text: "PENDING RECOLLECTIONS", type: "header" });
-      recollectItems.slice(0, 5).forEach((item, i) => {
-        lines.push({ id: `rc_${ts}_${i}`, text: item, type: "data", color: colors.cancel });
-      });
-      if (recollectItems.length > 5) {
-        lines.push({ id: `rc_more_${ts}`, text: `+ ${recollectItems.length - 5} more pending...`, type: "label" });
-      }
-    }
-
-    lines.push({ id: `d7_${ts}`, text: "", type: "empty" });
-    lines.push({ id: `d8_${ts}`, text: "\u2500".repeat(44), type: "divider" });
-    const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}.${String(now.getMilliseconds()).padStart(3, "0")}`;
-    lines.push({ id: `ts_${ts}`, text: `Last sync: ${timeStr} PST`, type: "cmd" });
-    lines.push({ id: `rdy_${ts}`, text: "Ready for commands.", type: "cmd" });
-
-    return lines;
-  }, [mappedRigCounts, fallbackCollectorCounts, regionOverview, colors, recollectItems, totalRigCount, hasLeaderboardError, leaderboardErrorText]);
-
-  const allLines = useMemo(() => buildTerminalLines(), [buildTerminalLines]);
+  // ── Side effects ───────────────────────────────────────────────────────────
+  useEffect(() => { setIsOnline(configured); }, [configured]);
 
   useEffect(() => {
-    setIsOnline(configured);
-
-    if (hasBootedRef.current) {
-      setLiveLines(allLines);
-      setIsFeeding(false);
-      return;
-    }
-
-    setLiveLines([]);
-    setIsFeeding(true);
-    lineIndexRef.current = 0;
-    if (intervalRef.current) clearInterval(intervalRef.current);
-
-    const feed = () => {
-      if (lineIndexRef.current >= allLines.length) {
-        if (intervalRef.current) clearInterval(intervalRef.current);
-        setIsFeeding(false);
-        hasBootedRef.current = true;
-        return;
-      }
-      const next = allLines[lineIndexRef.current];
-      lineIndexRef.current += 1;
-      setLiveLines(prev => [...prev, next].slice(-50));
-    };
-
-    feed();
-    intervalRef.current = setInterval(feed, 90);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [allLines, configured]);
-
-  useEffect(() => {
-    const clockInterval = setInterval(() => setClockNow(new Date()), 1000);
-    return () => clearInterval(clockInterval);
+    const interval = setInterval(() => setClockNow(new Date()), 1000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -695,71 +526,51 @@ export default function LiveScreen() {
     return () => pulse.stop();
   }, [livePulse]);
 
-  useEffect(() => {
-    const waving = Animated.loop(
-      Animated.sequence([
-        Animated.timing(brandWave, { toValue: 1, duration: 2100, useNativeDriver: true }),
-        Animated.timing(brandWave, { toValue: 0, duration: 2100, useNativeDriver: true }),
-      ])
-    );
-    waving.start();
-    return () => waving.stop();
-  }, [brandWave]);
+  const liveClock = useMemo(() => {
+    const d = clockNow;
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  }, [clockNow]);
 
-  const handleResync = useCallback(() => {
+  const handleRefresh = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    hasBootedRef.current = false;
-    statsQuery.refetch();
-    leaderboardQuery.refetch();
-    todayLogQuery.refetch();
-    recollectionsQuery.refetch();
-    activeRigsQuery.refetch();
-    alertsQuery.refetch();
-    setLiveLines([]);
-    setIsFeeding(true);
-    lineIndexRef.current = 0;
-  }, [statsQuery, leaderboardQuery, todayLogQuery, recollectionsQuery, activeRigsQuery, alertsQuery]);
-
-  const handlePersonalStats = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (!stats || !selectedCollectorName) return;
-    const ts = Date.now();
-    const personalLines: TerminalLine[] = [
-      { id: `ps_p_${ts}`, text: `stats --collector "${selectedCollectorName}"`, type: "prompt" },
-      { id: `ps_h_${ts}`, text: `PERSONAL STATS: ${normalizeCollectorName(selectedCollectorName)}`, type: "header" },
-      { id: `ps_1_${ts}`, text: `Total Assigned:     ${stats.totalAssigned}`, type: "data", color: colors.textPrimary },
-      { id: `ps_2_${ts}`, text: `Total Completed:    ${stats.totalCompleted}`, type: "data", color: colors.terminalGreen },
-      { id: `ps_3_${ts}`, text: `Hours Logged (wk):  ${stats.weeklyLoggedHours.toFixed(2)}h`, type: "data", color: colors.accentLight },
-      { id: `ps_4_${ts}`, text: `Completion Rate:    ${stats.completionRate.toFixed(0)}%`, type: "data", color: colors.terminalGreen },
-      { id: `ps_5_${ts}`, text: `Weekly Hours:       ${stats.weeklyLoggedHours.toFixed(2)}h`, type: "data", color: colors.accent },
-      { id: `ps_d_${ts}`, text: "\u2500".repeat(44), type: "divider" },
-    ];
-    setLiveLines(prev => [...prev, ...personalLines].slice(-50));
-  }, [stats, selectedCollectorName, colors]);
+    setRefreshing(true);
+    await Promise.allSettled([
+      queryClient.invalidateQueries({ queryKey: ["leaderboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["recollections"] }),
+      queryClient.invalidateQueries({ queryKey: ["liveAlerts"] }),
+      queryClient.invalidateQueries({ queryKey: ["activeRigsCount"] }),
+      queryClient.invalidateQueries({ queryKey: ["liveStats"] }),
+    ]);
+    setRefreshing(false);
+  }, [queryClient]);
 
   const handleToggleTheme = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     toggleTheme();
   }, [toggleTheme]);
 
-  const livePillColor = isDark ? colors.terminalGreen : '#2D8A56';
-  const liveClock = useMemo(() => {
-    const d = clockNow;
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
-  }, [clockNow]);
+  const livePillColor = isOnline ? colors.terminalGreen : colors.cancel;
+
+  // ── MX/SF rig counts ──────────────────────────────────────────────────────
+  const mxRigCount = mappedRigCounts.mxRigs > 0
+    ? mappedRigCounts.mxRigs
+    : (regionOverview.mx.collectors > 0 ? regionOverview.mx.collectors : fallbackCollectorCounts.mx);
+  const sfRigCount = mappedRigCounts.sfRigs > 0
+    ? mappedRigCounts.sfRigs
+    : (regionOverview.sf.collectors > 0 ? regionOverview.sf.collectors : fallbackCollectorCounts.sf);
 
   return (
     <ScreenContainer>
-      <View style={[liveStyles.topBar, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
-
-        {/* ── Row 1: tag label + action buttons (own row — no width conflict) ── */}
-        <View style={liveStyles.topRow}>
-          <View style={[liveStyles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
-            <Text style={[liveStyles.headerTagText, { color: colors.accent }]}>{`${t("live", "Live").toUpperCase()} MONITOR`}</Text>
+      {/* ── Header ────────────────────────────────────────────────────────── */}
+      <View style={[s.header, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
+        <View style={s.headerTopRow}>
+          <View style={[s.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
+            <Text style={[s.headerTagText, { color: colors.accent }]}>Live Monitor</Text>
           </View>
-          <View style={liveStyles.topBarRight}>
+          <View style={s.headerActions}>
+            {/* Theme toggle */}
             <TouchableOpacity
-              style={[liveStyles.iconBtn, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
+              style={[s.iconBtn, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
               onPress={handleToggleTheme}
               activeOpacity={0.7}
               testID="theme-toggle-live"
@@ -767,314 +578,165 @@ export default function LiveScreen() {
               {resolvedMode === "dark" ? <Moon size={15} color={colors.accent} /> :
                resolvedMode === "frosted" ? <Snowflake size={15} color={colors.accent} /> :
                resolvedMode === "tinted" ? <Glasses size={15} color={colors.accent} /> :
-               <Sun size={15} color={colors.alertYellow} />}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[liveStyles.iconBtn, { backgroundColor: colors.bgInput, borderColor: colors.border }]}
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowGuide(true); }}
-              activeOpacity={0.7}
-              testID="guide-btn"
-            >
-              <BookOpen size={15} color={colors.accent} />
+               <Sun size={15} color={colors.statusPending} />}
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* ── Row 2: logo + TASKFLOW + LIVE badge (full width, no overlap) ── */}
-        <View style={liveStyles.brandRow}>
-          <Image source={require("../../../assets/images/icon.png")} style={liveStyles.brandLogo} contentFit="contain" />
-          <View style={liveStyles.brandStack}>
-            <Animated.Text
-              style={[
-                liveStyles.brandStroke,
-                {
-                  color: colors.accentDim,
-                  transform: [{ translateX: brandWave.interpolate({ inputRange: [0, 1], outputRange: [-2, 2] }) }],
-                },
-              ]}
-            >
-              TASKFLOW
-            </Animated.Text>
-            <Animated.Text
-              style={[
-                liveStyles.brandText,
-                {
-                  color: colors.accent,
-                  fontFamily: "Lexend_700Bold",
-                  textShadowColor: colors.accent + "33",
-                  textShadowRadius: 9,
-                  transform: [{ translateX: brandWave.interpolate({ inputRange: [0, 1], outputRange: [2, -2] }) }],
-                },
-              ]}
-            >
-              TASKFLOW
-            </Animated.Text>
-          </View>
-          <View style={[liveStyles.liveBadge, {
-            backgroundColor: isOnline ? livePillColor + '14' : colors.cancel + '14',
-            borderColor: isOnline ? livePillColor + '40' : colors.cancel + '40',
-          }]}>
+        {/* Brand row */}
+        <View style={s.brandRow}>
+          <Text style={[s.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>
+            TaskFlow
+          </Text>
+          {/* Online / offline badge */}
+          <View style={[s.liveBadge, { backgroundColor: livePillColor + "18", borderColor: livePillColor + "40" }]}>
             <Animated.View
-              pointerEvents="none"
-              accessible={false}
-              style={[liveStyles.liveGlow, {
-                backgroundColor: isOnline ? livePillColor : colors.cancel,
-                opacity: livePulse.interpolate({ inputRange: [0, 1], outputRange: [0.1, 0.28] }),
-                transform: [{ scale: livePulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] }) }],
+              style={[s.liveDot, {
+                backgroundColor: livePillColor,
+                opacity: livePulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }),
+                transform: [{ scale: livePulse.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.15] }) }],
               }]}
             />
-            <View style={[liveStyles.liveDot, { backgroundColor: isOnline ? livePillColor : colors.cancel }]} />
-            <Text style={[liveStyles.liveLabel, { color: isOnline ? livePillColor : colors.cancel, fontFamily: FONT_MONO }]}>
-              {isOnline ? "LIVE" : "OFF"}
+            <Text style={[s.liveLabel, { color: livePillColor }]}>
+              {isOnline ? "Live" : "Offline"}
             </Text>
           </View>
         </View>
 
-        {/* ── Row 3: meta chips (rig count, alerts, clock) ── */}
-        <View style={liveStyles.metaRow}>
-          <View style={[liveStyles.rigCountChip, {
-            borderColor: isOnline ? livePillColor + "40" : colors.border,
-            backgroundColor: isOnline ? livePillColor + "10" : colors.bgInput,
-          }]}>
-            <Animated.View
-              style={[liveStyles.rigCountDot, {
-                backgroundColor: isOnline ? livePillColor : colors.statusPending,
-                opacity: livePulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] }),
-                transform: [{ scale: livePulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.22] }) }],
-              }]}
-            />
-            <Text style={[liveStyles.rigCountText, { color: colors.textSecondary, fontFamily: "Lexend_500Medium" }]}>
+        {/* Meta row */}
+        <View style={s.metaRow}>
+          <View style={[s.metaChip, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
+            {isOnline
+              ? <Wifi size={11} color={colors.textMuted} />
+              : <WifiOff size={11} color={colors.cancel} />}
+            <Text style={[s.metaChipText, { color: colors.textSecondary }]}>
               {totalRigCount} rigs active
             </Text>
           </View>
           {liveAlerts.length > 0 && (
-            <View style={[liveStyles.alertChip, { borderColor: colors.alertYellow + "35", backgroundColor: colors.alertYellowBg }]}>
-              <Text style={[liveStyles.alertChipText, { color: colors.alertYellow, fontFamily: FONT_MONO }]}>
-                {liveAlerts.length} alerts
+            <View style={[s.metaChip, { backgroundColor: colors.alertYellowBg, borderColor: colors.alertYellow + "40" }]}>
+              <AlertTriangle size={11} color={colors.alertYellow} />
+              <Text style={[s.metaChipText, { color: colors.alertYellow }]}>
+                {liveAlerts.length} alert{liveAlerts.length === 1 ? "" : "s"}
               </Text>
             </View>
           )}
-          <View style={[liveStyles.clockPill, {
-            backgroundColor: isSyncing ? colors.statusPending + "14" : colors.bgCard,
-            borderColor: isSyncing ? colors.statusPending + "3A" : colors.border,
-          }]}>
-            <Clock3 size={11} color={isSyncing ? colors.statusPending : colors.textMuted} />
-            <Text style={[liveStyles.clockText, {
-              color: isSyncing ? colors.statusPending : colors.textSecondary,
-              fontFamily: FONT_MONO,
-            }]}>
+          <View style={[s.metaChip, { backgroundColor: isSyncing ? colors.statusPending + "14" : colors.bgInput, borderColor: isSyncing ? colors.statusPending + "40" : colors.border }]}>
+            <Clock size={11} color={isSyncing ? colors.statusPending : colors.textMuted} />
+            <Text style={[s.metaChipText, { color: isSyncing ? colors.statusPending : colors.textSecondary }]}>
               {liveClock}
             </Text>
           </View>
         </View>
-
       </View>
 
-      <View style={liveStyles.tickerWrap}>
-        <NewsTicker segments={tickerSegments} />
-      </View>
+      {/* ── Scrollable content ────────────────────────────────────────────── */}
+      <ScrollView
+        style={s.scroll}
+        contentContainerStyle={s.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+          />
+        }
+      >
+        {/* Alerts section */}
+        {liveAlerts.length > 0 && <AlertCard alerts={liveAlerts} />}
 
-      <ScrollView style={liveStyles.terminalScroll} contentContainerStyle={liveStyles.terminalContent} showsVerticalScrollIndicator={false}>
-        <CmdTerminal
-          lines={liveLines}
-          isLoading={isFeeding}
-          activeRigs={totalRigCount}
-          onResync={handleResync}
-          onPersonalStats={handlePersonalStats}
-        />
+        {/* Region cards */}
+        {regionOverview.hasData ? (
+          <>
+            <RegionCard
+              region="MX"
+              snapshot={regionOverview.mx}
+              rigCount={mxRigCount}
+              isLoading={leaderboardQuery.isFetching}
+            />
+            <RegionCard
+              region="SF"
+              snapshot={regionOverview.sf}
+              rigCount={sfRigCount}
+              isLoading={leaderboardQuery.isFetching}
+            />
+            <TeamOverviewCard
+              totalHours={regionOverview.totalHoursLogged}
+              totalCompleted={regionOverview.totalTasksCompleted}
+              totalAssigned={regionOverview.totalTasksAssigned}
+              avgHoursPerTask={regionOverview.avgHoursPerTask}
+              combinedRate={regionOverview.combinedRate}
+              isLoading={leaderboardQuery.isFetching}
+            />
+          </>
+        ) : leaderboardQuery.isLoading ? (
+          <View style={[s.card, s.loadingCard, { backgroundColor: colors.bgCard }]}>
+            <ActivityIndicator size="large" color={colors.accent} />
+            <Text style={[s.loadingText, { color: colors.textMuted }]}>Loading team data…</Text>
+          </View>
+        ) : (
+          <View style={[s.card, s.loadingCard, { backgroundColor: colors.bgCard }]}>
+            <Radio size={28} color={colors.border} />
+            <Text style={[s.loadingText, { color: colors.textMuted }]}>
+              {configured ? "Waiting for leaderboard feed…" : "Configure your GAS endpoint to see live data"}
+            </Text>
+          </View>
+        )}
+
+        {/* Recollections */}
+        {recollectItems.length > 0 && <RecollectionsCard items={recollectItems} />}
+
+        {/* Personal stats */}
+        {stats && selectedCollectorName && (
+          <PersonalStatsCard
+            name={normalizeCollectorName(selectedCollectorName)}
+            completionRate={stats.completionRate}
+            weeklyHours={stats.weeklyLoggedHours}
+            totalCompleted={stats.totalCompleted}
+            totalAssigned={stats.totalAssigned}
+          />
+        )}
+
+        {/* Bottom spacer for tab bar */}
+        <View style={s.bottomSpacer} />
       </ScrollView>
-
-      <GuideModal visible={showGuide} onClose={() => setShowGuide(false)} />
     </ScreenContainer>
   );
 }
 
-const tickerStyles = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    alignItems: "center",
-    height: 36,
-    overflow: "hidden",
-    borderBottomWidth: 1,
-    borderRadius: 12,
-  },
-  pillWrap: { paddingHorizontal: 10 },
-  pill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-  },
-  pillDot: { width: 5, height: 5, borderRadius: 3 },
-  pillText: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 0.8 },
-  separator: { width: 1, height: 16 },
-  scrollWrap: { flex: 1, overflow: "hidden", height: 34, justifyContent: "center", marginLeft: 8, position: "relative" as const },
-  scrollHighlight: { position: "absolute" as const, top: 0, left: 0, right: 0, bottom: 0 },
-  scrollText: { fontSize: 11, letterSpacing: 0.2, width: 5000 },
-  fadeEdgeLeft: { position: "absolute" as const, top: 0, left: 0, bottom: 0, width: 16, opacity: 0.7 },
-  fadeEdgeRight: { position: "absolute" as const, top: 0, right: 0, bottom: 0, width: 24, opacity: 0.8 },
-});
-
-const cmdStyles = StyleSheet.create({
-  window: { borderRadius: DesignTokens.radius.lg, borderWidth: 1, overflow: "hidden" },
-  titleBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: DesignTokens.spacing.sm,
-    paddingHorizontal: DesignTokens.spacing.md,
-    borderBottomWidth: 1,
-  },
-  dots: { flexDirection: "row", gap: 5 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  titleText: { fontSize: 9, letterSpacing: 0.3, marginLeft: 10, flex: 1 },
-  sessionMeta: { alignItems: "flex-end", gap: 2 },
-  sessionBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  sessionDot: { width: 4, height: 4, borderRadius: 2 },
-  sessionLabel: { fontSize: 9, fontWeight: "700" as const, letterSpacing: 0.8 },
-  rigCountMini: { fontSize: 9, letterSpacing: 0.3 },
-  scrollArea: { maxHeight: 420 },
-  scrollContent: { padding: 12, paddingBottom: 8 },
-  line: { lineHeight: 19, letterSpacing: 0.2, fontSize: 11 },
-  actionRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(128,128,128,0.1)",
-  },
-  actionBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  actionText: { fontSize: 11, fontWeight: "600" as const, letterSpacing: 0.4 },
-});
-
-const guideStyles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", alignItems: "center", padding: DesignTokens.spacing.xxl },
-  card: { width: "100%", maxWidth: 380, borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.xl },
-  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
-  cardTitle: { fontSize: 15, fontWeight: "700" as const, letterSpacing: 1.5 },
-  step: { flexDirection: "row", alignItems: "flex-start", gap: 14, paddingVertical: 14 },
-  stepNum: { width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  stepNumText: { fontSize: 12, fontWeight: "700" as const },
-  stepContent: { flex: 1 },
-  stepTitle: { fontSize: 15, fontWeight: "600" as const, marginBottom: 4 },
-  stepDesc: { fontSize: 13, lineHeight: 19 },
-});
-
-const liveStyles = StyleSheet.create({
-  tickerWrap: {
-    paddingHorizontal: DesignTokens.spacing.md,
-    paddingTop: 8,
-  },
-  topBar: {
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  // Header
+  header: {
     marginHorizontal: DesignTokens.spacing.md,
     marginTop: DesignTokens.spacing.sm,
     padding: DesignTokens.spacing.lg,
     borderRadius: DesignTokens.radius.xl,
-    overflow: "hidden",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.10,
     shadowRadius: 16,
     elevation: 6,
   },
-  // Tag label + icon buttons on their own row — prevents overlap with brand text
-  topRow: {
+  headerTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: DesignTokens.spacing.xs,
   },
   headerTag: {
-    alignSelf: "flex-start",
     borderRadius: 7,
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    marginBottom: 4,
   },
-  headerTagText: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 0.7 },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  brandLogo: { width: 26, height: 26, borderRadius: 8 },
-  brandStack: { position: "relative", minWidth: 190, height: 42, justifyContent: "center" },
-  brandStroke: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    fontSize: 34,
-    fontWeight: "700" as const,
-    letterSpacing: 0.4,
-    opacity: 0.58,
+  headerTagText: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "600" as const,
+    letterSpacing: 0.2,
   },
-  brandText: { fontSize: 34, fontWeight: "700" as const, letterSpacing: 0.2 },
-  liveBadge: {
-    position: "relative" as const,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 7,
-    borderWidth: 1,
-  },
-  liveGlow: {
-    position: "absolute" as const,
-    top: -2,
-    left: -2,
-    right: -2,
-    bottom: -2,
-    borderRadius: 9,
-  },
-  liveDot: { width: 6, height: 6, borderRadius: 3 },
-  liveLabel: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 0.8 },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
-  rigCountChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderRadius: 9,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-  },
-  rigCountDot: { width: 6, height: 6, borderRadius: 4 },
-  rigCountText: { fontSize: 11, letterSpacing: 0.3 },
-  alertChip: {
-    borderWidth: 1,
-    borderRadius: 9,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  alertChipText: { fontSize: 10, letterSpacing: 0.3, fontWeight: "600" as const },
-  clockPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  clockText: { fontSize: 10, letterSpacing: 0.3 },
-  topBarRight: { flexDirection: "row", gap: 8, flexShrink: 0 },
+  headerActions: { flexDirection: "row", gap: 8 },
   iconBtn: {
     width: 44,
     height: 44,
@@ -1083,6 +745,157 @@ const liveStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  terminalScroll: { flex: 1 },
-  terminalContent: { paddingHorizontal: DesignTokens.spacing.md, paddingTop: 10, paddingBottom: 120 },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 2,
+    marginBottom: 8,
+  },
+  brandText: {
+    fontSize: DesignTokens.fontSize.largeTitle,
+    fontWeight: "700" as const,
+    letterSpacing: 0.1,
+  },
+  liveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  liveDot: { width: 6, height: 6, borderRadius: 3 },
+  liveLabel: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "600" as const,
+    letterSpacing: 0.2,
+  },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  metaChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  metaChipText: { fontSize: DesignTokens.fontSize.caption1, letterSpacing: 0.2 },
+
+  // Scroll
+  scroll: { flex: 1 },
+  scrollContent: {
+    paddingHorizontal: DesignTokens.spacing.md,
+    paddingTop: DesignTokens.spacing.md,
+    gap: DesignTokens.spacing.md,
+  },
+  bottomSpacer: { height: 120 },
+
+  // Cards
+  card: {
+    borderRadius: DesignTokens.radius.xl,
+    padding: DesignTokens.spacing.lg,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: DesignTokens.spacing.md,
+  },
+  cardTitle: {
+    fontSize: DesignTokens.fontSize.subhead,
+    fontWeight: "600" as const,
+    flex: 1,
+  },
+  cardSubtitle: {
+    fontSize: DesignTokens.fontSize.caption1,
+  },
+  loadingCard: {
+    alignItems: "center",
+    paddingVertical: 48,
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: DesignTokens.fontSize.footnote,
+    textAlign: "center",
+  },
+
+  // Region card
+  regionTag: {
+    flex: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    alignSelf: "flex-start",
+  },
+  regionTagText: {
+    fontSize: DesignTokens.fontSize.footnote,
+    fontWeight: "600" as const,
+  },
+  progressTrack: {
+    height: 6,
+    borderRadius: 3,
+    overflow: "hidden",
+    marginBottom: 6,
+  },
+  progressFill: { height: 6, borderRadius: 3 },
+  progressLabel: { fontSize: DesignTokens.fontSize.caption1, marginBottom: DesignTokens.spacing.md },
+
+  // Metric rows inside cards
+  metricsSection: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: DesignTokens.spacing.sm,
+  },
+  metricRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 10,
+    minHeight: 44,
+  },
+  metricLabel: { fontSize: DesignTokens.fontSize.footnote },
+  metricValue: { fontSize: DesignTokens.fontSize.subhead, fontWeight: "600" as const },
+
+  // Stat grid (team overview + personal stats)
+  statGrid: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  statCell: { flex: 1, alignItems: "center", paddingVertical: 8 },
+  statDivider: { width: StyleSheet.hairlineWidth, height: 32 },
+  statBigVal: { fontSize: DesignTokens.fontSize.title3, fontWeight: "700" as const },
+  statCellLabel: { fontSize: DesignTokens.fontSize.caption2, marginTop: 3 },
+
+  // Alerts + recollections
+  alertRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 10, minHeight: 44 },
+  alertDot: { width: 6, height: 6, borderRadius: 3, marginTop: 5 },
+  alertText: { flex: 1, fontSize: DesignTokens.fontSize.footnote, lineHeight: 20 },
+  recollectRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 10, minHeight: 44 },
+  recollectText: { flex: 1, fontSize: DesignTokens.fontSize.footnote, lineHeight: 20 },
+
+  countBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: DesignTokens.radius.pill,
+    minWidth: 22,
+    alignItems: "center",
+  },
+  countBadgeText: { fontSize: DesignTokens.fontSize.caption2, color: "#fff", fontWeight: "700" as const },
+
+  expandBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingTop: 10,
+    alignSelf: "flex-start",
+    minHeight: 44,
+    paddingBottom: 4,
+  },
+  expandText: { fontSize: DesignTokens.fontSize.footnote, fontWeight: "600" as const },
 });

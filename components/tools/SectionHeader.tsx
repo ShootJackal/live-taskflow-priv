@@ -34,7 +34,6 @@ const styles = StyleSheet.create({
   label: {
     fontSize: DesignTokens.fontSize.caption1,
     letterSpacing: 0.7,
-    textTransform: "uppercase",
     fontWeight: "600" as const,
   },
 });

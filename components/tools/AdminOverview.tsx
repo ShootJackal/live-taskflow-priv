@@ -100,7 +100,7 @@ export function AdminOverview({
       <View style={adminStyles.headerRow}>
         <View style={adminStyles.headerLeft}>
           <Shield size={14} color={colors.accent} />
-          <Text style={[adminStyles.headerText, { color: colors.accent }]}>SYSTEM OVERVIEW</Text>
+          <Text style={[adminStyles.headerText, { color: colors.accent }]}>System Overview</Text>
         </View>
         <Text style={[adminStyles.rateText, { color: colors.complete }]}>{completionRate}%</Text>
       </View>
@@ -118,7 +118,7 @@ export function AdminOverview({
       {data.recollections && data.recollections.length > 0 && (
         <View style={[adminStyles.recollectSection, { borderTopColor: colors.border }]}>
           <Text style={[adminStyles.recollectTitle, { color: colors.cancel }]}>
-            PENDING RECOLLECTIONS ({data.recollections.length})
+            Pending Recollections ({data.recollections.length})
           </Text>
           {data.recollections.slice(0, 5).map((item, idx) => (
             <Text key={idx} style={[adminStyles.recollectItem, { color: colors.textSecondary }]} numberOfLines={1}>
@@ -138,7 +138,7 @@ export function AdminOverview({
           <View style={adminStyles.collectorHeader}>
             <Users size={12} color={colors.accent} />
             <Text style={[adminStyles.collectorTitle, { color: colors.accent }]}>
-              ALL COLLECTORS ({data.totalCollectors ?? data.collectorSummary.length})
+              All Collectors ({data.totalCollectors ?? data.collectorSummary.length})
             </Text>
             <Text style={[adminStyles.totalHours, { color: colors.complete }]}>
               {(data.totalHoursUploaded ?? 0).toFixed(2)}h total
@@ -167,7 +167,7 @@ export function AdminOverview({
       {isAdmin && data.taskRequirements && data.taskRequirements.length > 0 && (
         <View style={[adminStyles.reqSection, { borderTopColor: colors.border }]}>
           <Text style={[adminStyles.reqTitle, { color: colors.mxOrange }]}>
-            TASK REQUIREMENTS ({data.taskRequirements.length})
+            Task Requirements ({data.taskRequirements.length})
           </Text>
           {data.taskRequirements.slice(0, 10).map((req, idx) => (
             <View key={idx} style={[adminStyles.reqRow, { borderBottomColor: colors.border }]}>

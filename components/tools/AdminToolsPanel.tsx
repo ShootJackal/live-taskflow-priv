@@ -53,7 +53,8 @@ const atStyles = StyleSheet.create({
   container: { gap: DesignTokens.spacing.sm },
   toolBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-    paddingVertical: 10, borderRadius: DesignTokens.radius.md, borderWidth: 1, marginBottom: 4,
+    paddingVertical: 12,
+    minHeight: 44, borderRadius: DesignTokens.radius.md, borderWidth: 1, marginBottom: 4,
   },
   toolBtnText: { fontSize: 12, fontWeight: "600" as const, letterSpacing: 0.3 },
   card: {
@@ -80,9 +81,9 @@ const atStyles = StyleSheet.create({
   },
   regionBar: { flexDirection: "row", height: 22, borderRadius: DesignTokens.radius.xs, overflow: "hidden" },
   regionSegment: { justifyContent: "center", alignItems: "center" },
-  regionBarLabel: { color: "#fff", fontSize: 9, fontWeight: "800" as const, letterSpacing: 0.5 },
+  regionBarLabel: { color: "#fff", fontSize: 12, fontWeight: "800" as const, letterSpacing: 0.5 },
   regionDetail: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
-  regionText: { fontSize: 10, fontWeight: "600" as const },
+  regionText: { fontSize: 12, fontWeight: "600" as const },
   alertInput: {
     borderWidth: 1,
     borderRadius: 10,
@@ -96,7 +97,8 @@ const atStyles = StyleSheet.create({
     marginTop: 8,
     borderWidth: 1,
     borderRadius: 10,
-    paddingVertical: 8,
+    paddingVertical: 12,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -116,13 +118,14 @@ const atStyles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 12,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
     gap: 5,
   },
-  controlSearchBtnText: { fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.2 },
+  controlSearchBtnText: { fontSize: 12, fontWeight: "700" as const, letterSpacing: 0.2 },
   controlRow: { flexDirection: "row", gap: 8, marginTop: 8 },
   controlHoursInput: {
     width: 92,
@@ -145,30 +148,31 @@ const atStyles = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     borderRadius: 10,
-    paddingVertical: 8,
+    paddingVertical: 12,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
   },
-  controlBtnText: { fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.3 },
+  controlBtnText: { fontSize: 12, fontWeight: "700" as const, letterSpacing: 0.3 },
   controlPinRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8, marginBottom: 8 },
-  controlPinText: { fontSize: 11, fontWeight: "500" as const },
+  controlPinText: { fontSize: 12, fontWeight: "500" as const },
   taskRow: { borderTopWidth: 1, paddingTop: DesignTokens.spacing.sm, marginTop: DesignTokens.spacing.sm },
   taskInfo: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
   taskName: { fontSize: 12, fontWeight: "500" as const, flex: 1 },
   taskBar: { height: 4, borderRadius: 2, overflow: "hidden", marginBottom: 4 },
   taskBarFill: { height: 4, borderRadius: 2 },
   taskMeta: { flexDirection: "row", alignItems: "center", gap: DesignTokens.spacing.sm },
-  taskHours: { fontSize: 10, fontWeight: "600" as const },
-  taskGood: { fontSize: 10, fontWeight: "500" as const },
+  taskHours: { fontSize: 12, fontWeight: "600" as const },
+  taskGood: { fontSize: 12, fontWeight: "500" as const },
   activityRow: { flexDirection: "row", alignItems: "center", borderTopWidth: 1, paddingTop: DesignTokens.spacing.sm, marginTop: DesignTokens.spacing.sm, gap: DesignTokens.spacing.sm },
   activityDot: { width: 6, height: 6, borderRadius: 3 },
   activityContent: { flex: 1 },
   activityCollector: { fontSize: 12, fontWeight: "600" as const },
-  activityTask: { fontSize: 10, marginTop: 1 },
+  activityTask: { fontSize: 12, marginTop: 1 },
   activityRight: { alignItems: "flex-end" },
   activityHours: { fontSize: 12, fontWeight: "700" as const },
-  activityStatus: { fontSize: 9, marginTop: 1 },
-  expandHint: { fontSize: 11, textAlign: "center", marginTop: DesignTokens.spacing.xs },
+  activityStatus: { fontSize: 12, marginTop: 1 },
+  expandHint: { fontSize: 12, textAlign: "center", marginTop: DesignTokens.spacing.xs },
 });
 
 export function AdminToolsPanel({
@@ -447,7 +451,7 @@ export function AdminToolsPanel({
       <View style={[atStyles.card, { backgroundColor: colors.bgCard }]}>
         <View style={atStyles.cardHeader}>
           <Users size={12} color={colors.accent} />
-          <Text style={[atStyles.cardTitle, { color: colors.accent }]}>ADMIN TASK CONTROL</Text>
+          <Text style={[atStyles.cardTitle, { color: colors.accent }]}>Task Control</Text>
         </View>
         <SelectPicker
           label="Collector"
@@ -533,7 +537,7 @@ export function AdminToolsPanel({
       <View style={[atStyles.card, { backgroundColor: colors.bgCard }]}>
         <View style={atStyles.cardHeader}>
           <Star size={12} color={colors.gold} />
-          <Text style={[atStyles.cardTitle, { color: colors.gold }]}>COLLECTOR MEDALS</Text>
+          <Text style={[atStyles.cardTitle, { color: colors.gold }]}>Collector Awards</Text>
         </View>
         <SelectPicker
           label="Collector"
@@ -586,7 +590,7 @@ export function AdminToolsPanel({
       <View style={[atStyles.card, { backgroundColor: colors.bgCard }]}>
         <View style={atStyles.cardHeader}>
           <AlertTriangle size={12} color={colors.alertYellow} />
-          <Text style={[atStyles.cardTitle, { color: colors.alertYellow }]}>LIVE ALERT BROADCAST</Text>
+          <Text style={[atStyles.cardTitle, { color: colors.alertYellow }]}>Broadcast Alert</Text>
         </View>
         <TextInput
           style={[atStyles.alertInput, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.bgInput }]}
@@ -625,7 +629,7 @@ export function AdminToolsPanel({
         <View style={[atStyles.card, { backgroundColor: colors.bgCard }]}>
           <View style={atStyles.cardHeader}>
             <BarChart3 size={12} color={colors.accent} />
-            <Text style={[atStyles.cardTitle, { color: colors.accent }]}>TEAM PERFORMANCE</Text>
+            <Text style={[atStyles.cardTitle, { color: colors.accent }]}>Team Performance</Text>
           </View>
           <View style={atStyles.perfGrid}>
             <View style={[atStyles.perfItem, { backgroundColor: colors.bgInput }]}>
@@ -667,7 +671,7 @@ export function AdminToolsPanel({
       >
         <View style={atStyles.cardHeader}>
           <Target size={12} color={colors.mxOrange} />
-          <Text style={[atStyles.cardTitle, { color: colors.mxOrange }]}>ACTIVE TASK PROGRESS</Text>
+          <Text style={[atStyles.cardTitle, { color: colors.mxOrange }]}>Active Tasks</Text>
           <ChevronDown size={14} color={colors.textMuted} style={expandedSection === "tasks" ? { transform: [{ rotate: "180deg" }] } : undefined} />
         </View>
         {taskActualsQuery.isLoading && (
@@ -715,7 +719,7 @@ export function AdminToolsPanel({
       >
         <View style={atStyles.cardHeader}>
           <Clock size={12} color={colors.statsGreen} />
-          <Text style={[atStyles.cardTitle, { color: colors.statsGreen }]}>RECENT ACTIVITY</Text>
+          <Text style={[atStyles.cardTitle, { color: colors.statsGreen }]}>Recent Activity</Text>
           <ChevronDown size={14} color={colors.textMuted} style={expandedSection === "activity" ? { transform: [{ rotate: "180deg" }] } : undefined} />
         </View>
         {fullLogQuery.isLoading && (

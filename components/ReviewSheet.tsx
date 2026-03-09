@@ -488,9 +488,9 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   closeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -561,7 +561,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 5,
-    height: 38,
+    minHeight: 44,
     borderRadius: DesignTokens.radius.sm,
   },
   actionBtnText: {

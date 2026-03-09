@@ -50,14 +50,11 @@ export function AdminPasswordModal({
   }, [password, onAuthenticate, onClose]);
 
   return (
-    <Modal visible={visible} transparent animationType="fade">
+    <Modal visible={visible} transparent animationType="slide">
       <View style={styles.overlay}>
-        <View
-          style={[
-            styles.card,
-            { backgroundColor: colors.bgCard, borderColor: colors.border },
-          ]}
-        >
+        <TouchableOpacity style={styles.overlayDismiss} onPress={() => { setPassword(""); setError(false); onClose(); }} accessible={false} />
+        <View style={[styles.card, { backgroundColor: colors.bgCard }]}>
+          <View style={[styles.handle, { backgroundColor: colors.border }]} />
           <View style={styles.header}>
             <View style={[styles.iconWrap, { backgroundColor: colors.accentSoft }]}>
               <Lock size={20} color={colors.accent} />
@@ -135,16 +132,25 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: DesignTokens.spacing.xxl,
+    justifyContent: "flex-end",
+  },
+  overlayDismiss: { flex: 1 },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 16,
   },
   card: {
-    width: "100%",
-    maxWidth: 340,
-    borderRadius: DesignTokens.radius.xl,
-    borderWidth: 1,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
     padding: DesignTokens.spacing.xxl,
+    paddingBottom: 36,
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 14,
   },
   header: { alignItems: "center", marginBottom: 20 },
   iconWrap: {

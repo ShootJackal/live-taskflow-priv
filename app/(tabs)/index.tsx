@@ -1172,7 +1172,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   headerTagText: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: "700" as const,
     letterSpacing: 0.7,
   },
@@ -1343,7 +1343,6 @@ const styles = StyleSheet.create({
     fontSize: DesignTokens.fontSize.caption1,
     fontWeight: "700" as const,
     letterSpacing: 0.3,
-    textTransform: "uppercase",
   },
   formRowLabelRight: {
     flexDirection: "row",
@@ -1431,7 +1430,6 @@ const styles = StyleSheet.create({
     fontSize: DesignTokens.fontSize.caption1,
     fontWeight: "700" as const,
     letterSpacing: 0.8,
-    textTransform: "uppercase",
   },
   logStats: {
     flexDirection: "row",

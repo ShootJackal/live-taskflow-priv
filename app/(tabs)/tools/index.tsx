@@ -493,7 +493,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   headerTagText: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: "700" as const,
     letterSpacing: 0.7,
   },
