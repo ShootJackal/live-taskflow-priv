@@ -234,6 +234,17 @@ export default function DashboardScreen() {
     refreshData,
   } = useCollection();
 
+  // ── Local draft state for text inputs ────────────────────────────────────
+  // Using local state prevents every keystroke from triggering a full context
+  // re-render (which dismissed the keyboard on iOS PWA). We sync to the
+  // provider on blur so the rest of the app stays in sync.
+  const [localHours, setLocalHours] = useState(hoursToLog);
+  const [localNotes, setLocalNotes] = useState(notes);
+
+  // Keep local state in sync when the provider resets (e.g. after submit)
+  useEffect(() => { setLocalHours(hoursToLog); }, [hoursToLog]);
+  useEffect(() => { setLocalNotes(notes); }, [notes]);
+
   const [refreshing, setRefreshing] = useState(false);
   const [taskSearch, setTaskSearch] = useState("");
   const [showTaskSearch, setShowTaskSearch] = useState(false);
@@ -272,7 +283,7 @@ export default function DashboardScreen() {
   }, [tasks, taskSearch]);
 
   const hasValidHours =
-    !!hoursToLog.trim() && parseFloat(hoursToLog) > 0;
+    !!localHours.trim() && parseFloat(localHours) > 0;
   // Assign only needs collector + task. Hours are for Done/Cancel.
   const canSubmit = !!selectedCollectorName && !!selectedTaskName;
   const latestOpenTask = openTasks.length > 0 ? openTasks[0] : null;
@@ -298,6 +309,8 @@ export default function DashboardScreen() {
   }, [refreshData]);
 
   const handleAssign = useCallback(() => {
+    // Flush local notes draft before assigning
+    setNotes(localNotes);
     if (hasCarryover) {
       Alert.alert(
         "Incomplete Tasks from Yesterday",
@@ -321,10 +334,13 @@ export default function DashboardScreen() {
     } catch (e: unknown) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed to assign task");
     }
-  }, [assignTask, hasCarryover, carryoverItems.length]);
+  }, [assignTask, hasCarryover, carryoverItems.length, localNotes, setNotes]);
 
   const handleComplete = useCallback(() => {
     if (!latestOpenTask) return;
+    // Flush local draft to provider before submitting
+    setHoursToLog(localHours);
+    setNotes(localNotes);
     try {
       completeTask(latestOpenTask.taskName);
     } catch (e: unknown) {
@@ -333,7 +349,7 @@ export default function DashboardScreen() {
         e instanceof Error ? e.message : "Failed to complete task"
       );
     }
-  }, [completeTask, latestOpenTask]);
+  }, [completeTask, latestOpenTask, localHours, localNotes, setHoursToLog, setNotes]);
 
   const handleCancel = useCallback(() => {
     if (!latestOpenTask) return;
@@ -357,7 +373,8 @@ export default function DashboardScreen() {
   }, [cancelTask, latestOpenTask]);
 
   const handleAddNote = useCallback(() => {
-    if (!latestOpenTask || !notes.trim()) return;
+    if (!latestOpenTask || !localNotes.trim()) return;
+    setNotes(localNotes);
     try {
       addNote(latestOpenTask.taskName);
     } catch (e: unknown) {
@@ -366,7 +383,7 @@ export default function DashboardScreen() {
         e instanceof Error ? e.message : "Failed to save note"
       );
     }
-  }, [addNote, latestOpenTask, notes]);
+  }, [addNote, latestOpenTask, localNotes, setNotes]);
 
   const todayDateStr = useMemo(() => {
     const d = new Date();
@@ -764,8 +781,9 @@ export default function DashboardScreen() {
                           color: colors.textPrimary,
                         },
                       ]}
-                      value={hoursToLog}
-                      onChangeText={setHoursToLog}
+                      value={localHours}
+                      onChangeText={setLocalHours}
+                      onBlur={() => setHoursToLog(localHours)}
                       placeholder="0.00"
                       placeholderTextColor={colors.textMuted}
                       keyboardType="decimal-pad"
@@ -813,8 +831,9 @@ export default function DashboardScreen() {
                           color: colors.textPrimary,
                         },
                       ]}
-                      value={notes}
-                      onChangeText={setNotes}
+                      value={localNotes}
+                      onChangeText={setLocalNotes}
+                      onBlur={() => setNotes(localNotes)}
                       placeholder="Add notes…"
                       placeholderTextColor={colors.textMuted}
                       multiline
@@ -857,18 +876,32 @@ export default function DashboardScreen() {
                 />
               )}
 
-              {/* ── Cancel current task (only when open) ──────────────── */}
+              {/* ── Cancel current task — explicit destructive button ─── */}
               {latestOpenTask && (
                 <TouchableOpacity
-                  style={styles.cancelLink}
+                  style={[
+                    styles.cancelBtn,
+                    {
+                      backgroundColor: colors.cancelBg,
+                      borderColor: colors.cancel + "55",
+                    },
+                  ]}
                   onPress={handleCancel}
-                  activeOpacity={0.7}
+                  activeOpacity={0.75}
                   testID="cancel-btn"
                 >
-                  <XCircle size={14} color={colors.cancel} />
-                  <Text style={[styles.cancelLinkText, { color: colors.cancel }]}>
-                    {`Cancel "${latestOpenTask.taskName.split("|").pop()?.trim() ?? latestOpenTask.taskName}"`}
-                  </Text>
+                  <XCircle size={16} color={colors.cancel} />
+                  <View style={styles.cancelBtnInner}>
+                    <Text style={[styles.cancelBtnLabel, { color: colors.cancel }]}>
+                      Cancel Current Task
+                    </Text>
+                    <Text
+                      style={[styles.cancelBtnTask, { color: colors.cancel + "99" }]}
+                      numberOfLines={1}
+                    >
+                      {latestOpenTask.taskName.split("|").pop()?.trim() ?? latestOpenTask.taskName}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               )}
 
@@ -888,7 +921,7 @@ export default function DashboardScreen() {
               )}
 
               {/* ── Save Note Only ────────────────────────────────────── */}
-              {latestOpenTask !== null && notes.trim().length > 0 && (
+              {latestOpenTask !== null && localNotes.trim().length > 0 && (
                 <ActionButton
                   title="Save Note Only"
                   icon={<StickyNote size={15} color={colors.accent} />}
@@ -1252,18 +1285,25 @@ const styles = StyleSheet.create({
     fontWeight: "500" as const,
   },
 
-  // Cancel task — text link, only shown when open task exists
-  cancelLink: {
+  // Cancel task — clear destructive button so users know it's tappable
+  cancelBtn: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 10,
-    minHeight: 44,
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    borderRadius: DesignTokens.radius.md,
+    borderWidth: 1,
+    minHeight: 52,
   },
-  cancelLinkText: {
-    fontSize: 14,
-    fontWeight: "500" as const,
+  cancelBtnInner: { flex: 1 },
+  cancelBtnLabel: {
+    fontSize: DesignTokens.fontSize.footnote,
+    fontWeight: "600" as const,
+  },
+  cancelBtnTask: {
+    fontSize: DesignTokens.fontSize.caption1,
+    marginTop: 2,
   },
 
   // Sync indicator
