@@ -19,17 +19,19 @@ import {
 import { normalizeCollectorName } from "@/utils/normalize";
 import { log } from "@/utils/logger";
 
-const DEFAULT_SCRIPT_URL_LEGACY = "";
+// Single deployment — all actions route through this URL.
+// EXPO_PUBLIC_GOOGLE_SCRIPT_URL in your env overrides this at build time.
+const DEFAULT_SCRIPT_URL_LEGACY = "https://script.google.com/macros/s/AKfycbxNNZjODqxTEehH8iylSUMxdLvJ5UrHLp4uqDmMGaeAzpnwFxqWXIyPVfAHsExl7bCfOw/exec";
 const DEFAULT_SCRIPT_URL_CORE = "";
 const DEFAULT_SCRIPT_URL_ANALYTICS = "";
-const REQUEST_TIMEOUT_MS = 25000;
-const MAX_RETRY_ATTEMPTS = 2;
-const MAX_POST_RETRY_ATTEMPTS = 0; // Prevent duplicate writes on flaky networks.
+const REQUEST_TIMEOUT_MS = 12000; // GAS rarely exceeds 8-10 s even cold
+const MAX_RETRY_ATTEMPTS = 1;     // one retry is enough; fast fail is better UX
+const MAX_POST_RETRY_ATTEMPTS = 0;
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 const RETRYABLE_ERROR_PATTERNS = [/network/i, /timeout/i, /abort/i, /failed to fetch/i];
-const RETRY_DELAY_MS = [500, 1500];
+const RETRY_DELAY_MS = [300, 900]; // shorter retry delays
 const APP_CACHE_SNAPSHOT_TTL_MS = 20 * 1000;
-const WARM_SERVER_MIN_INTERVAL_MS = 60 * 1000;
+const WARM_SERVER_MIN_INTERVAL_MS = 45 * 1000; // re-warm every 45 s
 
 const STORAGE_PREFIX = "tf_cache_";
 

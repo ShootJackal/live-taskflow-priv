@@ -25,39 +25,61 @@ const queryClient = new QueryClient({
 
 
 /**
- * Clean branded splash — fades in the logo, holds for 800 ms,
- * then fades out and calls onComplete. No terminal ceremony.
+ * Boot splash — holds while the GAS script warms up from cold start.
+ *
+ * Timeline:
+ *   0 ms   — fade in + fire warm-up ping in background
+ *   300 ms — fully visible
+ *   2500 ms — fade out begins (gives GAS ~2-3 s to wake up)
+ *   2750 ms — onComplete, app is ready
+ *
+ * The warm-up ping (refreshCache) fires immediately so GAS is already
+ * processing before any data queries land.
  */
 function BootSequence({ onComplete }: { onComplete: () => void }) {
   const { colors } = useTheme();
   const opacity = useRef(new Animated.Value(0)).current;
-  const scale = useRef(new Animated.Value(0.92)).current;
+  const scale  = useRef(new Animated.Value(0.92)).current;
+  const statusOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Fade + scale in
+    // Fire warm-up ping immediately — GAS cold start happens here
+    if (Platform.OS === "web" || true) {
+      try {
+        const url = process.env.EXPO_PUBLIC_GOOGLE_SCRIPT_URL
+          || process.env.EXPO_PUBLIC_GAS_CORE_URL
+          || "https://script.google.com/macros/s/AKfycbxNNZjODqxTEehH8iylSUMxdLvJ5UrHLp4uqDmMGaeAzpnwFxqWXIyPVfAHsExl7bCfOw/exec";
+        if (url) {
+          void fetch(`${url}?action=refreshCache&scope=light`, {
+            redirect: "follow",
+            signal: AbortSignal.timeout?.(8000),
+          }).catch(() => {/* ignore — just a warm-up */});
+        }
+      } catch { /* ignore */ }
+    }
+
     Animated.parallel([
-      Animated.timing(opacity, { toValue: 1, duration: 400, useNativeDriver: true }),
-      Animated.spring(scale, { toValue: 1, speed: 14, bounciness: 4, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1, speed: 16, bounciness: 3, useNativeDriver: true }),
     ]).start(() => {
-      // Hold 800 ms then fade out
-      const timer = setTimeout(() => {
-        Animated.timing(opacity, { toValue: 0, duration: 320, useNativeDriver: true })
-          .start(() => onComplete());
+      // Show status hint after 800 ms if still on screen
+      const hintTimer = setTimeout(() => {
+        Animated.timing(statusOpacity, { toValue: 1, duration: 400, useNativeDriver: true }).start();
       }, 800);
-      return () => clearTimeout(timer);
+
+      // Hold until GAS has had ~2.5 s to warm up, then exit
+      const exitTimer = setTimeout(() => {
+        Animated.timing(opacity, { toValue: 0, duration: 250, useNativeDriver: true })
+          .start(() => onComplete());
+      }, 2200);
+
+      return () => { clearTimeout(hintTimer); clearTimeout(exitTimer); };
     });
-  }, [opacity, scale, onComplete]);
+  }, [opacity, scale, statusOpacity, onComplete]);
 
   return (
-    <Animated.View
-      style={[
-        bootStyles.container,
-        { backgroundColor: colors.bg, opacity },
-      ]}
-    >
-      <Animated.View
-        style={[bootStyles.logoWrap, { transform: [{ scale }] }]}
-      >
+    <Animated.View style={[bootStyles.container, { backgroundColor: colors.bg, opacity }]}>
+      <Animated.View style={[bootStyles.logoWrap, { transform: [{ scale }] }]}>
         <View style={[bootStyles.iconDock, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
           <Image
             source={require("../assets/images/icon.png")}
@@ -65,11 +87,10 @@ function BootSequence({ onComplete }: { onComplete: () => void }) {
             contentFit="contain"
           />
         </View>
-        <ActivityIndicator
-          size="small"
-          color={colors.accent}
-          style={bootStyles.spinner}
-        />
+        <ActivityIndicator size="small" color={colors.accent} style={bootStyles.spinner} />
+        <Animated.Text style={[bootStyles.status, { color: colors.textMuted, opacity: statusOpacity }]}>
+          Connecting…
+        </Animated.Text>
       </Animated.View>
     </Animated.View>
   );
@@ -82,7 +103,7 @@ const bootStyles = StyleSheet.create({
     justifyContent: "center",
     zIndex: 999,
   },
-  logoWrap: { alignItems: "center", gap: 24 },
+  logoWrap: { alignItems: "center", gap: 20 },
   iconDock: {
     width: 88,
     height: 88,
@@ -97,6 +118,7 @@ const bootStyles = StyleSheet.create({
   },
   icon: { width: 64, height: 64 },
   spinner: { marginTop: 4 },
+  status: { fontSize: 13, letterSpacing: 0.2 },
 });
 
 function RootLayoutNav() {

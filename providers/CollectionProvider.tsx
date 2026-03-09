@@ -176,10 +176,9 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
 
   useEffect(() => {
     if (!configured) return;
-    const timer = setTimeout(() => {
-      void warmServerCache(selectedCollectorName || undefined);
-    }, 300);
-    return () => clearTimeout(timer);
+    // Fire immediately — no delay. The GAS cold-start warm-up should happen
+    // as early as possible so the script is ready when data queries arrive.
+    void warmServerCache(selectedCollectorName || undefined);
   }, [configured, selectedCollectorName]);
 
   const collectors = useMemo<Collector[]>(() => {
