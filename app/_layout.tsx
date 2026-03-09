@@ -361,6 +361,18 @@ export default function RootLayout() {
     };
   }, []);
 
+  // If the app is loaded at a deep path (e.g. /live from a stale bookmark),
+  // redirect to root so the SPA boots cleanly and the tab bar restores state.
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    const path = window.location.pathname;
+    const isAsset = path.startsWith("/_expo") || path.startsWith("/favicon");
+    if (path !== "/" && path !== "" && !isAsset) {
+      // Replace history entry so Back doesn't loop to the 404-prone path
+      window.history.replaceState({}, "", "/");
+    }
+  }, []);
+
   if (!fontsLoaded) return null;
 
   return (

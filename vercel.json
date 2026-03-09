@@ -3,7 +3,6 @@
   "installCommand": "npm install --legacy-peer-deps",
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "dist",
-  "cleanUrls": true,
   "headers": [
     {
       "source": "/version.json",
@@ -13,6 +12,9 @@
     }
   ],
   "rewrites": [
-    { "source": "/:path*", "destination": "/index.html" }
+    {
+      "source": "/((?!_expo|favicon\\.ico|version\\.json|manifest\\.json|logo192\\.png|logo512\\.png|metadata\\.json).*)",
+      "destination": "/index.html"
+    }
   ]
 }

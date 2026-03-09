@@ -19,6 +19,7 @@ import {
   Cpu,
   Check,
   RotateCcw,
+  RefreshCw,
   BarChart3,
   ExternalLink,
   Database,
@@ -216,6 +217,16 @@ export default function ToolsScreen() {
         Alert.alert("Done", "Cache cleared. Pull to refresh any screen.");
       }},
     ]);
+  }, []);
+
+  const handleReloadApp = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      // Always navigate to root — deep paths like /live can 404 on hard reload
+      window.location.href = "/";
+    } else {
+      Alert.alert("Reload App", "Use your device's home button and relaunch the app to reload.");
+    }
   }, []);
 
   const cardStyle = [styles.card, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }];
@@ -416,6 +427,19 @@ export default function ToolsScreen() {
         )}
 
         <View style={styles.sectionGap} />
+
+        {/* Reload app — safe navigation to / (avoids deep-URL 404 on web) */}
+        <TouchableOpacity
+          style={[styles.clearCacheBtn, { borderColor: colors.accentDim, backgroundColor: colors.accentSoft }]}
+          onPress={handleReloadApp}
+          activeOpacity={0.7}
+        >
+          <RefreshCw size={13} color={colors.accent} />
+          <Text style={[styles.clearCacheText, { color: colors.accent }]}>Refresh App</Text>
+        </TouchableOpacity>
+
+        <View style={{ height: DesignTokens.spacing.sm }} />
+
         <TouchableOpacity
           style={[styles.clearCacheBtn, { borderColor: colors.border }]}
           onPress={handleClearCache}

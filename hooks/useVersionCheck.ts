@@ -30,7 +30,10 @@ export function useVersionCheck() {
 
   const reload = useCallback(() => {
     if (Platform.OS === "web" && typeof window !== "undefined") {
-      window.location.reload();
+      // Navigate to root instead of reloading current URL.
+      // Deep paths like /live would 404 on a hard reload since this is a SPA
+      // with only index.html — going to / is always safe and re-runs the boot.
+      window.location.href = "/";
     }
   }, []);
 
