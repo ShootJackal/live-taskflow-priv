@@ -19,6 +19,53 @@ import {
 import { normalizeCollectorName } from "@/utils/normalize";
 import { log } from "@/utils/logger";
 
+// ── Vercel Blob cache layer ───────────────────────────────────────────────────
+// EXPO_PUBLIC_BLOB_BASE_URL should be set in Vercel to your blob store's
+// public base URL, e.g. https://abcdef123.public.blob.vercel-storage.com
+// This is the CDN-backed fast-path. Stale tolerance per endpoint is defined
+// below; if the cached value is older, we fall through to GAS.
+const BLOB_BASE_URL = process.env.EXPO_PUBLIC_BLOB_BASE_URL ?? "";
+const BLOB_PREFIX   = "taskflow-cache";
+
+// How old a blob entry can be before we consider it stale and go to GAS.
+const BLOB_STALE_MS: Record<string, number> = {
+  "collectors":           30 * 60 * 1000,  // 30 min — changes rarely
+  "tasks":                30 * 60 * 1000,  // 30 min — changes rarely
+  "leaderboard-thisWeek": 12 * 60 * 1000,  // 12 min — cron runs every 10
+  "leaderboard-lastWeek": 30 * 60 * 1000,  // 30 min — last week is fixed
+  "recollections":        12 * 60 * 1000,
+  "activeRigsCount":      12 * 60 * 1000,
+  "liveAlerts":            5 * 60 * 1000,  // 5 min — more time-sensitive
+};
+
+interface BlobEntry<T> { updatedAt: string; data: T; }
+
+/**
+ * Try to read a pre-fetched value from Vercel Blob.
+ * Returns the data if fresh, null if stale / unavailable / not configured.
+ */
+async function readFromBlob<T>(file: string): Promise<T | null> {
+  if (!BLOB_BASE_URL) return null;
+  const staleMs = BLOB_STALE_MS[file] ?? (15 * 60 * 1000);
+  try {
+    const url = `${BLOB_BASE_URL.replace(/\/$/, "")}/${BLOB_PREFIX}/${file}.json`;
+    const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout?.(4000) });
+    if (!res.ok) return null;
+    const entry = await res.json() as BlobEntry<T>;
+    if (!entry?.updatedAt || !entry?.data) return null;
+    const age = Date.now() - new Date(entry.updatedAt).getTime();
+    if (age > staleMs) {
+      log("[Blob] stale:", file, `${Math.round(age / 1000)}s old`);
+      return null;
+    }
+    log("[Blob] hit:", file, `${Math.round(age / 1000)}s old`);
+    return entry.data;
+  } catch {
+    return null;
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Set EXPO_PUBLIC_GOOGLE_SCRIPT_URL in your Vercel environment variables.
 // Never hardcode the live URL here — it gets embedded in the public JS bundle.
 const DEFAULT_SCRIPT_URL_LEGACY = "";
@@ -509,7 +556,9 @@ interface RawTask {
 }
 
 export async function fetchCollectors(): Promise<Collector[]> {
-  const raw = await apiGet<RawCollector[]>("getCollectors");
+  // Try Blob cache first — collectors change rarely, Blob is ~80 ms vs 2-4 s GAS
+  const blobRaw = await readFromBlob<RawCollector[]>("collectors");
+  const raw = blobRaw ?? await apiGet<RawCollector[]>("getCollectors");
   return raw.map((c, i) => ({
     id: `c_${i}_${c.name.replace(/\s/g, "_")}`,
     name: c.name,
@@ -523,7 +572,9 @@ export async function fetchCollectors(): Promise<Collector[]> {
 }
 
 export async function fetchTasks(): Promise<Task[]> {
-  const raw = await apiGet<RawTask[]>("getTasks");
+  // Try Blob cache first
+  const blobRaw = await readFromBlob<RawTask[]>("tasks");
+  const raw = blobRaw ?? await apiGet<RawTask[]>("getTasks");
   return raw.map((t, i) => ({
     id: `t_${i}_${t.name.replace(/\s/g, "_")}`,
     name: t.name,
@@ -683,6 +734,8 @@ export async function logCollectorRigSelection(
 }
 
 export async function fetchRecollections(): Promise<string[]> {
+  const blobData = await readFromBlob<string[]>("recollections");
+  if (blobData) return blobData;
   try {
     return await apiGet<string[]>("getRecollections");
   } catch (err) {
@@ -737,6 +790,8 @@ export interface ActiveRigsCount {
 }
 
 export async function fetchActiveRigsCount(): Promise<ActiveRigsCount> {
+  const blobData = await readFromBlob<ActiveRigsCount>("activeRigsCount");
+  if (blobData && typeof blobData.activeRigsToday === "number") return blobData;
   try {
     return await apiGet<ActiveRigsCount>("getActiveRigsCount");
   } catch (err) {
@@ -749,6 +804,8 @@ export async function fetchActiveRigsCount(): Promise<ActiveRigsCount> {
 }
 
 export async function fetchLiveAlerts(): Promise<LiveAlert[]> {
+  const blobData = await readFromBlob<LiveAlert[]>("liveAlerts");
+  if (blobData) return blobData;
   try {
     return await apiGet<LiveAlert[]>("getLiveAlerts");
   } catch (err) {
@@ -963,12 +1020,21 @@ function sanitizeLeaderboard(raw: LeaderboardEntry[]): LeaderboardEntry[] {
 }
 
 export async function fetchLeaderboard(period: "thisWeek" | "lastWeek" = "thisWeek"): Promise<LeaderboardEntry[]> {
-  log("[API] fetchLeaderboard — using server endpoint", period);
+  log("[API] fetchLeaderboard", period);
+
+  // ── Try Vercel Blob first (CDN-fast, pre-fetched by cron) ─────────────────
+  const blobFile = `leaderboard-${period}`;
+  const blobData = await readFromBlob<LeaderboardEntry[]>(blobFile);
+  if (blobData && Array.isArray(blobData) && blobData.length > 0) {
+    log("[Blob] leaderboard hit", period, blobData.length, "entries");
+    return sanitizeLeaderboard(blobData);
+  }
+
+  // ── Fall through to GAS ───────────────────────────────────────────────────
   let serverFetchFailed = false;
   let serverErrorMessage = "";
 
   try {
-    // Always hit server for leaderboard to avoid stale storage snapshots masking live MX/SF updates.
     const serverLeaderboard = await apiGet<LeaderboardEntry[]>("getLeaderboard", { period }, false);
     if (!Array.isArray(serverLeaderboard)) {
       throw new Error("Malformed leaderboard payload (expected array)");

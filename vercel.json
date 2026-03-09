@@ -3,6 +3,12 @@
   "installCommand": "npm install --legacy-peer-deps",
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "dist",
+  "crons": [
+    {
+      "path": "/api/warm-blob-cache",
+      "schedule": "*/10 * * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
