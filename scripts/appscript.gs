@@ -433,36 +433,41 @@ function getOrCreateLiveAlertsSheet() {
 function handlePushLiveAlert(body) {
   var message = safeStr(body && body.message);
   if (!message) throw new Error('Missing message');
+  if (message === '__CLEAR_ALL__') { return handleClearAllAlerts_(); }
 
-  var level = safeStr(body && body.level).toUpperCase() || 'INFO';
-  var target = safeStr(body && body.target).toUpperCase() || 'ALL';
-  var createdBy = safeStr(body && body.createdBy) || safeStr(body && body.collector) || 'ADMIN';
+  var level      = safeStr(body && body.level).toUpperCase() || 'INFO';
+  var target     = safeStr(body && body.target).toUpperCase() || 'ALL';
+  var createdBy  = safeStr(body && body.createdBy) || safeStr(body && body.collector) || 'ADMIN';
+  var expiryHours = safeNum(body && body.expiryHours);
   var now = new Date();
   var alertId = 'AL-' + now.getTime();
-
+  var expiresAt = '';
+  if (expiryHours > 0 && expiryHours <= 720) {
+    expiresAt = new Date(now.getTime() + expiryHours * 3600000).toISOString();
+  }
   var sheet = getOrCreateLiveAlertsSheet();
+  if (sheet.getLastColumn() < 8) { sheet.getRange(1, 8).setValue('ExpiresAt'); }
   sheet.insertRows(2, 1);
-  sheet.getRange(2, 1, 1, 7).setValues([[
-    alertId,
-    message,
-    level,
-    target,
-    now.toISOString(),
-    createdBy,
-    true
-  ]]);
-
+  sheet.getRange(2, 1, 1, 8).setValues([[alertId, message, level, target, now.toISOString(), createdBy, true, expiresAt]]);
   var latest = handleGetLiveAlerts();
   writeCache('liveAlerts', latest);
-  return {
-    id: alertId,
-    message: message,
-    level: level,
-    target: target,
-    createdAt: now.toISOString(),
-    createdBy: createdBy,
-    success: true
-  };
+  return { id: alertId, message: message, level: level, target: target, createdAt: now.toISOString(), createdBy: createdBy, expiresAt: expiresAt, success: true };
+}
+
+function handleClearAllAlerts_() {
+  var sheet;
+  try { sheet = getOrCreateLiveAlertsSheet(); } catch (e) { return { success: true, cleared: 0 }; }
+  var data = sheet.getDataRange().getValues();
+  var cleared = 0;
+  for (var i = 1; i < data.length; i++) {
+    var activeRaw = safeStr(data[i][6]).toLowerCase();
+    if (!(activeRaw === 'false' || activeRaw === '0' || activeRaw === 'no')) {
+      sheet.getRange(i + 1, 7).setValue(false);
+      cleared++;
+    }
+  }
+  writeCache('liveAlerts', []);
+  return { success: true, cleared: cleared };
 }
 
 function handleGetLiveAlerts() {
@@ -486,7 +491,14 @@ function handleGetLiveAlerts() {
     var activeRaw = safeStr(row[6]).toLowerCase();
     var isActive = !(activeRaw === 'false' || activeRaw === '0' || activeRaw === 'no');
     if (!isActive) continue;
-
+    var expiresAt = safeStr(row[7]);
+    if (expiresAt) {
+      var expDate = new Date(expiresAt);
+      if (!isNaN(expDate.getTime()) && expDate.getTime() < Date.now()) {
+        sheet.getRange(i + 1, 7).setValue(false);
+        continue;
+      }
+    }
     out.push({
       id: id,
       message: msg,

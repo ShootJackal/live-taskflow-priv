@@ -329,17 +329,53 @@ export default function StatsScreen() {
 
   const recommendedTasks = useMemo(() => {
     const rows = taskActualsQuery.data ?? [];
-    return rows
-      .filter((row) => {
-        const remaining = Number(row.remainingHours) || 0;
-        const status = String(row.status ?? "").toUpperCase();
-        if (remaining <= 0) return false;
-        if (status === "DONE" || status === "COMPLETED" || status === "COMPLETE") return false;
-        return true;
+
+    // Tasks the current collector has touched today (high priority — continue their own work)
+    const myTasks = new Set(
+      todayLog.map(e => normalizeCollectorName(e.taskName).toLowerCase())
+    );
+
+    // Deduplicate by normalized task name
+    const seen = new Set<string>();
+    const candidates = rows.filter((row) => {
+      const remaining = Number(row.remainingHours) || 0;
+      const status = String(row.status ?? "").toUpperCase();
+      if (remaining <= 0) return false;
+      if (status === "DONE" || status === "COMPLETED" || status === "COMPLETE") return false;
+      const nameKey = normalizeCollectorName(String(row.taskName || "")).toLowerCase();
+      if (!nameKey || seen.has(nameKey)) return false;
+      seen.add(nameKey);
+      return true;
+    });
+
+    return candidates
+      .map((row) => {
+        const remaining  = Number(row.remainingHours) || 0;
+        const collected  = Number((row as any).collectedHours ?? (row as any).goodHours ?? 0);
+        const total      = remaining + collected;
+        const pct        = total > 0 ? collected / total : 0;
+        const isRecollect = String(row.status ?? "").toUpperCase() === "RECOLLECT";
+        const nameKey    = normalizeCollectorName(String(row.taskName || "")).toLowerCase();
+        const isMine     = myTasks.has(nameKey);
+
+        // Collectors needed estimate: remaining ÷ 5h average session
+        const collectorsNeeded = Math.max(1, Math.ceil(remaining / 5));
+
+        // Priority score:
+        //   100  — collector already working on this task today
+        //   50   — recollect task (collector may have done it before)
+        //   0–30 — scaled by completion % (closer to done = higher priority)
+        const priority = (isMine ? 100 : 0) + (isRecollect && isMine ? 50 : 0) + (pct * 30);
+
+        return { ...row, priority, isMine, isRecollect, remaining, pct, collectorsNeeded };
       })
-      .sort((a, b) => (Number(b.remainingHours) || 0) - (Number(a.remainingHours) || 0))
-      .slice(0, 6);
-  }, [taskActualsQuery.data]);
+      .sort((a, b) => {
+        // Primary: own tasks first; secondary: recollect; tertiary: closest to done
+        if (b.priority !== a.priority) return b.priority - a.priority;
+        return a.remaining - b.remaining; // least remaining first
+      })
+      .slice(0, 8);
+  }, [taskActualsQuery.data, todayLog]);
 
   const dailyCarryover = useMemo(() => dailyCarryoverQuery.data ?? [], [dailyCarryoverQuery.data]);
 
@@ -727,19 +763,35 @@ export default function StatsScreen() {
             <Target size={12} color={colors.mxOrange} />
             <Text style={[styles.recommendTitle, { color: colors.mxOrange }]}>Recommended Tasks</Text>
           </View>
-          {recommendedTasks.map((task, idx) => (
-            <View
-              key={`rec_${idx}`}
-              style={[styles.recommendRow, { borderBottomColor: colors.border }, idx === recommendedTasks.length - 1 && styles.recommendLast]}
-            >
-              <Text style={[styles.recommendName, { color: colors.textPrimary }]} numberOfLines={1}>
-                {task.taskName}
-              </Text>
-              <Text style={[styles.recommendMeta, { color: colors.statusPending }]}>
-                {Number(task.remainingHours).toFixed(2)}h left
-              </Text>
-            </View>
-          ))}
+          {recommendedTasks.map((task, idx) => {
+            const t = task as typeof task & { isMine?: boolean; isRecollect?: boolean; collectorsNeeded?: number; pct?: number };
+            const pctVal = Math.round((t.pct ?? 0) * 100);
+            const labelColor = t.isMine ? colors.complete : t.isRecollect ? colors.recollectRed : colors.mxOrange;
+            const tag = t.isMine ? "↩ Continue" : t.isRecollect ? "↺ Recollect" : undefined;
+            return (
+              <View
+                key={`rec_${idx}`}
+                style={[styles.recommendRow, { borderBottomColor: colors.border }, idx === recommendedTasks.length - 1 && styles.recommendLast]}
+              >
+                <View style={styles.recommendRowLeft}>
+                  {tag && (
+                    <Text style={[styles.recommendTag, { color: labelColor, borderColor: labelColor + "40" }]}>
+                      {tag}
+                    </Text>
+                  )}
+                  <Text style={[styles.recommendName, { color: colors.textPrimary }]} numberOfLines={1}>
+                    {task.taskName}
+                  </Text>
+                  <Text style={[styles.recommendSub, { color: colors.textMuted }]}>
+                    {pctVal}% done · ~{t.collectorsNeeded ?? 1} collector{(t.collectorsNeeded ?? 1) !== 1 ? "s" : ""} needed
+                  </Text>
+                </View>
+                <Text style={[styles.recommendMeta, { color: colors.statusPending }]}>
+                  {Number(task.remainingHours).toFixed(1)}h
+                </Text>
+              </View>
+            );
+          })}
         </View>
       )}
 
@@ -1315,12 +1367,22 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   recommendLast: { borderBottomWidth: 0 },
+  recommendRowLeft: { flex: 1, gap: 2 },
+  recommendTag: {
+    alignSelf: "flex-start",
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "700" as const,
+    borderWidth: 1,
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
   recommendName: {
-    flex: 1,
     fontSize: DesignTokens.fontSize.footnote,
     fontWeight: "600" as const,
   },
-  recommendMeta: { fontSize: DesignTokens.fontSize.caption1, fontWeight: "600" as const },
+  recommendSub: { fontSize: DesignTokens.fontSize.caption2 },
+  recommendMeta: { fontSize: DesignTokens.fontSize.caption1, fontWeight: "600" as const, paddingTop: 2 },
   // Recent collectors
   recentCard: {
     borderRadius: DesignTokens.radius.xl,
