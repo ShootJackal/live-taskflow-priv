@@ -472,15 +472,50 @@ export default function LiveScreen() {
             )}
           </View>
 
-          {regionOverview.hasData ? (
+          {!configured ? (
+            /* ── Not configured ── */
+            <View style={s.emptySection}>
+              <Radio size={22} color={colors.border} />
+              <Text style={[s.emptyText, { color: colors.textMuted }]}>
+                Set EXPO_PUBLIC_GAS_CORE_URL (or GOOGLE_SCRIPT_URL) in your environment to connect.
+              </Text>
+            </View>
+
+          ) : leaderboardQuery.isError ? (
+            /* ── Query failed — show the actual reason ── */
+            <View style={s.emptySection}>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  leaderboardQuery.refetch();
+                }}
+                style={[s.retryBtn, { borderColor: colors.cancel + "50" }]}
+                activeOpacity={0.75}
+              >
+                <RotateCcw size={14} color={colors.cancel} />
+                <Text style={[s.retryText, { color: colors.cancel }]}>Retry</Text>
+              </TouchableOpacity>
+              <Text style={[s.errorText, { color: colors.cancel }]} numberOfLines={3}>
+                {leaderboardQuery.error instanceof Error
+                  ? leaderboardQuery.error.message
+                  : "Leaderboard fetch failed"}
+              </Text>
+            </View>
+
+          ) : leaderboardQuery.isLoading ? (
+            /* ── Initial fetch in progress ── */
+            <View style={s.emptySection}>
+              <ActivityIndicator color={colors.accent} />
+              <Text style={[s.emptyText, { color: colors.textMuted }]}>Loading…</Text>
+            </View>
+
+          ) : regionOverview.hasData ? (
+            /* ── Data ready ── */
             <>
-              {/* Two-column region comparison */}
               <View style={s.regionGrid}>
                 {renderRegionCol("EGO-MX", colors.mxOrange, regionOverview.mx, mxRigCount)}
                 {renderRegionCol("EGO-SF", colors.sfBlue, regionOverview.sf, sfRigCount, true)}
               </View>
-
-              {/* Combined team strip */}
               <View style={[s.combinedRow, { borderTopColor: colors.border }]}>
                 <View style={s.combinedCell}>
                   <Text style={[s.combinedVal, { color: colors.accent }]}>
@@ -511,16 +546,13 @@ export default function LiveScreen() {
                 </View>
               </View>
             </>
-          ) : leaderboardQuery.isLoading ? (
-            <View style={s.emptySection}>
-              <ActivityIndicator color={colors.accent} />
-              <Text style={[s.emptyText, { color: colors.textMuted }]}>Loading…</Text>
-            </View>
+
           ) : (
+            /* ── Configured + no error + not loading + empty feed ── */
             <View style={s.emptySection}>
               <Radio size={22} color={colors.border} />
               <Text style={[s.emptyText, { color: colors.textMuted }]}>
-                {configured ? "Waiting for feed…" : "Configure GAS endpoint to see data"}
+                No leaderboard data for this week yet.
               </Text>
             </View>
           )}
@@ -568,7 +600,27 @@ export default function LiveScreen() {
           </View>
         )}
 
-        {/* ── Personal stats ───────────────────────────────────────────── */}
+        {/* ── Personal stats ── only shown when a collector is selected ── */}
+        {selectedCollectorName && statsQuery.isError && (
+          <View style={[s.section, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
+            <View style={[s.sectionHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[s.sectionTitle, { color: colors.textPrimary }]}>My Stats</Text>
+            </View>
+            <View style={s.emptySection}>
+              <TouchableOpacity
+                onPress={() => statsQuery.refetch()}
+                style={[s.retryBtn, { borderColor: colors.cancel + "50" }]}
+                activeOpacity={0.75}
+              >
+                <RotateCcw size={14} color={colors.cancel} />
+                <Text style={[s.retryText, { color: colors.cancel }]}>Retry</Text>
+              </TouchableOpacity>
+              <Text style={[s.errorText, { color: colors.cancel }]}>
+                {statsQuery.error instanceof Error ? statsQuery.error.message : "Stats unavailable"}
+              </Text>
+            </View>
+          </View>
+        )}
         {stats && selectedCollectorName && (
           <View style={[s.section, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
             <View style={[s.sectionHeader, { borderBottomColor: colors.border }]}>
@@ -699,9 +751,20 @@ const s = StyleSheet.create({
   combinedVal: { fontSize: 17, fontWeight: "700" as const },
   combinedLabel: { fontSize: 11, marginTop: 2 },
 
-  // Empty state
-  emptySection: { alignItems: "center", paddingVertical: 32, gap: 8 },
-  emptyText: { fontSize: 13, textAlign: "center" },
+  // Empty / error states
+  emptySection: { alignItems: "center", paddingVertical: 28, gap: 8 },
+  emptyText: { fontSize: 13, textAlign: "center", paddingHorizontal: 16, lineHeight: 19 },
+  errorText: { fontSize: 12, textAlign: "center", paddingHorizontal: 16, lineHeight: 17 },
+  retryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  retryText: { fontSize: 13, fontWeight: "600" as const },
 
   // List rows (recollections)
   listRow: {
