@@ -61,9 +61,14 @@ var SF_RIG_LIST = [2, 3, 4, 5, 6, 9, 11];
 // Comparison is case/whitespace-insensitive (uses normalizeCollectorKey).
 var SF_COLLECTORS_LIST = ['Travis', 'Tony', 'Veronika'];
 
-// Historical rig-to-collector mapping for last week's leaderboard attribution.
-// Used as a fallback when no Rig History Log entry exists for a rig.
-// Update this map whenever collectors swap rigs semi-permanently.
+// Historical rig-to-collector mapping — used as a last-resort fallback when
+// no Rig History Log session covers a given date (e.g. data before the SOD
+// system was in use). Once collectors are using the SOD picker, the session
+// log takes over and this map is no longer needed for current data.
+// NOTE: rig 9 is listed as Veronika here (her primary rig) but Travis has
+// also used it. The date-range lookup in getCollectorForRigOnDate_ handles
+// the split correctly once sessions exist; this fallback only fires when
+// no session covers the row's date.
 var SF_HISTORICAL_RIG_MAP = {
   '2': 'Travis',
   '3': 'Tony',
@@ -71,7 +76,7 @@ var SF_HISTORICAL_RIG_MAP = {
   '5': 'Tony',
   '6': 'Veronika',
   '9': 'Veronika'
-  // rig 11 is unassigned historically
+  // rig 11 has no primary historical owner
 };
 
 var CACHE_CELL_MAX_CHARS = 49000; // Sheets hard limit is ~50000 chars per cell.
@@ -1325,6 +1330,61 @@ function logCollectorRigEvent(collectorName, rigId, source, notes, eventDate) {
 }
 
 /**
+ * Builds a date-range map from the Rig History Log.
+ * Returns: { normalizedRigId: [ { collector, startMs, endMs } ] }
+ * Used by getCollectorForRigOnDate_ to attribute CA_PLUS/CA_TAGGED rows to
+ * the correct collector when rigs are shared or switched across days.
+ */
+function buildRigSessionMap_() {
+  var sh = getSS().getSheetByName(TASKFLOW_SHEETS.RIG_HISTORY);
+  if (!sh) return {};
+  var data = sh.getDataRange().getValues();
+  var map = {};
+  for (var i = 1; i < data.length; i++) {
+    var collector = safeStr(data[i][1]); // B = Collector
+    var rig = normalizeRigKey(safeStr(data[i][2])); // C = Rig
+    var startRaw = data[i][4]; // E = SessionStart
+    var endRaw   = data[i][5]; // F = SessionEnd (blank = still active)
+    if (!collector || !rig || !startRaw) continue;
+    var startMs = toTimestampMs(startRaw);
+    if (!startMs || startMs <= 0) continue;
+    var endMs = endRaw ? toTimestampMs(endRaw) : Infinity;
+    if (!map[rig]) map[rig] = [];
+    map[rig].push({ collector: collector, startMs: startMs, endMs: endMs });
+  }
+  return map;
+}
+
+/**
+ * Returns the collector who had a given rig on a specific date by finding
+ * the session in the Rig History Log with the most overlap on that day.
+ * Handles split days (two collectors on same rig same day) by picking
+ * whichever had the longer session window.
+ */
+function getCollectorForRigOnDate_(rigSessionMap, rigId, date) {
+  var normRig = normalizeRigKey(rigId);
+  var sessions = rigSessionMap[normRig];
+  if (!sessions || !date) return null;
+  var dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  var dayEnd   = dayStart + 86400000; // midnight next day
+  var best = null;
+  var bestOverlap = 0;
+  for (var i = 0; i < sessions.length; i++) {
+    var s = sessions[i];
+    var overlapStart = Math.max(s.startMs, dayStart);
+    var overlapEnd   = Math.min(s.endMs === Infinity ? dayEnd : s.endMs, dayEnd);
+    if (overlapEnd > overlapStart) {
+      var overlap = overlapEnd - overlapStart;
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap;
+        best = s.collector;
+      }
+    }
+  }
+  return best;
+}
+
+/**
  * Returns normalized collector upload rows from CA_TAGGED (preferred) or CA_PLUS (fallback).
  * Output row shape: { date: Date|null, rigId: string, collector: string, taskName: string, taskKey: string, hours: number, site: string }
  */
@@ -1333,7 +1393,8 @@ function getCollectorActualRows() {
   var sourceSheet = ss.getSheetByName(TASKFLOW_SHEETS.CA_TAGGED) || ss.getSheetByName(TASKFLOW_SHEETS.CA_PLUS);
   if (!sourceSheet) return [];
   var rigMaps = getCollectorRigMaps();
-  var rigHistoryMap = getRigToCollectorFromHistory();
+  var rigHistoryMap = getRigToCollectorFromHistory(); // byRigLatest — fallback only
+  var rigSessionMap = buildRigSessionMap_();          // date-range map — used first
 
   var rows = sourceSheet.getDataRange().getValues();
   if (!rows || rows.length === 0) return [];
@@ -1395,7 +1456,13 @@ function getCollectorActualRows() {
     var hours = safeNum(r[idxHours]);
     if (!rigId || !taskName || hours <= 0) continue;
     var collectorRaw = safeStr(r[idxCollector]);
-    var collectorFromHistory = rigHistoryMap[rigId] || '';
+    // Date-aware: find who had this specific rig on this specific day from session records.
+    // Falls back to byRigLatest (most recent user) only when no session covers the date.
+    var rowDate = toDateSafe(r[idxDate]);
+    var collectorFromHistory = (rowDate
+      ? (getCollectorForRigOnDate_(rigSessionMap, rigId, rowDate) || rigHistoryMap[rigId] || '')
+      : (rigHistoryMap[rigId] || '')
+    );
     var collectorFromRig = rigMaps.rigToCollectorName[rigId] || '';
     var collectorName = collectorRaw || collectorFromHistory || collectorFromRig;
     var site = idxSite >= 0 ? safeStr(r[idxSite]).toUpperCase() : '';
