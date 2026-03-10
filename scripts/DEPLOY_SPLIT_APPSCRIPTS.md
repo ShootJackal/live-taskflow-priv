@@ -2,14 +2,21 @@
 
 Use two separate Google Apps Script projects:
 
-1. **Core script**: copy from `scripts/appscript-core.gs`
-2. **Analytics script**: copy from `scripts/appscript-analytics.gs`
+Before deploying, regenerate outputs:
+
+```bash
+node scripts/build-gas.js
+```
+
+
+1. **Core script**: copy from `scripts/dist/appscript-core.gs`
+2. **Analytics script**: copy from `scripts/dist/appscript-analytics.gs`
 
 Both scripts point to the same spreadsheet, but each only allows its own action set.
 
 ## Core Script
 
-- File: `scripts/appscript-core.gs`
+- File: `scripts/dist/appscript-core.gs`
 - Handles stable/write-critical actions:
   - `getCollectors`
   - `getTasks`
@@ -22,7 +29,7 @@ Both scripts point to the same spreadsheet, but each only allows its own action 
 
 ## Analytics Script
 
-- File: `scripts/appscript-analytics.gs`
+- File: `scripts/dist/appscript-analytics.gs`
 - Handles read-heavy/volatile calculation actions:
   - `getLeaderboard`
   - `getCollectorStats`

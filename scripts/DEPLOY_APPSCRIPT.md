@@ -7,12 +7,13 @@ For split endpoint deployment (Core + Analytics), use `scripts/DEPLOY_SPLIT_APPS
 1. Open your **Google Sheet** (the one connected to TaskFlow).
 2. **Extensions → Apps Script** (opens the script editor).
 3. In the editor, **select all** (Cmd+A / Ctrl+A) and **delete**.
-4. Open **`appscript.gs`** in this repo, select all, copy.
-5. Paste into the Apps Script editor and **Save** (Ctrl+S / Cmd+S).
-6. **Deploy → Manage deployments** → click the **pencil (Edit)** on the existing deployment.
-7. Under **Version**, choose **New version** (optional: add description e.g. "v4.3 CA_PLUS live stats").
-8. Click **Deploy**. Do **not** change the Web app URL.
-9. Copy the **Web app URL** only if you created a new deployment; otherwise the existing URL (in `EXPO_PUBLIC_GOOGLE_SCRIPT_URL`) stays the same.
+4. Build the generated Apps Script outputs: `node scripts/build-gas.js`.
+5. Open **`scripts/dist/appscript-core.gs`** in this repo, select all, copy.
+6. Paste into the Apps Script editor and **Save** (Ctrl+S / Cmd+S).
+7. **Deploy → Manage deployments** → click the **pencil (Edit)** on the existing deployment.
+8. Under **Version**, choose **New version** (optional: add description e.g. "v4.3 CA_PLUS live stats").
+9. Click **Deploy**. Do **not** change the Web app URL.
+10. Copy the **Web app URL** only if you created a new deployment; otherwise the existing URL (in `EXPO_PUBLIC_GOOGLE_SCRIPT_URL`) stays the same.
 
 ---
 
