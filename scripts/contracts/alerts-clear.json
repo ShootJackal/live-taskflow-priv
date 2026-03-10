@@ -1,0 +1,23 @@
+{
+  "contract": "alerts.clear.v1",
+  "description": "Canonical contract for clearing all active live alerts in the Core Apps Script.",
+  "request": {
+    "method": "POST",
+    "contentType": "text/plain",
+    "body": {
+      "metaAction": "CLEAR_ALL_ALERTS"
+    }
+  },
+  "successResponse": {
+    "success": true,
+    "data": {
+      "success": true,
+      "cleared": 3
+    },
+    "message": "All alerts cleared"
+  },
+  "errorResponse": {
+    "success": false,
+    "error": "metaAction not supported by CORE script: CLEAR_ALL_ALERTS"
+  }
+}

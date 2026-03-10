@@ -88,6 +88,7 @@ var CORE_META_ACTIONS = {
   '': true, // default submitAction payload
   SET_RIG: true,
   PUSH_ALERT: true,
+  CLEAR_ALL_ALERTS: true,
   ADMIN_ASSIGN_TASK: true,
   ADMIN_CANCEL_TASK: true,
   ADMIN_EDIT_HOURS: true,
@@ -332,6 +333,10 @@ function doPost(e) {
       var alertResult = handlePushLiveAlert(body);
       return jsonOut({ success: true, data: alertResult, message: alertResult.message || 'Alert sent' });
     }
+    if (metaAction === 'CLEAR_ALL_ALERTS') {
+      var clearResult = handleClearAllAlerts_();
+      return jsonOut({ success: true, data: clearResult, message: 'All alerts cleared' });
+    }
     if (metaAction === 'ADMIN_ASSIGN_TASK') {
       var adminAssign = handleAdminAssignTask(body);
       return jsonOut({ success: true, data: adminAssign, message: adminAssign.message || 'Task assigned' });
@@ -434,11 +439,6 @@ function getOrCreateLiveAlertsSheet() {
 function handlePushLiveAlert(body) {
   var message = safeStr(body && body.message);
   if (!message) throw new Error('Missing message');
-
-  // Special command: clear all active alerts
-  if (message === '__CLEAR_ALL__') {
-    return handleClearAllAlerts_();
-  }
 
   var level      = safeStr(body && body.level).toUpperCase() || 'INFO';
   var target     = safeStr(body && body.target).toUpperCase() || 'ALL';

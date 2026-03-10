@@ -808,6 +808,10 @@ export async function pushLiveAlert(payload: {
   createdBy?: string;
   expiryHours?: number;
 }): Promise<void> {
+  if (String(payload.message ?? "").trim() === "__CLEAR_ALL__") {
+    throw new Error('Use clearAllAlerts() with metaAction "CLEAR_ALL_ALERTS" for clearing alerts');
+  }
+
   const scriptUrl = getScriptUrlForMetaAction("PUSH_ALERT");
   if (!scriptUrl) {
     throw getMissingScriptUrlError("core");
