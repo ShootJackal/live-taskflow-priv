@@ -29,6 +29,16 @@ import {
 } from "@/services/googleSheets";
 import type { RigStatus } from "@/types";
 
+// SF rig list used as a client-side fallback when getRigStatus isn't available yet.
+const SF_RIGS_FALLBACK: RigStatus[] = [2, 3, 4, 5, 6, 9, 11].map((rig) => ({
+  rig,
+  status: "available" as const,
+  assignedTo: null,
+  assignmentId: null,
+  assignedAt: null,
+  pendingSwitchBy: null,
+}));
+
 interface Props {
   visible: boolean;
   onClose: () => void;
@@ -56,7 +66,9 @@ export default function RigAssignmentModal({ visible, onClose }: Props) {
     retry: 1,
   });
 
-  const rigs = rigStatusQuery.data ?? [];
+  // If getRigStatus fails (GAS not yet redeployed), fall back to showing all
+  // SF rigs as available so collectors can still pick and the SET_RIG fallback fires.
+  const rigs = rigStatusQuery.data ?? (rigStatusQuery.isError ? SF_RIGS_FALLBACK : []);
 
   const handleAssign = useCallback(async (rig: RigStatus) => {
     if (rig.status !== "available") {
@@ -135,11 +147,9 @@ export default function RigAssignmentModal({ visible, onClose }: Props) {
                 )}
               </View>
 
-              {rigStatusQuery.isError && (
-                <Text style={[s.errorText, { color: colors.cancel }]}>
-                  {String((rigStatusQuery.error as Error)?.message ?? "").includes("Unknown action")
-                    ? "Rig system not active yet — redeploy the GAS script to enable this."
-                    : "Could not load rig status. Check your connection and try again."}
+              {rigStatusQuery.isError && !String((rigStatusQuery.error as Error)?.message ?? "").includes("Unknown action") && (
+                <Text style={[s.errorText, { color: colors.statusPending }]}>
+                  Live rig status unavailable — showing all rigs. Redeploy GAS for real-time status.
                 </Text>
               )}
 

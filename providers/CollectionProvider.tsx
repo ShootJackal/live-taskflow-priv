@@ -599,10 +599,29 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     // Rig assignment
     pendingSwitchRequests: switchRequestsQuery.data ?? [] as RigSwitchRequest[],
     assignRigForDay: async (rig: number): Promise<RigAssignment> => {
-      const result = await assignRigSOD({ collector: selectedCollectorName, rig });
-      // Mirror to the app's selectedRig so form/submit flows use the assigned rig.
-      await setSelectedRig(String(rig));
-      return result;
+      try {
+        const result = await assignRigSOD({ collector: selectedCollectorName, rig });
+        await setSelectedRig(String(rig));
+        return result;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        // If GAS hasn't been redeployed with ASSIGN_RIG_SOD yet, fall back to the
+        // existing SET_RIG action which already opens a session in Rig History Log.
+        if (msg.includes("Unknown action")) {
+          await logCollectorRigSelection(selectedCollectorName, String(rig), "SOD_ASSIGN");
+          await setSelectedRig(String(rig));
+          return {
+            assignmentId: `RH_${Date.now()}_${rig}`,
+            collector: selectedCollectorName,
+            team: "SF",
+            rig,
+            assignedAt: new Date().toISOString(),
+            status: "ACTIVE",
+            message: `Rig ${rig} assigned`,
+          };
+        }
+        throw err;
+      }
     },
   };
 });

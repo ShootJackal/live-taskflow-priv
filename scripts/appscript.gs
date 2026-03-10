@@ -1047,19 +1047,21 @@ function getCollectorRows() {
     weeklyCap: 3,
     active: 4,
     hoursUploaded: 5,
-    rating: 6
+    rating: 6,
+    team: -1   // -1 = not present; detected by header scan below
   };
 
   if (hasHeader) {
     for (var c = 0; c < headerLower.length; c++) {
       var col = headerLower[c].replace(/\s+/g, ' ').trim();
       if ((col.indexOf('collector') >= 0 && col.indexOf('name') >= 0) || col === 'name') idx.name = c;
-      if (col.indexOf('rig') >= 0) idx.rigId = c;
+      if (col.indexOf('rig') >= 0 && col !== 'rating') idx.rigId = c;
       if (col.indexOf('email') >= 0) idx.email = c;
       if (col.indexOf('weekly') >= 0 && (col.indexOf('cap') >= 0 || col.indexOf('hour') >= 0)) idx.weeklyCap = c;
       if (col.indexOf('active') >= 0) idx.active = c;
       if ((col.indexOf('upload') >= 0) && (col.indexOf('hour') >= 0 || col.indexOf('hrs') >= 0)) idx.hoursUploaded = c;
       if (col.indexOf('rating') >= 0) idx.rating = c;
+      if (col === 'team') idx.team = c;
     }
   }
 
@@ -1076,6 +1078,8 @@ function getCollectorRows() {
       active = !(activeRaw === 'false' || activeRaw === '0' || activeRaw === 'no' || activeRaw === 'inactive');
     }
 
+    var teamRaw = idx.team >= 0 ? safeStr(row[idx.team]).toUpperCase().trim() : '';
+
     out.push({
       name: name,
       rigId: safeStr(row[idx.rigId]),
@@ -1083,7 +1087,8 @@ function getCollectorRows() {
       weeklyCap: safeNum(row[idx.weeklyCap]),
       active: active,
       hoursUploaded: safeNum(row[idx.hoursUploaded]),
-      rating: safeStr(row[idx.rating])
+      rating: safeStr(row[idx.rating]),
+      team: teamRaw   // 'SF', 'MX', or '' (empty = derive from name)
     });
   }
   return out;
@@ -1540,11 +1545,13 @@ function handleGetCollectors() {
     var name = safeStr(data[i].name);
     if (!name) continue;
     var rigId = safeStr(data[i].rigId);
-    var isSF = isSFCollector_(name);
+    // Team: prefer the sheet value; fall back to the hardcoded SF name list.
+    var sheetTeam = safeStr(data[i].team).toUpperCase();
+    var isSF = (sheetTeam === 'SF') || (!sheetTeam && isSFCollector_(name));
     results.push({
       name: name,
-      // SF collectors no longer have a single rig — they pick via SOD modal.
-      // MX collectors still use the sheet-assigned rig.
+      // SF collectors pick their rig via the SOD modal each day.
+      // MX collectors still use the sheet-assigned rig for the picker.
       rigs: (!isSF && rigId) ? [rigId] : [],
       team: isSF ? 'SF' : 'MX',
       email: safeStr(data[i].email),

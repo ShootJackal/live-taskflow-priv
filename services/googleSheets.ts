@@ -537,9 +537,14 @@ function readFirstCachedValue<T>(cache: Record<string, AppCacheEntry> | null, ke
   return null;
 }
 
+// SF collector names used as a client-side fallback when the Collectors sheet
+// doesn't have a Team column yet (or GAS hasn't been redeployed).
+const SF_COLLECTOR_NAMES = new Set(["travis", "tony", "veronika"]);
+
 interface RawCollector {
   name: string;
   rigs: string[];
+  team?: string;
   email?: string;
   weeklyCap?: number;
   active?: boolean;
@@ -553,16 +558,29 @@ interface RawTask {
 
 export async function fetchCollectors(): Promise<Collector[]> {
   const raw = await apiGet<RawCollector[]>("getCollectors");
-  return raw.map((c, i) => ({
-    id: `c_${i}_${c.name.replace(/\s/g, "_")}`,
-    name: c.name,
-    rigs: c.rigs ?? [],
-    email: c.email,
-    weeklyCap: c.weeklyCap,
-    active: c.active,
-    hoursUploaded: c.hoursUploaded,
-    rating: c.rating,
-  }));
+  return raw.map((c, i) => {
+    // Prefer team from GAS (sheet column); fall back to the known SF name list
+    // so the SOD rig picker works even before the GAS script is redeployed.
+    const sheetTeam = (c.team ?? "").toUpperCase().trim();
+    const team: "SF" | "MX" = sheetTeam === "SF"
+      ? "SF"
+      : sheetTeam === "MX"
+      ? "MX"
+      : SF_COLLECTOR_NAMES.has(normalizeCollectorName(c.name).toLowerCase())
+      ? "SF"
+      : "MX";
+    return {
+      id: `c_${i}_${c.name.replace(/\s/g, "_")}`,
+      name: c.name,
+      rigs: c.rigs ?? [],
+      team,
+      email: c.email,
+      weeklyCap: c.weeklyCap,
+      active: c.active,
+      hoursUploaded: c.hoursUploaded,
+      rating: c.rating,
+    };
+  });
 }
 
 export async function fetchTasks(): Promise<Task[]> {
