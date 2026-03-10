@@ -80,9 +80,6 @@ const LeaderboardRow = React.memo(function LeaderboardRow({ entry, index, isCurr
   const rankColor = entry.rank === 1 ? colors.gold : entry.rank === 2 ? colors.silver : entry.rank === 3 ? colors.bronze : colors.textMuted;
   const rankBg = entry.rank === 1 ? colors.goldBg : entry.rank === 2 ? colors.silverBg : entry.rank === 3 ? colors.bronzeBg : colors.bgInput;
   const regionColor = entry.region === "MX" ? colors.mxOrange : entry.region === "SF" ? colors.sfBlue : colors.accent;
-  const source = "ACTUAL";
-  const sourceColor = colors.terminalGreen;
-
   return (
     <View style={[lbStyles.row, {
       backgroundColor: isCurrentUser ? colors.accentSoft : "transparent",
@@ -105,8 +102,8 @@ const LeaderboardRow = React.memo(function LeaderboardRow({ entry, index, isCurr
           <View style={[lbStyles.regionTag, { backgroundColor: regionColor + '14' }]}>
             <Text style={[lbStyles.regionText, { color: regionColor }]}>{entry.region}</Text>
           </View>
-          <View style={[lbStyles.sourceTag, { backgroundColor: sourceColor + '16' }]}>
-            <Text style={[lbStyles.sourceText, { color: sourceColor }]}>{source}</Text>
+          <View style={[lbStyles.sourceTag, { backgroundColor: colors.terminalGreen + '16' }]}>
+            <Text style={[lbStyles.sourceText, { color: colors.terminalGreen }]}>ACTUAL</Text>
           </View>
         </View>
         <View style={lbStyles.statsRow}>
@@ -330,51 +327,75 @@ export default function StatsScreen() {
   const recommendedTasks = useMemo(() => {
     const rows = taskActualsQuery.data ?? [];
 
-    // Tasks the current collector has touched today (high priority — continue their own work)
-    const myTasks = new Set(
+    // Build a set of tasks this collector has worked on (today's log as proxy for recent history).
+    // Tasks in "In Progress" or "Partial" state are their active work — highest priority.
+    const DONE_STATUSES = new Set(["DONE", "COMPLETED", "COMPLETE", "CANCELED", "CANCELLED"]);
+    const myTaskKeys = new Set(
       todayLog.map(e => normalizeCollectorName(e.taskName).toLowerCase())
     );
+    const myActiveKeys = new Set(
+      todayLog
+        .filter(e => e.status === "In Progress" || e.status === "Partial")
+        .map(e => normalizeCollectorName(e.taskName).toLowerCase())
+    );
 
-    // Deduplicate by normalized task name
+    // Deduplicate and filter: only tasks that genuinely need work
     const seen = new Set<string>();
-    const candidates = rows.filter((row) => {
-      const remaining = Number(row.remainingHours) || 0;
-      const status = String(row.status ?? "").toUpperCase();
-      if (remaining <= 0) return false;
-      if (status === "DONE" || status === "COMPLETED" || status === "COMPLETE") return false;
-      const nameKey = normalizeCollectorName(String(row.taskName || "")).toLowerCase();
-      if (!nameKey || seen.has(nameKey)) return false;
-      seen.add(nameKey);
-      return true;
-    });
-
-    return candidates
+    const candidates = rows
+      .filter((row) => {
+        const remaining = Number(row.remainingHours) || 0;
+        const status    = String(row.status ?? "").toUpperCase();
+        // Must have hours left and not be finished
+        if (remaining <= 0) return false;
+        if (DONE_STATUSES.has(status)) return false;
+        // Deduplicate by name
+        const key = normalizeCollectorName(String(row.taskName || "")).toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
       .map((row) => {
-        const remaining  = Number(row.remainingHours) || 0;
-        const collected  = Number((row as any).collectedHours ?? (row as any).goodHours ?? 0);
-        const total      = remaining + collected;
-        const pct        = total > 0 ? collected / total : 0;
+        const remaining   = Number(row.remainingHours) || 0;
+        const collected   = Number((row as any).collectedHours ?? (row as any).goodHours ?? 0);
+        const total       = remaining + collected;
+        const pct         = total > 0 ? collected / total : 0;
         const isRecollect = String(row.status ?? "").toUpperCase() === "RECOLLECT";
-        const nameKey    = normalizeCollectorName(String(row.taskName || "")).toLowerCase();
-        const isMine     = myTasks.has(nameKey);
-
-        // Collectors needed estimate: remaining ÷ 5h average session
-        const collectorsNeeded = Math.max(1, Math.ceil(remaining / 5));
-
-        // Priority score:
-        //   100  — collector already working on this task today
-        //   50   — recollect task (collector may have done it before)
-        //   0–30 — scaled by completion % (closer to done = higher priority)
-        const priority = (isMine ? 100 : 0) + (isRecollect && isMine ? 50 : 0) + (pct * 30);
-
-        return { ...row, priority, isMine, isRecollect, remaining, pct, collectorsNeeded };
+        const key         = normalizeCollectorName(String(row.taskName || "")).toLowerCase();
+        const isActive    = myActiveKeys.has(key);   // currently working on it
+        const isMine      = myTaskKeys.has(key);     // worked on it today (any status)
+        return { ...row, remaining, pct, isRecollect, isActive, isMine };
       })
       .sort((a, b) => {
-        // Primary: own tasks first; secondary: recollect; tertiary: closest to done
-        if (b.priority !== a.priority) return b.priority - a.priority;
-        return a.remaining - b.remaining; // least remaining first
-      })
-      .slice(0, 8);
+        // 1st: currently active tasks (keep going)
+        if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+        // 2nd: tasks they've done before (recollect their own tasks)
+        if (a.isMine !== b.isMine) return a.isMine ? -1 : 1;
+        // 3rd: recollect status (closest to done, needs finishing)
+        if (a.isRecollect !== b.isRecollect) return a.isRecollect ? -1 : 1;
+        // 4th: closest to completion (highest % done, least remaining)
+        if (Math.abs(b.pct - a.pct) > 0.05) return b.pct - a.pct;
+        return a.remaining - b.remaining;
+      });
+
+    // Bucket: personal tasks (active + prior) vs new tasks they've never touched
+    const personal = candidates.filter(t => t.isMine);
+    const newToThem = candidates.filter(t => !t.isMine);
+
+    if (personal.length > 0) {
+      // They have personal history — show all their tasks (up to 4)
+      // then add 1-2 of the most-actionable new tasks to fill gaps
+      const result = personal.slice(0, 4);
+      const slots  = Math.max(0, 5 - result.length);
+      // Only suggest new tasks that are close to done and worth a session (≥ 1h remaining)
+      const worthwhile = newToThem.filter(t => t.remaining >= 1 && t.pct >= 0.5);
+      return [...result, ...worthwhile.slice(0, slots)];
+    } else {
+      // No personal history — show a short list of the most actionable tasks only.
+      // Filter to tasks that are meaningfully in-progress (≥ 50% done, ≥ 1h left)
+      // so they're not starting something cold with 20h remaining.
+      const actionable = newToThem.filter(t => t.remaining >= 1 && t.pct >= 0.4);
+      return actionable.slice(0, 4);
+    }
   }, [taskActualsQuery.data, todayLog]);
 
   const dailyCarryover = useMemo(() => dailyCarryoverQuery.data ?? [], [dailyCarryoverQuery.data]);
@@ -764,10 +785,21 @@ export default function StatsScreen() {
             <Text style={[styles.recommendTitle, { color: colors.mxOrange }]}>Recommended Tasks</Text>
           </View>
           {recommendedTasks.map((task, idx) => {
-            const t = task as typeof task & { isMine?: boolean; isRecollect?: boolean; collectorsNeeded?: number; pct?: number };
-            const pctVal = Math.round((t.pct ?? 0) * 100);
-            const labelColor = t.isMine ? colors.complete : t.isRecollect ? colors.recollectRed : colors.mxOrange;
-            const tag = t.isMine ? "↩ Continue" : t.isRecollect ? "↺ Recollect" : undefined;
+            const pctVal = Math.round((task.pct ?? 0) * 100);
+            const labelColor = task.isActive
+              ? colors.complete
+              : task.isMine
+              ? colors.accent
+              : task.isRecollect
+              ? colors.recollectRed
+              : colors.mxOrange;
+            const tag = task.isActive
+              ? "▶ Active"
+              : task.isMine
+              ? "↩ Continue"
+              : task.isRecollect
+              ? "↺ Recollect"
+              : null;
             return (
               <View
                 key={`rec_${idx}`}
@@ -783,7 +815,7 @@ export default function StatsScreen() {
                     {task.taskName}
                   </Text>
                   <Text style={[styles.recommendSub, { color: colors.textMuted }]}>
-                    {pctVal}% done · ~{t.collectorsNeeded ?? 1} collector{(t.collectorsNeeded ?? 1) !== 1 ? "s" : ""} needed
+                    {pctVal}% collected · {Number(task.remainingHours).toFixed(1)}h left
                   </Text>
                 </View>
                 <Text style={[styles.recommendMeta, { color: colors.statusPending }]}>

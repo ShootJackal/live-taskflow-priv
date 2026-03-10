@@ -15,6 +15,9 @@ import {
   AdminStartPlanData,
   DailyCarryoverItem,
   PendingReviewItem,
+  RigStatus,
+  RigAssignment,
+  RigSwitchRequest,
 } from "@/types";
 import { normalizeCollectorName } from "@/utils/normalize";
 import { log } from "@/utils/logger";
@@ -59,6 +62,16 @@ const memoryCache = new Map<string, { data: unknown; ts: number }>();
 const appCacheSnapshotMemo = new Map<string, { data: Record<string, AppCacheEntry>; ts: number }>();
 const warmServerLastRunByKey = new Map<string, number>();
 
+// Actions that must always hit GAS directly (bypass the CDN proxy).
+// These are internal GAS-side cache operations or rarely-used admin reads.
+const BYPASS_PROXY_ACTIONS = new Set([
+  "refreshCache",
+  "forceServerRepull",
+  "getAppCache",
+  "getRigStatus",
+  "getPendingSwitchRequests",
+]);
+
 const CACHE_TTL_MS: Record<string, number> = {
   getCollectors: 5 * 60 * 1000,
   getTasks: 5 * 60 * 1000,
@@ -74,6 +87,8 @@ const CACHE_TTL_MS: Record<string, number> = {
   getCollectorProfile: 60 * 1000,
   getAdminStartPlan: 60 * 1000,
   getDailyCarryover: 20 * 1000,
+  getRigStatus: 15 * 1000,
+  getPendingSwitchRequests: 15 * 1000,
 };
 
 const STORAGE_TTL_MS: Record<string, number> = {
@@ -266,12 +281,21 @@ async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T>> 
   return tryParseResponseText<T>(text);
 }
 
-async function apiGet<T>(action: string, params: Record<string, string> = {}, useCache = true): Promise<T> {
-  const scriptUrl = getScriptUrlForAction(action);
-  if (!scriptUrl) {
-    throw getMissingScriptUrlError(ANALYTICS_GET_ACTIONS.has(action) ? "analytics" : "core");
+/**
+ * Returns the Vercel CDN proxy URL for a given action when running on web.
+ * The proxy (api/gas.ts) caches GAS responses at the edge, shielding users
+ * from GAS cold-start latency. Falls back to direct GAS if proxy is unavailable.
+ */
+function getProxyUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return new URL("/api/gas", window.location.origin).toString();
+  } catch {
+    return null;
   }
+}
 
+async function apiGet<T>(action: string, params: Record<string, string> = {}, useCache = true): Promise<T> {
   const cacheKey = `${action}?${JSON.stringify(params)}`;
 
   if (useCache) {
@@ -292,6 +316,24 @@ async function apiGet<T>(action: string, params: Record<string, string> = {}, us
     }
   }
 
+  // On web: route through the Vercel CDN proxy so GAS cold-start latency is
+  // absorbed at the edge and responses are cached globally.
+  // Certain internal actions bypass the proxy and always go direct to GAS.
+  const proxyUrl = !BYPASS_PROXY_ACTIONS.has(action) ? getProxyUrl() : null;
+  if (proxyUrl) {
+    try {
+      return await fetchFromApi<T>(action, params, cacheKey, proxyUrl);
+    } catch (proxyErr) {
+      // Proxy unavailable (local dev without Vercel, misconfigured env, etc.)
+      // — fall through to direct GAS below.
+      log("[API] CDN proxy failed, falling back to direct GAS:", proxyErr);
+    }
+  }
+
+  const scriptUrl = getScriptUrlForAction(action);
+  if (!scriptUrl) {
+    throw getMissingScriptUrlError(ANALYTICS_GET_ACTIONS.has(action) ? "analytics" : "core");
+  }
   return fetchFromApi<T>(action, params, cacheKey, scriptUrl);
 }
 
@@ -352,10 +394,11 @@ async function fetchFromApi<T>(action: string, params: Record<string, string>, c
 }
 
 function backgroundRefresh<T>(action: string, params: Record<string, string>, cacheKey: string): void {
-  const scriptUrl = getScriptUrlForAction(action);
-  if (!scriptUrl) return;
   setTimeout(() => {
-    fetchFromApi<T>(action, params, cacheKey, scriptUrl).catch((err) => {
+    const proxyUrl = !BYPASS_PROXY_ACTIONS.has(action) ? getProxyUrl() : null;
+    const url = proxyUrl ?? getScriptUrlForAction(action);
+    if (!url) return;
+    fetchFromApi<T>(action, params, cacheKey, url).catch((err) => {
       log("[API] Background refresh failed:", action, err);
     });
   }, 100);
@@ -745,6 +788,7 @@ export async function pushLiveAlert(payload: {
   level?: string;
   target?: string;
   createdBy?: string;
+  expiryHours?: number;
 }): Promise<void> {
   const scriptUrl = getScriptUrlForMetaAction("PUSH_ALERT");
   if (!scriptUrl) {
@@ -753,16 +797,21 @@ export async function pushLiveAlert(payload: {
 
   const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
   try {
+    const body: Record<string, unknown> = {
+      metaAction: "PUSH_ALERT",
+      message: String(payload.message ?? "").trim(),
+      level: String(payload.level ?? "INFO").trim(),
+      target: String(payload.target ?? "ALL").trim(),
+      createdBy: String(payload.createdBy ?? "").trim(),
+    };
+    if (payload.expiryHours && payload.expiryHours > 0) {
+      body.expiryHours = payload.expiryHours;
+    }
+
     const response = await fetch(scriptUrl, {
       method: "POST",
       headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify({
-        metaAction: "PUSH_ALERT",
-        message: String(payload.message ?? "").trim(),
-        level: String(payload.level ?? "INFO").trim(),
-        target: String(payload.target ?? "ALL").trim(),
-        createdBy: String(payload.createdBy ?? "").trim(),
-      }),
+      body: JSON.stringify(body),
       redirect: "follow",
       signal: timeout.controller.signal,
       cache: "no-store",
@@ -778,6 +827,33 @@ export async function pushLiveAlert(payload: {
       throw new Error(json.error ?? json.message ?? "Alert push failed");
     }
 
+    memoryCache.clear();
+    appCacheSnapshotMemo.clear();
+  } finally {
+    timeout.cancel();
+  }
+}
+
+export async function clearAllAlerts(): Promise<void> {
+  const scriptUrl = getScriptUrlForMetaAction("CLEAR_ALL_ALERTS");
+  if (!scriptUrl) throw getMissingScriptUrlError("core");
+
+  const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(scriptUrl, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ metaAction: "CLEAR_ALL_ALERTS" }),
+      redirect: "follow",
+      signal: timeout.controller.signal,
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text || "Clear alerts failed"}`);
+    }
+    const json = await parseApiResponse<Record<string, unknown>>(response);
+    if (!json.success) throw new Error(json.error ?? json.message ?? "Clear alerts failed");
     memoryCache.clear();
     appCacheSnapshotMemo.clear();
   } finally {
@@ -1036,6 +1112,70 @@ export async function forceServerRepull(options?: {
   if (reason) params.reason = reason;
   return await apiGet<Record<string, unknown>>("forceServerRepull", params, false);
 }
+
+// ── Rig Assignment System ────────────────────────────────────────────────────
+
+export async function fetchRigStatus(): Promise<RigStatus[]> {
+  return await apiGet<RigStatus[]>("getRigStatus", {}, false);
+}
+
+export async function assignRigSOD(payload: {
+  collector: string;
+  rig: number;
+}): Promise<RigAssignment> {
+  return await apiMetaPost<RigAssignment>({
+    metaAction: "ASSIGN_RIG_SOD",
+    collector: String(payload.collector ?? "").trim(),
+    rig: payload.rig,
+  });
+}
+
+export async function releaseRig(payload: {
+  assignmentId: string;
+  reason?: string;
+}): Promise<{ message: string; hours?: number }> {
+  return await apiMetaPost({
+    metaAction: "RELEASE_RIG",
+    assignmentId: String(payload.assignmentId ?? "").trim(),
+    reason: String(payload.reason ?? "MANUAL").trim(),
+  });
+}
+
+export async function requestRigSwitch(payload: {
+  requestingCollector: string;
+  rig: number;
+}): Promise<{ assignmentId: string; currentAssignee: string; message: string }> {
+  return await apiMetaPost({
+    metaAction: "REQUEST_RIG_SWITCH",
+    requestingCollector: String(payload.requestingCollector ?? "").trim(),
+    rig: payload.rig,
+  });
+}
+
+export async function respondRigSwitch(payload: {
+  assignmentId: string;
+  action: "APPROVE" | "DENY";
+}): Promise<{ result: string; message: string }> {
+  memoryCache.clear();
+  return await apiMetaPost({
+    metaAction: "RESPOND_RIG_SWITCH",
+    assignmentId: String(payload.assignmentId ?? "").trim(),
+    action: payload.action,
+  });
+}
+
+export async function fetchPendingSwitchRequests(
+  collectorName: string
+): Promise<RigSwitchRequest[]> {
+  if (!collectorName) return [];
+  return await apiGet<RigSwitchRequest[]>(
+    "getPendingSwitchRequests",
+    { collector: collectorName },
+    false
+  );
+}
+
+// ── End Rig Assignment System ────────────────────────────────────────────────
 
 async function clearStorageApiCache(): Promise<void> {
   const keys = await AsyncStorage.getAllKeys();

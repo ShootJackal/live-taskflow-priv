@@ -23,6 +23,7 @@ import {
   Clock,
   Search,
   X,
+  Radio,
 } from "lucide-react-native";
 import { useCollection } from "@/providers/CollectionProvider";
 import { useTheme } from "@/providers/ThemeProvider";
@@ -34,7 +35,10 @@ import SelectPicker from "@/components/SelectPicker";
 import ActionButton from "@/components/ActionButton";
 import MarqueeText from "@/components/MarqueeText";
 import ReviewSheet from "@/components/ReviewSheet";
-import type { LogEntry } from "@/types";
+import RigAssignmentModal from "@/components/RigAssignmentModal";
+import { respondRigSwitch } from "@/services/googleSheets";
+import { useQueryClient } from "@tanstack/react-query";
+import type { LogEntry, RigSwitchRequest } from "@/types";
 import type { ThemeColors } from "@/constants/colors";
 // ─── Log entry row ───────────────────────────────────────────────────────────
 
@@ -197,6 +201,77 @@ const logStyles = StyleSheet.create({
   taskFill: { height: 3, borderRadius: 2 },
 });
 
+// ─── Rig switch request banner (incoming) ────────────────────────────────────
+
+function RigSwitchBanner({
+  request,
+  colors,
+}: {
+  request: RigSwitchRequest;
+  colors: ThemeColors;
+}) {
+  const queryClient = useQueryClient();
+  const [loading, setLoading] = React.useState<"APPROVE" | "DENY" | null>(null);
+
+  const respond = React.useCallback(async (action: "APPROVE" | "DENY") => {
+    setLoading(action);
+    try {
+      await respondRigSwitch({ assignmentId: request.assignmentId, action });
+      queryClient.invalidateQueries({ queryKey: ["rigSwitchRequests"] });
+      queryClient.invalidateQueries({ queryKey: ["rigStatus"] });
+    } catch {
+      // Non-fatal — banner will persist until next poll if this fails
+    } finally {
+      setLoading(null);
+    }
+  }, [request.assignmentId, queryClient]);
+
+  return (
+    <View style={[
+      switchBannerStyles.banner,
+      { backgroundColor: colors.alertYellowBg, borderColor: colors.alertYellow + "44" },
+    ]}>
+      <Radio size={14} color={colors.alertYellow ?? colors.statusPending} />
+      <Text style={[switchBannerStyles.text, { color: colors.textPrimary }]}>
+        <Text style={{ fontWeight: "700" }}>{request.requestedBy}</Text>
+        {" wants to take Rig "}<Text style={{ fontWeight: "700" }}>{request.rig}</Text>
+      </Text>
+      <View style={switchBannerStyles.btns}>
+        <TouchableOpacity
+          style={[switchBannerStyles.btn, { backgroundColor: colors.complete + "22", borderColor: colors.complete + "44" }]}
+          onPress={() => respond("APPROVE")}
+          disabled={loading !== null}
+        >
+          {loading === "APPROVE"
+            ? <ActivityIndicator size="small" color={colors.complete} />
+            : <Text style={{ color: colors.complete, fontSize: 12, fontWeight: "600" }}>Approve</Text>
+          }
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[switchBannerStyles.btn, { backgroundColor: colors.cancel + "22", borderColor: colors.cancel + "44" }]}
+          onPress={() => respond("DENY")}
+          disabled={loading !== null}
+        >
+          {loading === "DENY"
+            ? <ActivityIndicator size="small" color={colors.cancel} />
+            : <Text style={{ color: colors.cancel, fontSize: 12, fontWeight: "600" }}>Deny</Text>
+          }
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+const switchBannerStyles = StyleSheet.create({
+  banner: {
+    flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap",
+    borderWidth: 1, borderRadius: 10, padding: 10,
+  },
+  text: { flex: 1, fontSize: 13 },
+  btns: { flexDirection: "row", gap: 6 },
+  btn: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+});
+
 // ─── Main screen ─────────────────────────────────────────────────────────────
 
 export default function DashboardScreen() {
@@ -232,6 +307,8 @@ export default function DashboardScreen() {
     cancelTask,
     addNote,
     refreshData,
+    pendingSwitchRequests,
+    assignRigForDay,
   } = useCollection();
 
   // ── Local draft state for text inputs ────────────────────────────────────
@@ -250,6 +327,22 @@ export default function DashboardScreen() {
   const [showTaskSearch, setShowTaskSearch] = useState(false);
   const [logVisibleCount, setLogVisibleCount] = useState(5);
   const [showReviewSheet, setShowReviewSheet] = useState(false);
+  const [showRigPicker, setShowRigPicker] = useState(false);
+
+  // SF collectors: show SOD rig picker if no rig is assigned yet today.
+  const isSFCollector = selectedCollector?.team === "SF";
+  useEffect(() => {
+    if (isSFCollector && selectedCollectorName && !selectedRig && configured) {
+      const t = setTimeout(() => setShowRigPicker(true), 600);
+      return () => clearTimeout(t);
+    }
+  }, [isSFCollector, selectedCollectorName, selectedRig, configured]);
+
+  // Incoming switch requests (someone wants the SF collector's rig).
+  const incomingSwitchRequests = useMemo(
+    () => pendingSwitchRequests.filter((r) => r.type === "incoming"),
+    [pendingSwitchRequests]
+  );
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(18)).current;
   const searchAnim = useRef(new Animated.Value(0)).current;
@@ -579,6 +672,32 @@ export default function DashboardScreen() {
                 </View>
               )}
 
+              {/* ── SF rig picker shortcut ───────────────────────────── */}
+              {isSFCollector && !selectedRig && (
+                <TouchableOpacity
+                  style={[
+                    styles.carryoverBanner,
+                    { backgroundColor: colors.accentSoft, borderColor: colors.accentDim },
+                  ]}
+                  onPress={() => setShowRigPicker(true)}
+                  activeOpacity={0.8}
+                >
+                  <Radio size={14} color={colors.accent} />
+                  <Text style={[styles.carryoverBannerText, { color: colors.accent }]}>
+                    No rig assigned — tap to pick your rig for today
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              {/* ── Incoming switch requests ──────────────────────────── */}
+              {incomingSwitchRequests.map((req) => (
+                <RigSwitchBanner
+                  key={req.assignmentId}
+                  request={req}
+                  colors={colors}
+                />
+              ))}
+
               {/* ── Carryover warning ────────────────────────────────── */}
               {hasCarryover && (
                 <View
@@ -852,7 +971,7 @@ export default function DashboardScreen() {
                 <ActionButton
                   title={
                     hasValidHours
-                      ? `Log ${parseFloat(hoursToLog).toFixed(2)}h — Done`
+                      ? `Log ${parseFloat(localHours).toFixed(2)}h — Done`
                       : "Enter hours above to complete"
                   }
                   icon={<CheckCircle size={17} color={hasValidHours ? colors.white : colors.complete} />}
@@ -1074,6 +1193,12 @@ export default function DashboardScreen() {
       <ReviewSheet
         visible={showReviewSheet}
         onClose={() => setShowReviewSheet(false)}
+      />
+
+      {/* SF SOD rig picker */}
+      <RigAssignmentModal
+        visible={showRigPicker}
+        onClose={() => setShowRigPicker(false)}
       />
     </ErrorBoundary>
   );

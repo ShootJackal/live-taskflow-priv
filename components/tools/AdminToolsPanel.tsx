@@ -42,11 +42,15 @@ import {
   clearAllCaches,
   forceServerRepull,
   pushLiveAlert,
+  clearAllAlerts,
+  fetchRigStatus,
+  releaseRig,
   adminAssignTask,
   adminCancelTask,
   adminEditHours,
   grantCollectorAward,
 } from "@/services/googleSheets";
+import type { RigStatus } from "@/types";
 import SelectPicker from "@/components/SelectPicker";
 
 const atStyles = StyleSheet.create({
@@ -190,7 +194,7 @@ export function AdminToolsPanel({
   collectors: Collector[];
   tasks: Task[];
 }) {
-  const { configured } = useCollection();
+  const { configured, isAdmin } = useCollection();
   const queryClient = useQueryClient();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [alertMessage, setAlertMessage] = useState("");
@@ -250,6 +254,17 @@ export function AdminToolsPanel({
     staleTime: 120000,
     retry: 1,
   });
+
+  const rigStatusQuery = useQuery<RigStatus[]>({
+    queryKey: ["rigStatusAdmin"],
+    queryFn: fetchRigStatus,
+    enabled: configured && isAdmin,
+    staleTime: 15000,
+    refetchInterval: 30000,
+    retry: 1,
+  });
+
+  const [releasingRig, setReleasingRig] = useState<string | null>(null);
 
   const recentActivity = useMemo(() => {
     const entries = fullLogQuery.data ?? [];
@@ -333,7 +348,7 @@ export function AdminToolsPanel({
         onPress: async () => {
           setIsClearingAlerts(true);
           try {
-            await pushLiveAlert({ message: "__CLEAR_ALL__", level: "SYSTEM", target: "ADMIN", createdBy: "ADMIN" } as Parameters<typeof pushLiveAlert>[0]);
+            await clearAllAlerts();
             queryClient.invalidateQueries({ queryKey: ["liveAlerts"] });
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           } catch (err) {
@@ -810,6 +825,69 @@ export function AdminToolsPanel({
           <Text style={[atStyles.expandHint, { color: colors.textMuted }]}>{recentActivity.length} recent entries — tap to expand</Text>
         )}
       </TouchableOpacity>
+
+      {/* ── SF Rig Roster ── */}
+      {(rigStatusQuery.data ?? []).some(r => r.status !== "available") && (
+        <TouchableOpacity
+          style={[atStyles.card, { backgroundColor: colors.bgCard }]}
+          onPress={() => toggleSection("rigs")}
+          activeOpacity={0.8}
+        >
+          <View style={atStyles.cardHeader}>
+            <Activity size={12} color={colors.sfBlue} />
+            <Text style={[atStyles.cardTitle, { color: colors.sfBlue }]}>SF Rig Roster</Text>
+            <ChevronDown size={14} color={colors.textMuted} style={expandedSection === "rigs" ? { transform: [{ rotate: "180deg" }] } : undefined} />
+          </View>
+          {rigStatusQuery.isFetching && <ActivityIndicator size="small" color={colors.sfBlue} />}
+          {expandedSection === "rigs" && (rigStatusQuery.data ?? []).map((rig) => {
+            if (rig.status === "available") return null;
+            const statusColor = rig.status === "in_use" ? colors.accent : colors.alertYellow ?? colors.statusPending;
+            return (
+              <View key={`rig_${rig.rig}`} style={[atStyles.activityRow, { borderTopColor: colors.border }]}>
+                <View style={[atStyles.activityDot, { backgroundColor: statusColor }]} />
+                <View style={atStyles.activityContent}>
+                  <Text style={[atStyles.activityCollector, { color: colors.textPrimary }]}>
+                    Rig {rig.rig} — {rig.assignedTo}
+                  </Text>
+                  <Text style={[atStyles.activityTask, { color: colors.textMuted }]}>
+                    {rig.status === "pending_transfer" ? `Switch requested by ${rig.pendingSwitchBy}` : "Active"}
+                  </Text>
+                </View>
+                {rig.assignmentId && (
+                  <TouchableOpacity
+                    style={[atStyles.toolBtn, { borderColor: colors.cancel + "66", paddingHorizontal: 10, marginBottom: 0, minHeight: 32 }]}
+                    onPress={async () => {
+                      if (!rig.assignmentId) return;
+                      Alert.alert("Release Rig", `Release rig ${rig.rig} from ${rig.assignedTo}?`, [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Release", style: "destructive", onPress: async () => {
+                          setReleasingRig(rig.assignmentId!);
+                          try {
+                            await releaseRig({ assignmentId: rig.assignmentId!, reason: "ADMIN" });
+                            queryClient.invalidateQueries({ queryKey: ["rigStatusAdmin"] });
+                            queryClient.invalidateQueries({ queryKey: ["rigStatus"] });
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                          } catch (err) {
+                            Alert.alert("Failed", err instanceof Error ? err.message : "Release failed");
+                          } finally {
+                            setReleasingRig(null);
+                          }
+                        }},
+                      ]);
+                    }}
+                    disabled={releasingRig === rig.assignmentId}
+                  >
+                    {releasingRig === rig.assignmentId
+                      ? <ActivityIndicator size="small" color={colors.cancel} />
+                      : <Text style={[atStyles.toolBtnText, { color: colors.cancel }]}>Release</Text>
+                    }
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })}
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
