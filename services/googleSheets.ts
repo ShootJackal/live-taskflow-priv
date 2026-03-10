@@ -21,6 +21,18 @@ import {
 } from "@/types";
 import { normalizeCollectorName } from "@/utils/normalize";
 import { log } from "@/utils/logger";
+import { parseGasResponseText } from "@/utils/gasResponse";
+import {
+  buildAdminAssignTaskContract,
+  buildAdminCancelTaskContract,
+  buildAdminEditHoursContract,
+  buildGetActionUrl,
+  buildSubmitActionContract,
+  getRoleForGetAction,
+  getRoleForMetaAction,
+  isValidScriptUrl,
+  normalizeScriptUrl,
+} from "@/services/gasRequestContracts";
 
 // Single deployment — all actions route through this URL.
 // EXPO_PUBLIC_GOOGLE_SCRIPT_URL in your env overrides this at build time.
@@ -39,24 +51,6 @@ const WARM_SERVER_MIN_INTERVAL_MS = 45 * 1000; // re-warm every 45 s
 const STORAGE_PREFIX = "tf_cache_";
 
 type ScriptRole = "core" | "analytics";
-
-const ANALYTICS_GET_ACTIONS = new Set<string>([
-  "getLeaderboard",
-  "getCollectorStats",
-  "getCollectorProfile",
-  "getTaskActualsSheet",
-  "getAdminDashboardData",
-  "getActiveRigsCount",
-  "getRecollections",
-  "getAdminStartPlan",
-  "getAppCache",
-  "refreshCache",
-  "forceServerRepull",
-]);
-
-const ANALYTICS_META_ACTIONS = new Set<string>([
-  "FORCE_SERVER_REPULL",
-]);
 
 const memoryCache = new Map<string, { data: unknown; ts: number }>();
 const appCacheSnapshotMemo = new Map<string, { data: Record<string, AppCacheEntry>; ts: number }>();
@@ -151,28 +145,6 @@ async function setStorageCache(key: string, data: unknown): Promise<void> {
   }
 }
 
-function normalizeScriptUrl(raw: string): string {
-  const trimmed = raw.trim().replace(/^['"]|['"]$/g, "");
-  if (!trimmed) return "";
-  if (trimmed.endsWith("/exec")) return trimmed;
-  if (/\/macros\/s\//.test(trimmed) && !trimmed.endsWith("/exec")) {
-    return `${trimmed.replace(/\/$/, "")}/exec`;
-  }
-  return trimmed;
-}
-
-function isValidScriptUrl(url: string): boolean {
-  if (!url) return false;
-  if (/\[REDACTED\]/i.test(url)) return false;
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
-  } catch {
-    return false;
-  }
-  return /\/exec$/i.test(url);
-}
-
 let _resolvedUrls: { legacy: string; core: string; analytics: string } | null = null;
 
 function resolveScriptUrls(): { legacy: string; core: string; analytics: string } {
@@ -211,12 +183,11 @@ function getScriptUrlForRole(role: ScriptRole): string {
 }
 
 function getScriptUrlForAction(action: string): string {
-  return getScriptUrlForRole(ANALYTICS_GET_ACTIONS.has(action) ? "analytics" : "core");
+  return getScriptUrlForRole(getRoleForGetAction(action));
 }
 
 function getScriptUrlForMetaAction(metaAction: string): string {
-  const clean = String(metaAction ?? "").trim().toUpperCase();
-  return getScriptUrlForRole(ANALYTICS_META_ACTIONS.has(clean) ? "analytics" : "core");
+  return getScriptUrlForRole(getRoleForMetaAction(metaAction));
 }
 
 function getMissingScriptUrlError(role: ScriptRole): Error {
@@ -264,12 +235,7 @@ function collectorCacheKey(prefix: string, collectorName: string): string {
 }
 
 function tryParseResponseText<T>(text: string): ApiResponse<T> {
-  const cleanText = text.trim().replace(/^\)\]\}'\n?/, "");
-  try {
-    return JSON.parse(cleanText) as ApiResponse<T>;
-  } catch {
-    throw new Error(cleanText || "Invalid API response format");
-  }
+  return parseGasResponseText<T>(text);
 }
 
 async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T>> {
@@ -332,24 +298,21 @@ async function apiGet<T>(action: string, params: Record<string, string> = {}, us
 
   const scriptUrl = getScriptUrlForAction(action);
   if (!scriptUrl) {
-    throw getMissingScriptUrlError(ANALYTICS_GET_ACTIONS.has(action) ? "analytics" : "core");
+    throw getMissingScriptUrlError(getRoleForGetAction(action));
   }
   return fetchFromApi<T>(action, params, cacheKey, scriptUrl);
 }
 
 async function fetchFromApi<T>(action: string, params: Record<string, string>, cacheKey: string, scriptUrl: string): Promise<T> {
   const url = new URL(scriptUrl);
-  url.searchParams.set("action", action);
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== "") url.searchParams.set(k, v);
-  });
+  const requestUrl = buildGetActionUrl(url.toString(), action, params);
 
   log("[API] GET", action, params);
 
   for (let attempt = 0; attempt <= MAX_RETRY_ATTEMPTS; attempt += 1) {
     const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
     try {
-      const response = await fetch(url.toString(), {
+      const response = await fetch(requestUrl, {
         redirect: "follow",
         signal: timeout.controller.signal,
         cache: "no-store",
@@ -467,7 +430,7 @@ async function apiMetaPost<T>(payload: Record<string, unknown>): Promise<T> {
   const metaAction = String(payload?.metaAction ?? "").trim().toUpperCase();
   const scriptUrl = getScriptUrlForMetaAction(metaAction);
   if (!scriptUrl) {
-    throw getMissingScriptUrlError(ANALYTICS_META_ACTIONS.has(metaAction) ? "analytics" : "core");
+    throw getMissingScriptUrlError(getRoleForMetaAction(metaAction));
   }
 
   const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
@@ -672,7 +635,7 @@ export async function fetchPendingReview(
 }
 
 export async function submitAction(payload: SubmitPayload): Promise<SubmitResponse> {
-  return apiPost(payload);
+  return apiPost(buildSubmitActionContract(payload));
 }
 
 export async function logCollectorRigSelection(
@@ -887,12 +850,7 @@ export async function adminAssignTask(payload: {
   rig?: string;
 }): Promise<SubmitResponse> {
   return await apiMetaPost<SubmitResponse>({
-    metaAction: "ADMIN_ASSIGN_TASK",
-    collector: String(payload.collector ?? "").trim(),
-    task: String(payload.task ?? "").trim(),
-    hours: Number(payload.hours ?? 0),
-    notes: String(payload.notes ?? "").trim(),
-    rig: String(payload.rig ?? "").trim(),
+    ...buildAdminAssignTaskContract(payload),
   });
 }
 
@@ -903,11 +861,7 @@ export async function adminCancelTask(payload: {
   rig?: string;
 }): Promise<SubmitResponse> {
   return await apiMetaPost<SubmitResponse>({
-    metaAction: "ADMIN_CANCEL_TASK",
-    collector: String(payload.collector ?? "").trim(),
-    task: String(payload.task ?? "").trim(),
-    notes: String(payload.notes ?? "").trim(),
-    rig: String(payload.rig ?? "").trim(),
+    ...buildAdminCancelTaskContract(payload),
   });
 }
 
@@ -920,13 +874,7 @@ export async function adminEditHours(payload: {
   notes?: string;
 }): Promise<SubmitResponse> {
   return await apiMetaPost<SubmitResponse>({
-    metaAction: "ADMIN_EDIT_HOURS",
-    collector: String(payload.collector ?? "").trim(),
-    task: String(payload.task ?? "").trim(),
-    hours: Number(payload.hours ?? 0),
-    plannedHours: Number(payload.plannedHours ?? 0),
-    status: String(payload.status ?? "").trim(),
-    notes: String(payload.notes ?? "").trim(),
+    ...buildAdminEditHoursContract(payload),
   });
 }
 
