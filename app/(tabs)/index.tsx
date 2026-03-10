@@ -318,13 +318,55 @@ const CollectFormCard = React.memo(function CollectFormCard({
   selectCollector, setSelectedTaskName, toggleTaskSearch, setTaskSearch,
   onAssign, onComplete, onCancel, onAddNote, setHoursToLog, setNotes, onShowReview,
 }: CollectFormCardProps) {
-  // Local draft state lives HERE — typing only re-renders CollectFormCard, not the page.
+  // On web: use refs + minimal state to avoid controlled-input focus loss.
+  // On native: use normal controlled state.
+  // React Native Web's controlled <input value=...> calls input.value = x on
+  // every re-render, which resets cursor position and can dismiss the keyboard.
+  const isWeb = Platform.OS === "web";
+
+  const hoursRef = useRef(hoursToLog);
+  const notesRef = useRef(notes);
+  const [hasValidHours, setHasValidHours] = useState(
+    () => !!hoursToLog.trim() && parseFloat(hoursToLog) > 0
+  );
+  const [localHoursDisplay, setLocalHoursDisplay] = useState(hoursToLog);
+
+  // Controlled-mode state (native only)
   const [localHours, setLocalHours] = useState(hoursToLog);
   const [localNotes, setLocalNotes] = useState(notes);
-  useEffect(() => { setLocalHours(hoursToLog); }, [hoursToLog]);
-  useEffect(() => { setLocalNotes(notes); }, [notes]);
 
-  const hasValidHours = !!localHours.trim() && parseFloat(localHours) > 0;
+  // Reset when provider clears after submit
+  useEffect(() => {
+    hoursRef.current = hoursToLog;
+    notesRef.current = notes;
+    const valid = !!hoursToLog.trim() && parseFloat(hoursToLog) > 0;
+    setHasValidHours(valid);
+    setLocalHoursDisplay(hoursToLog);
+    if (!isWeb) {
+      setLocalHours(hoursToLog);
+      setLocalNotes(notes);
+    }
+  }, [hoursToLog, notes, isWeb]);
+
+  // Web: update validity state (minimal re-renders, only on valid/invalid toggle)
+  const handleHoursChangeWeb = useCallback((v: string) => {
+    hoursRef.current = v;
+    const valid = !!v.trim() && parseFloat(v) > 0;
+    setHasValidHours((prev) => {
+      if (prev !== valid) return valid;
+      return prev;
+    });
+    if (valid) setLocalHoursDisplay(v);
+  }, []);
+
+  const handleHoursBlurWeb = useCallback(() => {
+    setLocalHoursDisplay(hoursRef.current);
+    setHoursToLog(hoursRef.current);
+  }, [setHoursToLog]);
+
+  const handleNotesBlurWeb = useCallback(() => {
+    setNotes(notesRef.current);
+  }, [setNotes]);
 
   return (
     <>
@@ -400,8 +442,10 @@ const CollectFormCard = React.memo(function CollectFormCard({
             </View>
             <TextInput
               style={[styles.input, { backgroundColor: colors.bgInput, borderColor: colors.border, color: colors.textPrimary }]}
-              value={localHours} onChangeText={setLocalHours}
-              onBlur={() => setHoursToLog(localHours)}
+              {...(isWeb
+                ? { defaultValue: hoursToLog, onChangeText: handleHoursChangeWeb, onBlur: handleHoursBlurWeb }
+                : { value: localHours, onChangeText: setLocalHours, onBlur: () => setHoursToLog(localHours) }
+              )}
               placeholder="0.00" placeholderTextColor={colors.textMuted}
               keyboardType="decimal-pad" returnKeyType="done" testID="hours-input" />
           </View>
@@ -418,8 +462,10 @@ const CollectFormCard = React.memo(function CollectFormCard({
             </View>
             <TextInput
               style={[styles.input, styles.notesInput, { backgroundColor: colors.bgInput, borderColor: colors.border, color: colors.textPrimary }]}
-              value={localNotes} onChangeText={setLocalNotes}
-              onBlur={() => setNotes(localNotes)}
+              {...(isWeb
+                ? { defaultValue: notes, onChangeText: (v) => { notesRef.current = v; }, onBlur: handleNotesBlurWeb }
+                : { value: localNotes, onChangeText: setLocalNotes, onBlur: () => setNotes(localNotes) }
+              )}
               placeholder="Add notes…" placeholderTextColor={colors.textMuted}
               multiline numberOfLines={3} textAlignVertical="top" testID="notes-input" />
           </View>
@@ -429,18 +475,18 @@ const CollectFormCard = React.memo(function CollectFormCard({
       {/* ── Primary CTA ───────────────────────────────────────── */}
       {latestOpenTask ? (
         <ActionButton
-          title={hasValidHours ? `Log ${parseFloat(localHours).toFixed(2)}h — Done` : "Enter hours above to complete"}
+          title={hasValidHours ? `Log ${parseFloat(isWeb ? localHoursDisplay : localHours).toFixed(2)}h — Done` : "Enter hours above to complete"}
           icon={<CheckCircle size={17} color={hasValidHours ? colors.white : colors.complete} />}
           color={hasValidHours ? colors.white : colors.complete}
           bgColor={hasValidHours ? colors.complete : colors.completeBg}
-          onPress={() => onComplete(localHours, localNotes)}
+          onPress={() => onComplete(isWeb ? hoursRef.current : localHours, isWeb ? notesRef.current : localNotes)}
           disabled={!hasValidHours} fullWidth testID="complete-btn" />
       ) : (
         <ActionButton
           title="Assign Task"
           icon={<UserCheck size={17} color={colors.white} />}
           color={colors.white} bgColor={colors.accent}
-          onPress={() => onAssign(localNotes)}
+          onPress={() => onAssign(isWeb ? notesRef.current : localNotes)}
           disabled={!canSubmit} fullWidth testID="assign-btn" />
       )}
 
@@ -468,11 +514,11 @@ const CollectFormCard = React.memo(function CollectFormCard({
       )}
 
       {/* ── Save Note Only ────────────────────────────────────── */}
-      {latestOpenTask !== null && localNotes.trim().length > 0 && (
+      {latestOpenTask !== null && (isWeb ? notesRef.current : localNotes).trim().length > 0 && (
         <ActionButton title="Save Note Only"
           icon={<StickyNote size={15} color={colors.accent} />}
           color={colors.accent} bgColor={colors.accentSoft}
-          onPress={() => onAddNote(localNotes)} fullWidth testID="note-btn" />
+          onPress={() => onAddNote(isWeb ? notesRef.current : localNotes)} fullWidth testID="note-btn" />
       )}
 
       {/* ── Ready to Review (Redash EOD flow) ────────────────── */}
@@ -545,6 +591,7 @@ export default function DashboardScreen() {
   const [logVisibleCount, setLogVisibleCount] = useState(5);
   const [showReviewSheet, setShowReviewSheet] = useState(false);
   const [showRigPicker, setShowRigPicker] = useState(false);
+  const handleShowReview = useCallback(() => setShowReviewSheet(true), []);
 
   // SF collectors: show SOD rig picker if no rig is assigned yet today.
   const isSFCollector = selectedCollector?.team === "SF";
@@ -939,7 +986,7 @@ export default function DashboardScreen() {
                 onAddNote={handleAddNote}
                 setHoursToLog={setHoursToLog}
                 setNotes={setNotes}
-                onShowReview={() => setShowReviewSheet(true)}
+                onShowReview={handleShowReview}
               />
 
               {/* ── Today's activity log ─────────────────────────────── */}
