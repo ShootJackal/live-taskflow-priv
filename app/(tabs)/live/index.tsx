@@ -322,7 +322,7 @@ export default function LiveScreen() {
   const fallbackCollectorCounts = useMemo(() => {
     let mx = 0, sf = 0;
     for (const c of collectors) {
-      if ((c.rigs ?? []).some(r => getRigRegion(r) === "SF")) sf++; else mx++;
+      if ((c.rigs ?? []).some((r: string) => getRigRegion(r) === "SF")) sf++; else mx++;
     }
     return { mx, sf };
   }, [collectors]);
