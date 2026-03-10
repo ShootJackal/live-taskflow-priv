@@ -22,7 +22,7 @@ You should see something like:
 - `app/(tabs)/tools/index.tsx` (modified)
 - `app/(tabs)/tools/sheet-viewer.tsx` (modified)
 - `scripts/DEPLOY_APPSCRIPT.md` (modified)
-- `scripts/appscript.gs` (modified)
+- `scripts/dist/appscript-core.gs` (modified)
 
 ### 1.3 (Optional) Run lint and type check
 
@@ -36,7 +36,7 @@ If both pass (or only the 2 known pre-existing TS errors in tools), you’re goo
 ### 1.4 Stage all changed files
 
 ```bash
-git add app/\(tabs\)/tools/index.tsx app/\(tabs\)/tools/sheet-viewer.tsx scripts/DEPLOY_APPSCRIPT.md scripts/appscript.gs
+git add app/\(tabs\)/tools/index.tsx app/\(tabs\)/tools/sheet-viewer.tsx scripts/DEPLOY_APPSCRIPT.md scripts/dist/appscript-core.gs
 ```
 
 Or stage everything that’s modified:
@@ -81,9 +81,9 @@ This updates the script that your Google Sheet runs so it matches the code in th
 2. **Select all**: **Cmd+A** (Mac) or **Ctrl+A** (Windows).
 3. **Delete** (Backspace or Delete) so the file is empty.
 4. On your computer, open the repo file:  
-   **`RORK-WorkFlow/scripts/appscript.gs`**  
+   **`RORK-WorkFlow/scripts/dist/appscript-core.gs`**  
    (in Cursor or any editor).
-5. In `appscript.gs`: **Cmd+A** / **Ctrl+A** to select all, then **Cmd+C** / **Ctrl+C** to copy.
+5. In `scripts/dist/appscript-core.gs`: **Cmd+A** / **Ctrl+A** to select all, then **Cmd+C** / **Ctrl+C** to copy.
 6. Back in the **Apps Script** browser tab, click in the empty editor and **Cmd+V** / **Ctrl+V** to paste.
 7. **Save**: **Cmd+S** / **Ctrl+S**, or click the disk icon. The title should show that the project is saved.
 

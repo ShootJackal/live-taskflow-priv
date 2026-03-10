@@ -15,7 +15,9 @@
     "prepare:web": "node scripts/prepare-pwa.js",
     "build:web": "npm run prepare:web && expo export --platform web",
     "build": "npm run build:web",
-    "vercel-build": "node scripts/generate-version.js && npm run build:web"
+    "vercel-build": "node scripts/generate-version.js && npm run build:web",
+    "build:gas": "node scripts/build-gas.js",
+    "check:gas-dist": "node scripts/check-gas-dist.js"
   },
   "dependencies": {
     "@expo-google-fonts/lexend": "^0.4.1",
