@@ -4,18 +4,20 @@
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "dist",
   "functions": {
-    "api/gas.ts":  { "maxDuration": 20 },
-    "api/warm.ts": { "maxDuration": 28 }
+    "api/gas.ts": { "maxDuration": 20 },
+    "api/warm.ts": { "maxDuration": 28 },
+    "api/taskflow/read.ts": { "maxDuration": 20 },
+    "api/taskflow/write.ts": { "maxDuration": 20 },
+    "api/taskflow/sync.ts": { "maxDuration": 28 }
   },
   "crons": [
-    { "path": "/api/warm", "schedule": "*/5 * * * *" }
+    { "path": "/api/warm", "schedule": "*/5 * * * *" },
+    { "path": "/api/taskflow/sync", "schedule": "*/10 * * * *" }
   ],
   "headers": [
     {
       "source": "/version.json",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-store, max-age=0" }
-      ]
+      "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0" }]
     }
   ],
   "rewrites": [

@@ -25,6 +25,9 @@ cp .env.example .env.local
 # Optional split mode:
 # EXPO_PUBLIC_GAS_CORE_URL=<your core script /exec URL>
 # EXPO_PUBLIC_GAS_ANALYTICS_URL=<your analytics script /exec URL>
+# Optional BFF cache/event-log storage:
+# egostorage_KV_REST_API_URL=<upstash_rest_url>
+# egostorage_KV_REST_API_TOKEN=<upstash_rest_token>
 
 # Step 5: Start the instant web preview of your app in your browser, with auto-reloading of your changes
 npm run start-web
@@ -167,6 +170,21 @@ To deploy from the CLI: install the [Vercel CLI](https://vercel.com/cli), then r
 **Option 3: Netlify**
 
 - Connect your GitHub repo at [netlify.com](https://netlify.com). Set **Build command** to `npx expo export --platform web` and **Publish directory** to `dist`.
+
+
+## Backend-for-Frontend (BFF) layer
+
+TaskFlow now exposes a BFF surface at `/api/taskflow/*` for client calls.
+
+- `GET /api/taskflow/read?action=...` generic read proxy
+- `GET /api/taskflow/leaderboard`
+- `GET /api/taskflow/collector-stats`
+- `GET /api/taskflow/dashboard`
+- `GET /api/taskflow/task-actuals`
+- `POST /api/taskflow/write` for idempotent write forwarding + event logging
+- `GET /api/taskflow/sync` scheduled cache pre-warm/materialization job
+
+Migration ownership and deprecation dates are tracked in `docs/taskflow-bff-migration-map.md`.
 
 ## App Features
 
