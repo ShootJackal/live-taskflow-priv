@@ -283,13 +283,13 @@ async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T>> 
 
 /**
  * Returns the Vercel CDN proxy URL for a given action when running on web.
- * The proxy (api/gas.ts) caches GAS responses at the edge, shielding users
+ * The BFF read endpoint (api/taskflow/read.ts) caches GAS responses at the edge, shielding users
  * from GAS cold-start latency. Falls back to direct GAS if proxy is unavailable.
  */
 function getProxyUrl(): string | null {
   if (typeof window === "undefined") return null;
   try {
-    return new URL("/api/gas", window.location.origin).toString();
+    return new URL("/api/taskflow/read", window.location.origin).toString();
   } catch {
     return null;
   }
