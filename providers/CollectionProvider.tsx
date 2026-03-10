@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { Alert } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import createContextHook from "@nkzw/create-context-hook";
@@ -9,16 +10,27 @@ import {
   ActivityEntry,
   ActionType,
   SubmitPayload,
+  AssignmentStatus,
+  DailyCarryoverItem,
+  PendingReviewItem,
+  RigAssignment,
+  RigSwitchRequest,
 } from "@/types";
 import {
   fetchCollectors,
   fetchTasks,
   fetchTodayLog,
+  fetchDailyCarryover,
+  fetchPendingReview,
   submitAction,
   isApiConfigured,
   warmServerCache,
   logCollectorRigSelection,
+  assignRigSOD,
+  fetchPendingSwitchRequests,
 } from "@/services/googleSheets";
+import { normalizeCollectorName } from "@/utils/normalize";
+import { log } from "@/utils/logger";
 
 const STORAGE_KEYS = {
   SELECTED_COLLECTOR: "ci_selected_collector",
@@ -27,11 +39,11 @@ const STORAGE_KEYS = {
   ADMIN_AUTH: "ci_admin_auth",
 };
 
-const ADMIN_PASSWORD = "3121";
-
-function normalizeCollectorName(name: string): string {
-  return name.replace(/\s*\(.*?\)\s*$/g, "").trim();
-}
+// WARNING: Client-side password check is not secure. Anyone can inspect the
+// JS bundle and extract this value. For production use, validate the password
+// server-side (e.g. inside your Google Apps Script doPost handler) and return
+// a signed session token.
+const ADMIN_PASSWORD = process.env.EXPO_PUBLIC_ADMIN_PASSWORD ?? "";
 
 function mergeCollectors(raw: Collector[]): Collector[] {
   const map = new Map<string, Collector>();
@@ -87,6 +99,33 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     enabled: configured && !!selectedCollectorName,
     refetchInterval: 30000,
     retry: 1,
+  });
+
+  const dailyCarryoverQuery = useQuery<DailyCarryoverItem[]>({
+    queryKey: ["dailyCarryover", selectedCollectorName],
+    queryFn: () => fetchDailyCarryover(selectedCollectorName),
+    enabled: configured && !!selectedCollectorName,
+    staleTime: 30000,
+    retry: 1,
+  });
+
+  const pendingReviewQuery = useQuery<PendingReviewItem[]>({
+    queryKey: ["pendingReview", selectedCollectorName, selectedRig],
+    queryFn: () => fetchPendingReview(selectedCollectorName, selectedRig),
+    enabled: configured && !!selectedCollectorName && !!selectedRig,
+    staleTime: 60000,
+    refetchInterval: 120000,
+    retry: 1,
+  });
+
+  // Poll for incoming/outgoing rig switch requests every 20 s.
+  const switchRequestsQuery = useQuery<RigSwitchRequest[]>({
+    queryKey: ["rigSwitchRequests", selectedCollectorName],
+    queryFn: () => fetchPendingSwitchRequests(selectedCollectorName),
+    enabled: configured && !!selectedCollectorName,
+    staleTime: 15000,
+    refetchInterval: 20000,
+    retry: 0,
   });
 
   const savedCollectorQuery = useQuery({
@@ -151,10 +190,9 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
 
   useEffect(() => {
     if (!configured) return;
-    const timer = setTimeout(() => {
-      void warmServerCache(selectedCollectorName || undefined);
-    }, 300);
-    return () => clearTimeout(timer);
+    // Fire immediately — no delay. The GAS cold-start warm-up should happen
+    // as early as possible so the script is ready when data queries arrive.
+    void warmServerCache(selectedCollectorName || undefined);
   }, [configured, selectedCollectorName]);
 
   const collectors = useMemo<Collector[]>(() => {
@@ -183,7 +221,12 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   );
 
   const authenticateAdmin = useCallback(async (password: string): Promise<boolean> => {
-    console.log("[Provider] authenticateAdmin attempt");
+    log("[Provider] authenticateAdmin attempt");
+    if (!ADMIN_PASSWORD) {
+      // EXPO_PUBLIC_ADMIN_PASSWORD not set in the deployment environment.
+      // The variable must be added in Vercel → Project Settings → Environment Variables.
+      throw new Error("Admin password not configured. Add EXPO_PUBLIC_ADMIN_PASSWORD in Vercel environment variables.");
+    }
     if (password === ADMIN_PASSWORD) {
       setIsAdmin(true);
       await AsyncStorage.setItem(
@@ -196,13 +239,13 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   }, []);
 
   const logoutAdmin = useCallback(async () => {
-    console.log("[Provider] logoutAdmin");
+    log("[Provider] logoutAdmin");
     setIsAdmin(false);
     await AsyncStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
   }, []);
 
   const selectCollector = useCallback(async (name: string) => {
-    console.log("[Provider] selectCollector:", name);
+    log("[Provider] selectCollector:", name);
     setSelectedCollectorName(name);
     setSelectedTaskName("");
     setSelectedRigState("");
@@ -211,7 +254,7 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   }, []);
 
   const setSelectedRig = useCallback(async (rig: string) => {
-    console.log("[Provider] setSelectedRig:", rig);
+    log("[Provider] setSelectedRig:", rig);
     setSelectedRigState(rig);
     await AsyncStorage.setItem(STORAGE_KEYS.SELECTED_RIG, rig);
     if (selectedCollectorName && rig) {
@@ -246,28 +289,112 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     [selectedCollectorName, activity]
   );
 
+  const buildOptimisticLogEntry = useCallback((payload: SubmitPayload): LogEntry => {
+    const today = new Date().toISOString().split("T")[0];
+    const status: AssignmentStatus =
+      payload.actionType === "COMPLETE" ? "Completed"
+      : payload.actionType === "CANCEL" ? "Canceled"
+      : "In Progress";
+    return {
+      assignmentId: `optimistic_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      taskId: "",
+      taskName: payload.task,
+      status,
+      loggedHours: payload.hours,
+      plannedHours: payload.hours,
+      remainingHours: 0,
+      notes: payload.notes,
+      assignedDate: today,
+      completedDate: payload.actionType === "COMPLETE" ? today : "",
+    };
+  }, []);
+
+  const applyOptimisticUpdate = useCallback(
+    (log: LogEntry[], payload: SubmitPayload, entry: LogEntry): LogEntry[] => {
+      if (payload.actionType === "ASSIGN") {
+        return [entry, ...log];
+      }
+      return log.map((e) => {
+        if (e.taskName !== payload.task) return e;
+        if (e.status !== "In Progress" && e.status !== "Partial") return e;
+        switch (payload.actionType) {
+          case "COMPLETE":
+            return { ...e, status: "Completed" as AssignmentStatus, loggedHours: payload.hours, completedDate: entry.completedDate };
+          case "CANCEL":
+            return { ...e, status: "Canceled" as AssignmentStatus };
+          case "NOTE_ONLY":
+            return { ...e, notes: payload.notes };
+          default:
+            return e;
+        }
+      });
+    },
+    []
+  );
+
   const submitMutation = useMutation({
     mutationFn: async (payload: SubmitPayload) => {
-      console.log("[Provider] submitAction:", payload.actionType, payload.task);
+      log("[Provider] submitAction:", payload.actionType, payload.task);
       const result = await submitAction(payload);
       return { payload, result };
     },
+    onMutate: async (payload) => {
+      const collector = payload.collector;
+      await queryClient.cancelQueries({ queryKey: ["todayLog", collector] });
+
+      const previousLog = queryClient.getQueryData<LogEntry[]>(["todayLog", collector]);
+      const previousHoursToLog = hoursToLog;
+      const previousNotes = notes;
+      const previousTaskName = selectedTaskName;
+      const optimistic = buildOptimisticLogEntry(payload);
+      queryClient.setQueryData<LogEntry[]>(
+        ["todayLog", collector],
+        (old) => applyOptimisticUpdate(old ?? [], payload, optimistic),
+      );
+
+      setHoursToLog("");
+      setNotes("");
+      if (payload.actionType === "ASSIGN") {
+        setSelectedTaskName("");
+      }
+
+      return { previousLog, collector, previousHoursToLog, previousNotes, previousTaskName };
+    },
+    onError: (err, payload, context) => {
+      if (context?.previousLog !== undefined) {
+        queryClient.setQueryData(["todayLog", context.collector], context.previousLog);
+      }
+      if (context?.previousHoursToLog !== undefined) {
+        setHoursToLog((current) => (current.trim().length > 0 ? current : context.previousHoursToLog));
+      }
+      if (context?.previousNotes !== undefined) {
+        setNotes((current) => (current.trim().length > 0 ? current : context.previousNotes));
+      }
+      if (payload.actionType === "ASSIGN" && context?.previousTaskName) {
+        setSelectedTaskName((current) => (current.trim().length > 0 ? current : context.previousTaskName));
+      }
+      const message = err instanceof Error ? err.message : "Sync failed";
+      Alert.alert(
+        "Sync Failed",
+        `Could not ${payload.actionType.toLowerCase()} "${payload.task}". ${message}`,
+      );
+    },
     onSuccess: async ({ payload, result }) => {
-      console.log("[Provider] Submit success:", result.message);
+      log("[Provider] Submit synced:", result.message);
       await addActivityEntry(
         payload.actionType,
         payload.task,
         result.hours ?? payload.hours,
         result.planned ?? 0,
         result.status ?? "",
-        payload.notes
+        payload.notes,
       );
-      queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] });
-      queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] });
-      setHoursToLog("");
-      setNotes("");
-      if (payload.actionType === "ASSIGN") {
-        setSelectedTaskName("");
+    },
+    onSettled: (_data, _err, payload) => {
+      submitInFlightRef.current = false;
+      if (payload) {
+        queryClient.invalidateQueries({ queryKey: ["todayLog", payload.collector] });
+        queryClient.invalidateQueries({ queryKey: ["collectorStats", payload.collector] });
       }
     },
   });
@@ -294,47 +421,39 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   );
 
   const submitOnce = useCallback(
-    async (payload: SubmitPayload) => {
-      if (submitInFlightRef.current) {
-        throw new Error("Submit already in progress");
-      }
+    (payload: SubmitPayload) => {
+      if (submitInFlightRef.current) return;
       submitInFlightRef.current = true;
-      try {
-        return await submitMutation.mutateAsync(payload);
-      } finally {
-        submitInFlightRef.current = false;
-      }
+      submitMutation.mutate(payload);
     },
     [submitMutation]
   );
 
-  const assignTask = useCallback(async () => {
+  // ASSIGN always sends hours:0 — planned hours are gone.
+  // Actual hours are reported when the collector marks the task Done.
+  const assignTask = useCallback(() => {
     if (!selectedCollectorName || !selectedTaskName) {
       throw new Error("Select collector and task first");
     }
-    const hours = hoursToLog ? parseFloat(hoursToLog) : 0;
-    if (!hours || hours <= 0) {
-      throw new Error("Enter hours to log before assigning");
-    }
-    await submitOnce({
+    submitOnce({
       collector: selectedCollectorName,
       task: selectedTaskName,
-      hours,
+      hours: 0,
       actionType: "ASSIGN",
       notes,
       rig: selectedRig || undefined,
-      requestId: createRequestId("ASSIGN", selectedTaskName, hours),
+      requestId: createRequestId("ASSIGN", selectedTaskName, 0),
     });
-  }, [selectedCollectorName, selectedTaskName, hoursToLog, notes, selectedRig, createRequestId, submitOnce]);
+  }, [selectedCollectorName, selectedTaskName, notes, selectedRig, createRequestId, submitOnce]);
 
   const completeTask = useCallback(
-    async (taskName: string) => {
+    (taskName: string) => {
       if (!selectedCollectorName) throw new Error("No collector selected");
       const hours = hoursToLog ? parseFloat(hoursToLog) : 0;
       if (!hours || hours <= 0) {
         throw new Error("Enter hours to log before completing");
       }
-      await submitOnce({
+      submitOnce({
         collector: selectedCollectorName,
         task: taskName,
         hours,
@@ -348,9 +467,9 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   );
 
   const cancelTask = useCallback(
-    async (taskName: string) => {
+    (taskName: string) => {
       if (!selectedCollectorName) throw new Error("No collector selected");
-      await submitOnce({
+      submitOnce({
         collector: selectedCollectorName,
         task: taskName,
         hours: 0,
@@ -364,11 +483,11 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   );
 
   const addNote = useCallback(
-    async (taskName: string) => {
+    (taskName: string) => {
       if (!selectedCollectorName || !notes.trim()) {
         throw new Error("Select collector and enter notes");
       }
-      await submitOnce({
+      submitOnce({
         collector: selectedCollectorName,
         task: taskName,
         hours: 0,
@@ -381,13 +500,63 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     [selectedCollectorName, notes, selectedRig, createRequestId, submitOnce]
   );
 
-  const refreshData = useCallback(() => {
-    console.log("[Provider] Refreshing all data");
-    queryClient.invalidateQueries({ queryKey: ["collectors"] });
-    queryClient.invalidateQueries({ queryKey: ["tasks"] });
-    queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] });
-    queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] });
-  }, [queryClient, selectedCollectorName]);
+  const carryoverItems = useMemo<DailyCarryoverItem[]>(
+    () => dailyCarryoverQuery.data ?? [],
+    [dailyCarryoverQuery.data]
+  );
+
+  const pendingReview = useMemo<PendingReviewItem[]>(
+    () => pendingReviewQuery.data ?? [],
+    [pendingReviewQuery.data]
+  );
+
+  // Direct COMPLETE submit for Redash-sourced tasks — bypasses form state
+  // and the single-in-flight guard so the review sheet can batch-approve.
+  const approveRedashTask = useCallback(
+    async (taskName: string, hours: number, rig: string): Promise<void> => {
+      if (!selectedCollectorName) throw new Error("No collector selected");
+      if (hours <= 0) throw new Error("Hours must be greater than 0");
+      const payload: SubmitPayload = {
+        collector: selectedCollectorName,
+        task: taskName,
+        hours,
+        actionType: "COMPLETE",
+        notes: "Redash auto-approved",
+        rig: rig || selectedRig || undefined,
+        requestId: createRequestId("COMPLETE", taskName, hours),
+      };
+      const result = await submitAction(payload);
+      // Keep local activity log in sync
+      await addActivityEntry(
+        "COMPLETE",
+        taskName,
+        hours,
+        0,
+        result.status ?? "Completed",
+        "Redash auto-approved"
+      );
+      await Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] }),
+        queryClient.invalidateQueries({ queryKey: ["pendingReview", selectedCollectorName, selectedRig] }),
+        queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] }),
+      ]);
+    },
+    [selectedCollectorName, selectedRig, createRequestId, queryClient, addActivityEntry]
+  );
+
+  const refreshData = useCallback(async () => {
+    log("[Provider] Refreshing all data");
+    await Promise.allSettled([
+      queryClient.invalidateQueries({ queryKey: ["collectors"] }),
+      queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+      queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] }),
+      queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] }),
+      queryClient.invalidateQueries({ queryKey: ["dailyCarryover", selectedCollectorName] }),
+      queryClient.invalidateQueries({ queryKey: ["pendingReview", selectedCollectorName, selectedRig] }),
+      queryClient.invalidateQueries({ queryKey: ["rigStatus"] }),
+      queryClient.invalidateQueries({ queryKey: ["rigSwitchRequests", selectedCollectorName] }),
+    ]);
+  }, [queryClient, selectedCollectorName, selectedRig]);
 
   return {
     configured,
@@ -395,7 +564,10 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     tasks,
     todayLog,
     openTasks,
-    activity,
+    carryoverItems,
+    hasCarryover: carryoverItems.length > 0,
+    pendingReview,
+    hasPendingReview: pendingReview.length > 0,
     selectedCollectorName,
     selectedCollector,
     selectedRig,
@@ -407,7 +579,7 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     isLoadingCollectors: collectorQuery.isLoading,
     isLoadingTasks: taskQuery.isLoading,
     isLoadingLog: todayLogQuery.isLoading,
-    isSubmitting: submitMutation.isPending,
+    isSyncing: submitMutation.isPending,
     submitError: submitMutation.error?.message ?? null,
 
     selectCollector,
@@ -419,8 +591,37 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     completeTask,
     cancelTask,
     addNote,
+    approveRedashTask,
     refreshData,
     authenticateAdmin,
     logoutAdmin,
+
+    // Rig assignment
+    pendingSwitchRequests: switchRequestsQuery.data ?? [] as RigSwitchRequest[],
+    assignRigForDay: async (rig: number): Promise<RigAssignment> => {
+      try {
+        const result = await assignRigSOD({ collector: selectedCollectorName, rig });
+        await setSelectedRig(String(rig));
+        return result;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        // If GAS hasn't been redeployed with ASSIGN_RIG_SOD yet, fall back to the
+        // existing SET_RIG action which already opens a session in Rig History Log.
+        if (msg.includes("Unknown action")) {
+          await logCollectorRigSelection(selectedCollectorName, String(rig), "SOD_ASSIGN");
+          await setSelectedRig(String(rig));
+          return {
+            assignmentId: `RH_${Date.now()}_${rig}`,
+            collector: selectedCollectorName,
+            team: "SF",
+            rig,
+            assignedAt: new Date().toISOString(),
+            status: "ACTIVE",
+            message: `Rig ${rig} assigned`,
+          };
+        }
+        throw err;
+      }
+    },
   };
 });

@@ -2,11 +2,41 @@ export interface Collector {
   id: string;
   name: string;
   rigs: string[];
+  team?: "SF" | "MX";
   email?: string;
   weeklyCap?: number;
   active?: boolean;
   hoursUploaded?: number;
   rating?: string;
+}
+
+export interface RigStatus {
+  rig: number;
+  status: "available" | "in_use" | "pending_transfer";
+  assignedTo: string | null;
+  assignmentId: string | null;
+  assignedAt: string | null;
+  pendingSwitchBy: string | null;
+}
+
+export interface RigAssignment {
+  assignmentId: string;
+  collector: string;
+  team: string;
+  rig: number;
+  assignedAt: string;
+  releasedAt?: string;
+  status: "ACTIVE" | "RELEASED";
+  message?: string;
+}
+
+export interface RigSwitchRequest {
+  type: "incoming" | "outgoing";
+  assignmentId: string;
+  rig: number;
+  requestedBy?: string;
+  currentAssignee?: string;
+  requestedAt: string | null;
 }
 
 export interface Task {
@@ -23,7 +53,7 @@ export interface LogEntry {
   assignmentId: string;
   taskId: string;
   taskName: string;
-  status: AssignmentStatus | string;
+  status: AssignmentStatus;
   loggedHours: number;
   plannedHours: number;
   remainingHours: number;
@@ -36,15 +66,6 @@ export interface LogEntry {
   completedDate: string;
 }
 
-export interface TaskMeta {
-  taskId: string;
-  status: string;
-  requiredHours: number;
-  collectedHours: number;
-  remainingHours: number;
-  plannedChunk: number;
-  goodHours: number;
-}
 
 export interface SubmitPayload {
   collector: string;
@@ -66,7 +87,6 @@ export interface SubmitResponse {
   hours?: number;
   remaining?: number;
   status?: string;
-  dailyPlanned?: number;
 }
 
 export interface ActivityEntry {
@@ -108,6 +128,12 @@ export interface TaskActualRow {
   assignedCollector?: string;
   collectorHours?: number;
   collectorCount?: number;
+  // Computed fields added by the recommendations useMemo in stats/index.tsx
+  isActive?: boolean;
+  isMine?: boolean;
+  isRecollect?: boolean;
+  remaining?: number;
+  pct?: number;
 }
 
 export interface FullLogEntry {
@@ -222,4 +248,12 @@ export interface DailyCarryoverItem {
   plannedHours: number;
   actualHours: number;
   status: string;
+}
+
+export interface PendingReviewItem {
+  rig: string;
+  taskName: string;
+  taskKey: string;
+  redashHours: number;
+  date: string;
 }

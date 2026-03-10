@@ -52,6 +52,33 @@ var TASKFLOW_SHEETS = {
 // Backward-compat alias for projects that still reference SHEETS in old helper snippets.
 var SHEETS = TASKFLOW_SHEETS;
 var SF_RIG_NUMBERS = { '2': true, '3': true, '4': true, '5': true, '6': true, '9': true, '11': true };
+
+// ── SF Rig Assignment System ─────────────────────────────────────────────────
+// SF rig numbers as an ordered list for the SOD picker UI.
+var SF_RIG_LIST = [2, 3, 4, 5, 6, 9, 11];
+
+// SF team collectors. Add names here when the team grows.
+// Comparison is case/whitespace-insensitive (uses normalizeCollectorKey).
+var SF_COLLECTORS_LIST = ['Travis', 'Tony', 'Veronika'];
+
+// Historical rig-to-collector mapping — used as a last-resort fallback when
+// no Rig History Log session covers a given date (e.g. data before the SOD
+// system was in use). Once collectors are using the SOD picker, the session
+// log takes over and this map is no longer needed for current data.
+// NOTE: rig 9 is listed as Veronika here (her primary rig) but Travis has
+// also used it. The date-range lookup in getCollectorForRigOnDate_ handles
+// the split correctly once sessions exist; this fallback only fires when
+// no session covers the row's date.
+var SF_HISTORICAL_RIG_MAP = {
+  '2': 'Travis',
+  '3': 'Tony',
+  '4': 'Travis',
+  '5': 'Tony',
+  '6': 'Veronika',
+  '9': 'Veronika'
+  // rig 11 has no primary historical owner
+};
+
 var CACHE_CELL_MAX_CHARS = 49000; // Sheets hard limit is ~50000 chars per cell.
 var SUBMIT_DEDUP_WINDOW_MS = 2 * 60 * 1000;
 var SUBMIT_REQUEST_TTL_SECONDS = 6 * 60 * 60;
@@ -75,6 +102,37 @@ var GET_CACHE_TTL_MS = {
   adminStartPlan: 90 * 1000
 };
 var _rigHistorySnapshot = null;
+
+// MONOLITH STABILITY MAP
+// FOUNDATION (stable, write-critical): these should change rarely.
+// - doPost submit/write path (ASSIGN/COMPLETE/CANCEL/NOTE_ONLY)
+// - admin write actions: ADMIN_ASSIGN_TASK, ADMIN_CANCEL_TASK, ADMIN_EDIT_HOURS
+// - rig history + collector/task base reads: getCollectors, getTasks, getTodayLog, getFullLog
+// - carryover resolution writes: CARRYOVER_REPORT, CARRYOVER_CANCEL
+//
+// VOLATILE (derived analytics/cached): safe iteration zone.
+// - getLeaderboard, getCollectorStats, getCollectorProfile
+// - getTaskActualsSheet, getAdminDashboardData, getAdminStartPlan
+// - recollection/active-rig counts and cache warming/force repull
+var FOUNDATION_ACTIONS = {
+  getCollectors: true,
+  getTasks: true,
+  getTodayLog: true,
+  getFullLog: true,
+  getDailyCarryover: true
+};
+var VOLATILE_ACTIONS = {
+  getLeaderboard: true,
+  getCollectorStats: true,
+  getCollectorProfile: true,
+  getTaskActualsSheet: true,
+  getAdminDashboardData: true,
+  getAdminStartPlan: true,
+  getRecollections: true,
+  getActiveRigsCount: true,
+  refreshCache: true,
+  forceServerRepull: true
+};
 
 function assertSheetConfig_() {
   var required = ['COLLECTORS', 'TASK_LIST', 'ASSIGNMENTS', 'RS_TASK_REQ', 'APP_CACHE'];
@@ -243,17 +301,20 @@ function doGet(e) {
       case 'getCollectorStats':     result = handleGetCollectorStats(e.parameter.collector || ''); break;
       case 'getTodayLog':           result = handleGetTodayLog(e.parameter.collector || ''); break;
       case 'getDailyCarryover':     result = handleGetDailyCarryover(e.parameter.collector || ''); break;
+      case 'getPendingReview':      result = handleGetPendingReview(e.parameter); break;
       case 'getRecollections':      result = handleGetRecollections(); break;
       case 'getFullLog':            result = handleGetFullLog(e.parameter.collector || ''); break;
       case 'getTaskActualsSheet':   result = handleGetTaskActuals(); break;
       case 'getAdminDashboardData': result = handleGetAdminDashboard(); break;
       case 'getActiveRigsCount':    result = handleGetActiveRigsCount(); break;
       case 'getLiveAlerts':         result = handleGetLiveAlerts(); break;
-      case 'getCollectorProfile':   result = handleGetCollectorProfile(e.parameter.collector || ''); break;
-      case 'getAdminStartPlan':     result = handleGetAdminStartPlan(); break;
-      case 'getAppCache':           result = handleGetAppCache(e.parameter.keys || ''); break;
-      case 'refreshCache':          result = handleRefreshCache(e.parameter.collector || '', e.parameter.scope || ''); break;
-      case 'forceServerRepull':     result = handleForceServerRepull(e.parameter.collector || '', e.parameter.scope || 'full', e.parameter.reason || ''); break;
+      case 'getCollectorProfile':        result = handleGetCollectorProfile(e.parameter.collector || ''); break;
+      case 'getAdminStartPlan':          result = handleGetAdminStartPlan(); break;
+      case 'getAppCache':                result = handleGetAppCache(e.parameter.keys || ''); break;
+      case 'refreshCache':               result = handleRefreshCache(e.parameter.collector || '', e.parameter.scope || ''); break;
+      case 'forceServerRepull':          result = handleForceServerRepull(e.parameter.collector || '', e.parameter.scope || 'full', e.parameter.reason || ''); break;
+      case 'getRigStatus':               result = handleGetRigStatus(); break;
+      case 'getPendingSwitchRequests':   result = handleGetPendingSwitchRequests(e.parameter || {}); break;
       default:
         return jsonOut({ success: false, error: 'Unknown action: ' + action });
     }
@@ -321,6 +382,26 @@ function doPost(e) {
     if (metaAction === 'FORCE_SERVER_REPULL') {
       var forceResult = handleForceServerRepull(body.collector || '', body.scope || 'full', body.reason || '');
       return jsonOut({ success: true, data: forceResult, message: 'Server repull completed' });
+    }
+    if (metaAction === 'ASSIGN_RIG_SOD') {
+      var assignRig = handleAssignRigSOD(body);
+      return jsonOut({ success: true, data: assignRig, message: assignRig.message || 'Rig assigned' });
+    }
+    if (metaAction === 'RELEASE_RIG') {
+      var releaseRig = handleReleaseRig(body);
+      return jsonOut({ success: true, data: releaseRig, message: releaseRig.message || 'Rig released' });
+    }
+    if (metaAction === 'REQUEST_RIG_SWITCH') {
+      var switchReq = handleRequestRigSwitch(body);
+      return jsonOut({ success: true, data: switchReq, message: switchReq.message || 'Switch requested' });
+    }
+    if (metaAction === 'RESPOND_RIG_SWITCH') {
+      var switchResp = handleRespondRigSwitch(body);
+      return jsonOut({ success: true, data: switchResp, message: switchResp.message || 'Response recorded' });
+    }
+    if (metaAction === 'CLEAR_ALL_ALERTS') {
+      var clearResult = handleClearAllAlerts();
+      return jsonOut({ success: true, data: clearResult, message: 'Cleared ' + clearResult.cleared + ' alerts' });
     }
 
     var result = handleSubmit(body);
@@ -396,36 +477,41 @@ function getOrCreateLiveAlertsSheet() {
 function handlePushLiveAlert(body) {
   var message = safeStr(body && body.message);
   if (!message) throw new Error('Missing message');
+  if (message === '__CLEAR_ALL__') { return handleClearAllAlerts_(); }
 
-  var level = safeStr(body && body.level).toUpperCase() || 'INFO';
-  var target = safeStr(body && body.target).toUpperCase() || 'ALL';
-  var createdBy = safeStr(body && body.createdBy) || safeStr(body && body.collector) || 'ADMIN';
+  var level      = safeStr(body && body.level).toUpperCase() || 'INFO';
+  var target     = safeStr(body && body.target).toUpperCase() || 'ALL';
+  var createdBy  = safeStr(body && body.createdBy) || safeStr(body && body.collector) || 'ADMIN';
+  var expiryHours = safeNum(body && body.expiryHours);
   var now = new Date();
   var alertId = 'AL-' + now.getTime();
-
+  var expiresAt = '';
+  if (expiryHours > 0 && expiryHours <= 720) {
+    expiresAt = new Date(now.getTime() + expiryHours * 3600000).toISOString();
+  }
   var sheet = getOrCreateLiveAlertsSheet();
+  if (sheet.getLastColumn() < 8) { sheet.getRange(1, 8).setValue('ExpiresAt'); }
   sheet.insertRows(2, 1);
-  sheet.getRange(2, 1, 1, 7).setValues([[
-    alertId,
-    message,
-    level,
-    target,
-    now.toISOString(),
-    createdBy,
-    true
-  ]]);
-
+  sheet.getRange(2, 1, 1, 8).setValues([[alertId, message, level, target, now.toISOString(), createdBy, true, expiresAt]]);
   var latest = handleGetLiveAlerts();
   writeCache('liveAlerts', latest);
-  return {
-    id: alertId,
-    message: message,
-    level: level,
-    target: target,
-    createdAt: now.toISOString(),
-    createdBy: createdBy,
-    success: true
-  };
+  return { id: alertId, message: message, level: level, target: target, createdAt: now.toISOString(), createdBy: createdBy, expiresAt: expiresAt, success: true };
+}
+
+function handleClearAllAlerts_() {
+  var sheet;
+  try { sheet = getOrCreateLiveAlertsSheet(); } catch (e) { return { success: true, cleared: 0 }; }
+  var data = sheet.getDataRange().getValues();
+  var cleared = 0;
+  for (var i = 1; i < data.length; i++) {
+    var activeRaw = safeStr(data[i][6]).toLowerCase();
+    if (!(activeRaw === 'false' || activeRaw === '0' || activeRaw === 'no')) {
+      sheet.getRange(i + 1, 7).setValue(false);
+      cleared++;
+    }
+  }
+  writeCache('liveAlerts', []);
+  return { success: true, cleared: cleared };
 }
 
 function handleGetLiveAlerts() {
@@ -449,7 +535,14 @@ function handleGetLiveAlerts() {
     var activeRaw = safeStr(row[6]).toLowerCase();
     var isActive = !(activeRaw === 'false' || activeRaw === '0' || activeRaw === 'no');
     if (!isActive) continue;
-
+    var expiresAt = safeStr(row[7]);
+    if (expiresAt) {
+      var expDate = new Date(expiresAt);
+      if (!isNaN(expDate.getTime()) && expDate.getTime() < Date.now()) {
+        sheet.getRange(i + 1, 7).setValue(false);
+        continue;
+      }
+    }
     out.push({
       id: id,
       message: msg,
@@ -809,6 +902,8 @@ function runDailyRolloverForDateIfNeeded_(targetDate) {
 
 function runEndOfDayRollover() {
   var today = getScriptTodayDate();
+  // Release all active SF rig assignments before marking the day done.
+  try { handleEODRigRelease_(); } catch(e) {}
   return runDailyRolloverForDateIfNeeded_(today);
 }
 
@@ -914,7 +1009,11 @@ function toDateSafe(cell) {
 }
 
 function normalizeCollectorKey(name) {
-  return safeStr(name).toLowerCase().replace(/\s+/g, ' ').trim();
+  // Strip parenthetical suffixes (e.g. "(MX)", "(SF)") to match client-side
+  // normalizeCollectorName() behavior. Without this, lookups for collectors
+  // whose names are stored with region tags in the sheet (e.g. "Jane Smith (MX)")
+  // would fail to match requests sent by the client as "Jane Smith".
+  return safeStr(name).replace(/\s*\(.*?\)\s*$/, '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 function normalizeTaskKey(name) {
@@ -953,19 +1052,21 @@ function getCollectorRows() {
     weeklyCap: 3,
     active: 4,
     hoursUploaded: 5,
-    rating: 6
+    rating: 6,
+    team: -1   // -1 = not present; detected by header scan below
   };
 
   if (hasHeader) {
     for (var c = 0; c < headerLower.length; c++) {
       var col = headerLower[c].replace(/\s+/g, ' ').trim();
       if ((col.indexOf('collector') >= 0 && col.indexOf('name') >= 0) || col === 'name') idx.name = c;
-      if (col.indexOf('rig') >= 0) idx.rigId = c;
+      if (col.indexOf('rig') >= 0 && col !== 'rating') idx.rigId = c;
       if (col.indexOf('email') >= 0) idx.email = c;
       if (col.indexOf('weekly') >= 0 && (col.indexOf('cap') >= 0 || col.indexOf('hour') >= 0)) idx.weeklyCap = c;
       if (col.indexOf('active') >= 0) idx.active = c;
       if ((col.indexOf('upload') >= 0) && (col.indexOf('hour') >= 0 || col.indexOf('hrs') >= 0)) idx.hoursUploaded = c;
       if (col.indexOf('rating') >= 0) idx.rating = c;
+      if (col === 'team') idx.team = c;
     }
   }
 
@@ -982,6 +1083,8 @@ function getCollectorRows() {
       active = !(activeRaw === 'false' || activeRaw === '0' || activeRaw === 'no' || activeRaw === 'inactive');
     }
 
+    var teamRaw = idx.team >= 0 ? safeStr(row[idx.team]).toUpperCase().trim() : '';
+
     out.push({
       name: name,
       rigId: safeStr(row[idx.rigId]),
@@ -989,7 +1092,8 @@ function getCollectorRows() {
       weeklyCap: safeNum(row[idx.weeklyCap]),
       active: active,
       hoursUploaded: safeNum(row[idx.hoursUploaded]),
-      rating: safeStr(row[idx.rating])
+      rating: safeStr(row[idx.rating]),
+      team: teamRaw   // 'SF', 'MX', or '' (empty = derive from name)
     });
   }
   return out;
@@ -1011,6 +1115,14 @@ function getCollectorRigMaps() {
     collectorToRig[collectorKey] = rig;
     rigToCollectorName[rig] = collectorName;
   }
+  // Inject SF historical mappings as fallback so last week's leaderboard still
+  // resolves even after rig columns are removed from the Collectors sheet.
+  for (var histRig in SF_HISTORICAL_RIG_MAP) {
+    if (!rigToCollectorName[histRig]) {
+      rigToCollectorName[histRig] = SF_HISTORICAL_RIG_MAP[histRig];
+    }
+  }
+
   return {
     collectorToRig: collectorToRig,
     rigToCollectorName: rigToCollectorName
@@ -1218,6 +1330,61 @@ function logCollectorRigEvent(collectorName, rigId, source, notes, eventDate) {
 }
 
 /**
+ * Builds a date-range map from the Rig History Log.
+ * Returns: { normalizedRigId: [ { collector, startMs, endMs } ] }
+ * Used by getCollectorForRigOnDate_ to attribute CA_PLUS/CA_TAGGED rows to
+ * the correct collector when rigs are shared or switched across days.
+ */
+function buildRigSessionMap_() {
+  var sh = getSS().getSheetByName(TASKFLOW_SHEETS.RIG_HISTORY);
+  if (!sh) return {};
+  var data = sh.getDataRange().getValues();
+  var map = {};
+  for (var i = 1; i < data.length; i++) {
+    var collector = safeStr(data[i][1]); // B = Collector
+    var rig = normalizeRigKey(safeStr(data[i][2])); // C = Rig
+    var startRaw = data[i][4]; // E = SessionStart
+    var endRaw   = data[i][5]; // F = SessionEnd (blank = still active)
+    if (!collector || !rig || !startRaw) continue;
+    var startMs = toTimestampMs(startRaw);
+    if (!startMs || startMs <= 0) continue;
+    var endMs = endRaw ? toTimestampMs(endRaw) : Infinity;
+    if (!map[rig]) map[rig] = [];
+    map[rig].push({ collector: collector, startMs: startMs, endMs: endMs });
+  }
+  return map;
+}
+
+/**
+ * Returns the collector who had a given rig on a specific date by finding
+ * the session in the Rig History Log with the most overlap on that day.
+ * Handles split days (two collectors on same rig same day) by picking
+ * whichever had the longer session window.
+ */
+function getCollectorForRigOnDate_(rigSessionMap, rigId, date) {
+  var normRig = normalizeRigKey(rigId);
+  var sessions = rigSessionMap[normRig];
+  if (!sessions || !date) return null;
+  var dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  var dayEnd   = dayStart + 86400000; // midnight next day
+  var best = null;
+  var bestOverlap = 0;
+  for (var i = 0; i < sessions.length; i++) {
+    var s = sessions[i];
+    var overlapStart = Math.max(s.startMs, dayStart);
+    var overlapEnd   = Math.min(s.endMs === Infinity ? dayEnd : s.endMs, dayEnd);
+    if (overlapEnd > overlapStart) {
+      var overlap = overlapEnd - overlapStart;
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap;
+        best = s.collector;
+      }
+    }
+  }
+  return best;
+}
+
+/**
  * Returns normalized collector upload rows from CA_TAGGED (preferred) or CA_PLUS (fallback).
  * Output row shape: { date: Date|null, rigId: string, collector: string, taskName: string, taskKey: string, hours: number, site: string }
  */
@@ -1226,7 +1393,8 @@ function getCollectorActualRows() {
   var sourceSheet = ss.getSheetByName(TASKFLOW_SHEETS.CA_TAGGED) || ss.getSheetByName(TASKFLOW_SHEETS.CA_PLUS);
   if (!sourceSheet) return [];
   var rigMaps = getCollectorRigMaps();
-  var rigHistoryMap = getRigToCollectorFromHistory();
+  var rigHistoryMap = getRigToCollectorFromHistory(); // byRigLatest — fallback only
+  var rigSessionMap = buildRigSessionMap_();          // date-range map — used first
 
   var rows = sourceSheet.getDataRange().getValues();
   if (!rows || rows.length === 0) return [];
@@ -1288,7 +1456,13 @@ function getCollectorActualRows() {
     var hours = safeNum(r[idxHours]);
     if (!rigId || !taskName || hours <= 0) continue;
     var collectorRaw = safeStr(r[idxCollector]);
-    var collectorFromHistory = rigHistoryMap[rigId] || '';
+    // Date-aware: find who had this specific rig on this specific day from session records.
+    // Falls back to byRigLatest (most recent user) only when no session covers the date.
+    var rowDate = toDateSafe(r[idxDate]);
+    var collectorFromHistory = (rowDate
+      ? (getCollectorForRigOnDate_(rigSessionMap, rigId, rowDate) || rigHistoryMap[rigId] || '')
+      : (rigHistoryMap[rigId] || '')
+    );
     var collectorFromRig = rigMaps.rigToCollectorName[rigId] || '';
     var collectorName = collectorRaw || collectorFromHistory || collectorFromRig;
     var site = idxSite >= 0 ? safeStr(r[idxSite]).toUpperCase() : '';
@@ -1438,9 +1612,15 @@ function handleGetCollectors() {
     var name = safeStr(data[i].name);
     if (!name) continue;
     var rigId = safeStr(data[i].rigId);
+    // Team: prefer the sheet value; fall back to the hardcoded SF name list.
+    var sheetTeam = safeStr(data[i].team).toUpperCase();
+    var isSF = (sheetTeam === 'SF') || (!sheetTeam && isSFCollector_(name));
     results.push({
       name: name,
-      rigs: rigId ? [rigId] : [],
+      // SF collectors pick their rig via the SOD modal each day.
+      // MX collectors still use the sheet-assigned rig for the picker.
+      rigs: (!isSF && rigId) ? [rigId] : [],
+      team: isSF ? 'SF' : 'MX',
       email: safeStr(data[i].email),
       weeklyCap: safeNum(data[i].weeklyCap),
       active: !!data[i].active,
@@ -2301,7 +2481,9 @@ function handleGetTodayLog(collectorName) {
       }
     }
 
-    var include = (dateStr === todayStr || completedStr === todayStr || isActive);
+    // Only include tasks assigned today OR completed/closed today.
+    // Previous-day In Progress tasks are exclusively visible via getDailyCarryover.
+    var include = (dateStr === todayStr || completedStr === todayStr);
     if (!include) continue;
 
     var eventTs = Math.max(toTimestampMs(row[9]), toTimestampMs(row[4]));
@@ -2342,6 +2524,72 @@ function handleGetTodayLog(collectorName) {
     delete results[r]._rowOrder;
   }
   writeCache('todayLog_' + normName, results);
+  return results;
+}
+
+function handleGetPendingReview(params) {
+  var collectorName = safeStr(params && params.collector);
+  var rig           = safeStr(params && params.rig);
+  if (!collectorName || !rig) return [];
+
+  var normName = normalizeCollectorKey(collectorName);
+  var rigLower = rig.toLowerCase().trim();
+  var today    = getScriptTodayDate();
+  var todayStr = Utilities.formatDate(today, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+
+  var ss = getSS();
+  var caSheet = ss.getSheetByName('Collector Actuals | RedashPull');
+  if (!caSheet || caSheet.getLastRow() < 3) return [];
+
+  var caData   = caSheet.getDataRange().getValues();
+  var headers  = (caData[1] || []).map(function(h) { return safeStr(h).trim().toLowerCase(); });
+  var idxDate  = headers.indexOf('date');
+  var idxRig   = headers.indexOf('rig id');
+  var idxTask  = headers.indexOf('task name');
+  var idxHrs   = headers.indexOf('hours uploaded');
+  if (idxDate < 0 || idxRig < 0 || idxTask < 0 || idxHrs < 0) return [];
+
+  var taskAgg = {};
+  for (var i = 2; i < caData.length; i++) {
+    var row = caData[i];
+    if (!row || !row[idxDate]) continue;
+    var rowDate = toDateSafe(row[idxDate]);
+    if (!rowDate) continue;
+    if (Utilities.formatDate(rowDate, Session.getScriptTimeZone(), 'yyyy-MM-dd') !== todayStr) continue;
+    if (safeStr(row[idxRig]).toLowerCase().trim() !== rigLower) continue;
+    var taskName = safeStr(row[idxTask]).trim();
+    if (!taskName) continue;
+    var hrs = safeNum(row[idxHrs]);
+    if (hrs <= 0) continue;
+    var taskKey = normalizeTaskKey(taskName);
+    if (!taskAgg[taskKey]) taskAgg[taskKey] = { taskName: taskName, hours: 0 };
+    taskAgg[taskKey].hours += hrs;
+  }
+
+  if (Object.keys(taskAgg).length === 0) return [];
+
+  var assignData;
+  try { assignData = getSheetData(TASKFLOW_SHEETS.ASSIGNMENTS); } catch (e) { assignData = []; }
+  var resolvedKeys = {};
+  for (var j = 1; j < assignData.length; j++) {
+    var aRow = assignData[j];
+    if (normalizeCollectorKey(safeStr(aRow[3])) !== normName) continue;
+    var status = safeStr(aRow[6]).toLowerCase();
+    if (status !== 'completed' && status !== 'canceled') continue;
+    var closedStr   = (function(d) { return d ? Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd') : ''; })(toDateSafe(aRow[9]));
+    var assignedStr = (function(d) { return d ? Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd') : ''; })(toDateSafe(aRow[4]));
+    if (closedStr !== todayStr && assignedStr !== todayStr) continue;
+    resolvedKeys[normalizeTaskKey(safeStr(aRow[2]))] = true;
+  }
+
+  var results = [];
+  for (var key in taskAgg) {
+    if (resolvedKeys[key]) continue;
+    results.push({ rig: rig, taskName: taskAgg[key].taskName, taskKey: key,
+                   redashHours: Math.round(taskAgg[key].hours * 100) / 100, date: todayStr });
+  }
+  results.sort(function(a, b) { return b.redashHours - a.redashHours; });
+  writeCache('pendingReview_' + normName, results);
   return results;
 }
 
@@ -2650,6 +2898,12 @@ function getOrCreateCacheSheet() {
   var sheet = ss.getSheetByName(TASKFLOW_SHEETS.APP_CACHE);
   if (!sheet) {
     sheet = ss.insertSheet(TASKFLOW_SHEETS.APP_CACHE);
+  }
+  // Always ensure the header row exists, even if the sheet was manually
+  // created or had its content cleared. Without this, getLastRow() returns 0
+  // which causes writeCache to call insertRowsAfter(0, ...) — invalid in
+  // the Sheets API (rows are 1-indexed) — silently failing every write.
+  if (sheet.getLastRow() === 0) {
     sheet.getRange(1, 1, 1, 3).setValues([['key', 'jsonValue', 'updatedAt']]);
   }
   return sheet;
@@ -2662,11 +2916,13 @@ function writeCache(key, value) {
     var lastRow = cacheSheet.getLastRow();
     var targetRow = -1;
     var existingJson = '';
-    if (lastRow >= 1) {
-      var keyColumn = cacheSheet.getRange(1, 1, lastRow, 1).getValues();
+
+    // Scan rows 2+ only (row 1 is always the header — never overwrite it).
+    if (lastRow >= 2) {
+      var keyColumn = cacheSheet.getRange(2, 1, lastRow - 1, 1).getValues();
       for (var i = 0; i < keyColumn.length; i++) {
         if (safeStr(keyColumn[i][0]) === key) {
-          targetRow = i + 1;
+          targetRow = i + 2;  // i=0 → row 2, i=1 → row 3, etc.
           existingJson = safeStr(cacheSheet.getRange(targetRow, 2).getValue());
           break;
         }
@@ -2674,10 +2930,11 @@ function writeCache(key, value) {
     }
 
     if (targetRow === -1) {
+      // Append after the last row, but never before row 2 (row 1 is the header).
+      // Crucially: do NOT call insertRowsAfter(0, ...) — row 0 is invalid in the
+      // Sheets API and throws an exception that the outer catch silently swallows,
+      // causing every write to silently fail on an empty sheet.
       targetRow = Math.max(lastRow + 1, 2);
-      if (targetRow > lastRow + 1) {
-        cacheSheet.insertRowsAfter(lastRow, targetRow - (lastRow + 1));
-      }
     }
 
     var nextJson = JSON.stringify(value);
@@ -2961,11 +3218,11 @@ function handleSubmitCore(collector, task, hours, actionType, notes, normCol, no
       };
     }
 
-    var plannedAssign = Math.max(0, safeNum(hours));
+    // plannedHours is always 0 for new assignments — actual hours are recorded on Done.
     var aId = 'A-' + Date.now();
-    insertAssignmentLogRow(sheet, [aId, latestTaskId, task, collector, now, plannedAssign, 'In Progress', 0, plannedAssign, '', notes, getWeekStart(now)]);
+    insertAssignmentLogRow(sheet, [aId, latestTaskId, task, collector, now, 0, 'In Progress', 0, 0, '', notes, getWeekStart(now)]);
     refreshPostSubmitCaches(collector);
-    return { success: true, message: 'Assigned: ' + task, assignmentId: aId, planned: plannedAssign, hours: 0, remaining: plannedAssign, status: 'In Progress' };
+    return { success: true, message: 'Assigned: ' + task, assignmentId: aId, planned: 0, hours: 0, remaining: 0, status: 'In Progress' };
   }
 
   if (actionType === 'COMPLETE') {
@@ -3071,4 +3328,368 @@ function handleSubmit(body) {
 function getWeekStart(d) {
   var dt = getWeekStartDate(new Date(d));
   return Utilities.formatDate(dt, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+// ============================================================================
+// RIG ASSIGNMENT SYSTEM (uses existing Collector Rig History Log)
+// ============================================================================
+// The Rig History Log already tracks open sessions (SessionEnd blank = active).
+// We add two columns to that sheet:
+//   K = SwitchRequestBy   (blank, or the collector requesting a rig switch)
+//   L = SwitchStatus      (blank | PENDING | APPROVED | DENIED)
+// No new sheet needed.
+
+// Column indices (0-based) for Collector Rig History Log
+var RH = {
+  EVENT_TS:        0,  // A
+  COLLECTOR:       1,  // B
+  RIG:             2,  // C
+  EVENT:           3,  // D
+  SESSION_START:   4,  // E
+  SESSION_END:     5,  // F
+  SESSION_HOURS:   6,  // G
+  SOURCE:          7,  // H
+  WEEK_START:      8,  // I
+  NOTES:           9,  // J
+  SWITCH_REQ_BY:  10,  // K  (new — added on first use)
+  SWITCH_STATUS:  11   // L  (new — added on first use)
+};
+
+function isSFCollector_(name) {
+  var norm = normalizeCollectorKey(safeStr(name));
+  for (var i = 0; i < SF_COLLECTORS_LIST.length; i++) {
+    if (normalizeCollectorKey(SF_COLLECTORS_LIST[i]) === norm) return true;
+  }
+  return false;
+}
+
+// Stable assignment ID: derived from collector + rig + today so it survives
+// row-order changes caused by prepend-inserts in the history log.
+function makeRigAssignmentId_(collector, rig) {
+  var today = Utilities.formatDate(getScriptTodayDate(), Session.getScriptTimeZone(), 'yyyyMMdd');
+  return 'RH_' + today + '_' + normalizeCollectorKey(collector).replace(/\s+/g,'') + '_' + String(rig).replace(/\s+/g,'');
+}
+
+// Extend the Rig History Log header to include K and L if they aren't there yet.
+function ensureRigHistorySwitchCols_(sh) {
+  var lastCol = sh.getLastColumn();
+  if (lastCol <= RH.SWITCH_STATUS) {
+    var needed = RH.SWITCH_STATUS + 1 - lastCol;
+    var headers = [];
+    if (lastCol <= RH.SWITCH_REQ_BY) headers.push('SwitchRequestBy');
+    if (lastCol <= RH.SWITCH_STATUS) headers.push('SwitchStatus');
+    sh.getRange(1, lastCol + 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+  }
+}
+
+// Find the open (active) session row for a given collector+rig today.
+// Returns { rowIndex (1-based), data (row array) } or null.
+function findOpenRigSession_(data, collector, rig) {
+  var normCollector = normalizeCollectorKey(collector);
+  var normRig = normalizeRigKey(rig);
+  var today = getScriptTodayDate();
+
+  for (var i = 1; i < data.length; i++) {
+    var sessionEnd = data[i][RH.SESSION_END];
+    if (sessionEnd != null && safeStr(sessionEnd) !== '') continue; // closed
+    if (normalizeCollectorKey(safeStr(data[i][RH.COLLECTOR])) !== normCollector) continue;
+    if (normalizeRigKey(safeStr(data[i][RH.RIG])) !== normRig) continue;
+    var start = data[i][RH.SESSION_START];
+    if (!start) continue;
+    var startDate = new Date(start);
+    if (startDate.toDateString() !== today.toDateString()) continue;
+    return { rowIndex: i + 1, data: data[i] };
+  }
+  return null;
+}
+
+// Find the open session for a rig (any collector) today.
+function findOpenRigSessionByRig_(data, rig) {
+  var normRig = normalizeRigKey(String(rig));
+  var today = getScriptTodayDate();
+
+  for (var i = 1; i < data.length; i++) {
+    var sessionEnd = data[i][RH.SESSION_END];
+    if (sessionEnd != null && safeStr(sessionEnd) !== '') continue;
+    if (normalizeRigKey(safeStr(data[i][RH.RIG])) !== normRig) continue;
+    var start = data[i][RH.SESSION_START];
+    if (!start) continue;
+    if (new Date(start).toDateString() !== today.toDateString()) continue;
+    return { rowIndex: i + 1, data: data[i] };
+  }
+  return null;
+}
+
+// Returns current status of all SF rigs for the SOD picker.
+function handleGetRigStatus() {
+  var ss = getSS();
+  var sh = ss.getSheetByName(TASKFLOW_SHEETS.RIG_HISTORY);
+  if (!sh) {
+    return SF_RIG_LIST.map(function(rig) {
+      return { rig: rig, status: 'available', assignedTo: null, assignmentId: null, assignedAt: null, pendingSwitchBy: null };
+    });
+  }
+
+  ensureRigHistorySwitchCols_(sh);
+  var data = sh.getDataRange().getValues();
+  var result = [];
+
+  for (var r = 0; r < SF_RIG_LIST.length; r++) {
+    var rigNum = SF_RIG_LIST[r];
+    var found = findOpenRigSessionByRig_(data, rigNum);
+    if (!found) {
+      result.push({ rig: rigNum, status: 'available', assignedTo: null, assignmentId: null, assignedAt: null, pendingSwitchBy: null });
+      continue;
+    }
+    var collector = safeStr(found.data[RH.COLLECTOR]);
+    var switchStatus = safeStr(found.data[RH.SWITCH_STATUS] || '');
+    var switchBy = safeStr(found.data[RH.SWITCH_REQ_BY] || '');
+    var sessionStart = found.data[RH.SESSION_START];
+    result.push({
+      rig: rigNum,
+      status: switchStatus === 'PENDING' ? 'pending_transfer' : 'in_use',
+      assignedTo: collector,
+      assignmentId: makeRigAssignmentId_(collector, rigNum),
+      assignedAt: sessionStart ? new Date(sessionStart).toISOString() : null,
+      pendingSwitchBy: switchStatus === 'PENDING' ? switchBy : null
+    });
+  }
+  return result;
+}
+
+// SOD rig assignment — wraps the existing handleLogCollectorRig.
+function handleAssignRigSOD(body) {
+  var collector = safeStr(body.collector).trim();
+  var rig = String(body.rig || '').trim();
+  if (!collector || !rig) throw new Error('collector and rig required');
+
+  // Check if this collector already has an active session today (idempotent).
+  var ss = getSS();
+  var sh = ss.getSheetByName(TASKFLOW_SHEETS.RIG_HISTORY);
+  if (sh) {
+    ensureRigHistorySwitchCols_(sh);
+    var data = sh.getDataRange().getValues();
+    var existing = findOpenRigSession_(data, collector, rig);
+    if (existing) {
+      var start = existing.data[RH.SESSION_START];
+      return { assignmentId: makeRigAssignmentId_(collector, rig), collector: collector, rig: Number(rig), assignedAt: start ? new Date(start).toISOString() : null, status: 'ACTIVE', message: 'Already assigned to rig ' + rig };
+    }
+    // Check if another collector has this rig open today.
+    var taken = findOpenRigSessionByRig_(data, rig);
+    if (taken) {
+      throw new Error('Rig ' + rig + ' is currently assigned to ' + safeStr(taken.data[RH.COLLECTOR]));
+    }
+  }
+
+  // Delegate to existing session-management logic.
+  var result = handleLogCollectorRig({ collector: collector, rig: rig, source: 'SOD_ASSIGN' });
+  var now = new Date();
+  return {
+    assignmentId: makeRigAssignmentId_(collector, rig),
+    collector: collector,
+    rig: Number(rig),
+    assignedAt: now.toISOString(),
+    status: 'ACTIVE',
+    message: result.message || ('Rig ' + rig + ' assigned')
+  };
+}
+
+// Close the open rig session for (collector, rig) today.
+function handleReleaseRig(body) {
+  var assignmentId = safeStr(body.assignmentId).trim();
+  var reason = safeStr(body.reason || 'MANUAL').trim().toUpperCase();
+  if (!assignmentId) throw new Error('assignmentId required');
+
+  var sh = getSS().getSheetByName(TASKFLOW_SHEETS.RIG_HISTORY);
+  if (!sh) throw new Error('Rig History Log not found');
+  ensureRigHistorySwitchCols_(sh);
+  var data = sh.getDataRange().getValues();
+  var now = new Date();
+
+  // Decode collector + rig from the assignmentId (RH_yyyyMMdd_collector_rig).
+  var parts = assignmentId.split('_');
+  // parts[0]=RH parts[1]=date parts[2]=collector parts[3]=rig (may have been split further)
+  // Find row by scanning for open session where assignmentId matches.
+  for (var i = 1; i < data.length; i++) {
+    var sessionEnd = data[i][RH.SESSION_END];
+    if (sessionEnd != null && safeStr(sessionEnd) !== '') continue;
+    var rowCollector = safeStr(data[i][RH.COLLECTOR]);
+    var rowRig = safeStr(data[i][RH.RIG]);
+    if (makeRigAssignmentId_(rowCollector, rowRig) !== assignmentId) continue;
+
+    var sessionStart = data[i][RH.SESSION_START] ? new Date(data[i][RH.SESSION_START]) : null;
+    var hours = sessionStart ? Math.round(((now.getTime() - sessionStart.getTime()) / 3600000) * 100) / 100 : 0;
+    sh.getRange(i + 1, RH.SESSION_END + 1).setValue(now);
+    sh.getRange(i + 1, RH.SESSION_HOURS + 1).setValue(hours);
+    sh.getRange(i + 1, RH.NOTES + 1).setValue(safeStr(data[i][RH.NOTES]) + ' | released:' + reason);
+    _rigHistorySnapshot = null;
+    return { assignmentId: assignmentId, collector: rowCollector, rig: Number(rowRig), releasedAt: now.toISOString(), hours: hours, reason: reason, message: 'Rig released. ' + hours.toFixed(2) + 'h recorded.' };
+  }
+  throw new Error('Active session not found for assignmentId: ' + assignmentId);
+}
+
+// Release all active SF rig sessions — called at EOD rollover.
+function handleEODRigRelease_() {
+  var sh = getSS().getSheetByName(TASKFLOW_SHEETS.RIG_HISTORY);
+  if (!sh) return { released: 0 };
+  ensureRigHistorySwitchCols_(sh);
+  var data = sh.getDataRange().getValues();
+  var today = getScriptTodayDate();
+  var now = new Date();
+  var released = 0;
+
+  for (var i = 1; i < data.length; i++) {
+    var sessionEnd = data[i][RH.SESSION_END];
+    if (sessionEnd != null && safeStr(sessionEnd) !== '') continue;
+    var rig = normalizeRigKey(safeStr(data[i][RH.RIG]));
+    if (!SF_RIG_NUMBERS[rig]) continue; // only SF rigs
+    var start = data[i][RH.SESSION_START];
+    if (!start || new Date(start).toDateString() !== today.toDateString()) continue;
+
+    var hours = start ? Math.round(((now.getTime() - new Date(start).getTime()) / 3600000) * 100) / 100 : 0;
+    sh.getRange(i + 1, RH.SESSION_END + 1).setValue(now);
+    sh.getRange(i + 1, RH.SESSION_HOURS + 1).setValue(hours);
+    released++;
+  }
+  _rigHistorySnapshot = null;
+  return { released: released };
+}
+
+// Request a rig switch — marks the open session row with K=requester, L=PENDING.
+function handleRequestRigSwitch(body) {
+  var requestingCollector = safeStr(body.requestingCollector).trim();
+  var rig = String(body.rig || '').trim();
+  if (!requestingCollector || !rig) throw new Error('requestingCollector and rig required');
+
+  var sh = getSS().getSheetByName(TASKFLOW_SHEETS.RIG_HISTORY);
+  if (!sh) throw new Error('Rig History Log not found');
+  ensureRigHistorySwitchCols_(sh);
+  var data = sh.getDataRange().getValues();
+
+  var found = findOpenRigSessionByRig_(data, rig);
+  if (!found) throw new Error('No active assignment for rig ' + rig);
+
+  sh.getRange(found.rowIndex, RH.SWITCH_REQ_BY + 1).setValue(requestingCollector);
+  sh.getRange(found.rowIndex, RH.SWITCH_STATUS + 1).setValue('PENDING');
+  _rigHistorySnapshot = null;
+
+  var currentAssignee = safeStr(found.data[RH.COLLECTOR]);
+  return {
+    assignmentId: makeRigAssignmentId_(currentAssignee, rig),
+    currentAssignee: currentAssignee,
+    requestingCollector: requestingCollector,
+    rig: Number(rig),
+    message: 'Switch request sent to ' + currentAssignee
+  };
+}
+
+// Current assignee approves or denies the switch request.
+function handleRespondRigSwitch(body) {
+  var assignmentId = safeStr(body.assignmentId).trim();
+  var action = safeStr(body.action || '').toUpperCase().trim();
+  if (!assignmentId || !action) throw new Error('assignmentId and action required');
+
+  var sh = getSS().getSheetByName(TASKFLOW_SHEETS.RIG_HISTORY);
+  if (!sh) throw new Error('Rig History Log not found');
+  ensureRigHistorySwitchCols_(sh);
+  var data = sh.getDataRange().getValues();
+  var now = new Date();
+
+  // Find the row that matches the assignmentId and has a PENDING switch.
+  for (var i = 1; i < data.length; i++) {
+    var sessionEnd = data[i][RH.SESSION_END];
+    if (sessionEnd != null && safeStr(sessionEnd) !== '') continue;
+    var rowCollector = safeStr(data[i][RH.COLLECTOR]);
+    var rowRig = safeStr(data[i][RH.RIG]);
+    if (makeRigAssignmentId_(rowCollector, rowRig) !== assignmentId) continue;
+
+    var requestingCollector = safeStr(data[i][RH.SWITCH_REQ_BY] || '');
+    var rig = rowRig;
+
+    if (action === 'DENY') {
+      sh.getRange(i + 1, RH.SWITCH_REQ_BY + 1).setValue('');
+      sh.getRange(i + 1, RH.SWITCH_STATUS + 1).setValue('DENIED');
+      _rigHistorySnapshot = null;
+      return { result: 'DENIED', rig: Number(rig), message: 'Switch denied. Rig ' + rig + ' stays with ' + rowCollector };
+    }
+
+    if (action === 'APPROVE') {
+      // Open the requesting collector's session FIRST — before touching the current
+      // assignee's row. If this throws (e.g. sheet write error), no changes have
+      // been made and we can safely propagate the error without leaving the rig
+      // in a half-transferred, unassigned state.
+      handleLogCollectorRig({ collector: requestingCollector, rig: rig, source: 'SWITCH_APPROVE' });
+
+      // New session is open — now safe to close the current assignee's session.
+      var sessionStart = data[i][RH.SESSION_START] ? new Date(data[i][RH.SESSION_START]) : null;
+      var hours = sessionStart ? Math.round(((now.getTime() - sessionStart.getTime()) / 3600000) * 100) / 100 : 0;
+      sh.getRange(i + 1, RH.SESSION_END + 1).setValue(now);
+      sh.getRange(i + 1, RH.SESSION_HOURS + 1).setValue(hours);
+      sh.getRange(i + 1, RH.SWITCH_STATUS + 1).setValue('APPROVED');
+      _rigHistorySnapshot = null;
+      return {
+        result: 'APPROVED',
+        newAssignmentId: makeRigAssignmentId_(requestingCollector, rig),
+        rig: Number(rig),
+        hours: hours,
+        message: 'Rig ' + rig + ' transferred to ' + requestingCollector + '. ' + hours.toFixed(2) + 'h recorded for ' + rowCollector
+      };
+    }
+    throw new Error('Invalid action: ' + action);
+  }
+  throw new Error('Active PENDING session not found for: ' + assignmentId);
+}
+
+// Poll for incoming/outgoing switch requests (called every 20s by the app).
+function handleGetPendingSwitchRequests(params) {
+  var collector = safeStr((params && params.collector) || '').trim();
+  if (!collector) return [];
+
+  var sh = getSS().getSheetByName(TASKFLOW_SHEETS.RIG_HISTORY);
+  if (!sh) return [];
+  ensureRigHistorySwitchCols_(sh);
+  var data = sh.getDataRange().getValues();
+  var normCollector = normalizeCollectorKey(collector);
+  var today = getScriptTodayDate();
+  var results = [];
+
+  for (var i = 1; i < data.length; i++) {
+    var sessionEnd = data[i][RH.SESSION_END];
+    if (sessionEnd != null && safeStr(sessionEnd) !== '') continue;
+    var switchStatus = safeStr(data[i][RH.SWITCH_STATUS] || '');
+    if (switchStatus !== 'PENDING') continue;
+    var start = data[i][RH.SESSION_START];
+    if (!start || new Date(start).toDateString() !== today.toDateString()) continue;
+
+    var rowCollector = safeStr(data[i][RH.COLLECTOR]);
+    var switchReqBy = safeStr(data[i][RH.SWITCH_REQ_BY] || '');
+    var rowRig = safeStr(data[i][RH.RIG]);
+    var assignmentId = makeRigAssignmentId_(rowCollector, rowRig);
+
+    // Incoming: this collector is the current assignee and someone wants their rig.
+    if (normalizeCollectorKey(rowCollector) === normCollector) {
+      results.push({ type: 'incoming', assignmentId: assignmentId, rig: Number(rowRig), requestedBy: switchReqBy, requestedAt: start ? new Date(start).toISOString() : null });
+    }
+    // Outgoing: this collector sent the switch request.
+    if (normalizeCollectorKey(switchReqBy) === normCollector) {
+      results.push({ type: 'outgoing', assignmentId: assignmentId, rig: Number(rowRig), currentAssignee: rowCollector, requestedAt: start ? new Date(start).toISOString() : null });
+    }
+  }
+  return results;
+}
+
+// Deactivate all live alerts (used by admin "Clear All Alerts" button).
+function handleClearAllAlerts() {
+  var ss = getSS();
+  var sh = ss.getSheetByName(TASKFLOW_SHEETS.LIVE_ALERTS);
+  if (!sh) return { cleared: 0 };
+  var data = sh.getDataRange().getValues();
+  var cleared = 0;
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][6]).toLowerCase() !== 'false' && String(data[i][6]) !== '0') {
+      sh.getRange(i + 1, 7).setValue(false);
+      cleared++;
+    }
+  }
+  return { cleared: cleared };
 }

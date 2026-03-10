@@ -7,11 +7,12 @@ import {
   RefreshControl,
   Animated,
   TouchableOpacity,
+  TextInput,
   Platform,
   Alert,
 } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { TrendingUp, CheckCircle, Target, Inbox, Calendar, Trophy, Medal, Crown, Upload, AlertTriangle, XCircle } from "lucide-react-native";
+import { TrendingUp, CheckCircle, Target, Inbox, Calendar, Trophy, Medal, Crown, Upload, AlertTriangle, XCircle, RefreshCw } from "lucide-react-native";
 import { useCollection } from "@/providers/CollectionProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { DesignTokens } from "@/constants/colors";
@@ -28,12 +29,9 @@ import {
   clearApiCache,
 } from "@/services/googleSheets";
 import { CollectorStats, LeaderboardEntry, TaskActualRow, CollectorProfile, AdminStartPlanData, DailyCarryoverItem } from "@/types";
+import { normalizeCollectorName } from "@/utils/normalize";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
-
-function normalizeCollectorName(name: string): string {
-  return name.replace(/\s*\(.*?\)\s*$/g, "").trim();
-}
 
 type LeaderboardTab = "combined" | "sf" | "mx";
 type LeaderboardPeriod = "thisWeek" | "lastWeek";
@@ -70,7 +68,7 @@ const HeroStat = React.memo(function HeroStat({ label, value, icon, color, index
   }, [fadeAnim, slideAnim, index]);
 
   return (
-    <Animated.View style={[styles.heroCard, { backgroundColor: colors.bgCard, borderColor: colors.border, shadowColor: colors.shadow, opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+    <Animated.View style={[styles.heroCard, { backgroundColor: colors.bgCard, shadowColor: colors.shadow, opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
       <View style={[styles.heroIconWrap, { backgroundColor: color + "12" }]}>{icon}</View>
       <Text style={[styles.heroValue, { color: colors.textPrimary }]}>{value}</Text>
       <Text style={[styles.heroLabel, { color: colors.textMuted }]}>{label}</Text>
@@ -82,9 +80,6 @@ const LeaderboardRow = React.memo(function LeaderboardRow({ entry, index, isCurr
   const rankColor = entry.rank === 1 ? colors.gold : entry.rank === 2 ? colors.silver : entry.rank === 3 ? colors.bronze : colors.textMuted;
   const rankBg = entry.rank === 1 ? colors.goldBg : entry.rank === 2 ? colors.silverBg : entry.rank === 3 ? colors.bronzeBg : colors.bgInput;
   const regionColor = entry.region === "MX" ? colors.mxOrange : entry.region === "SF" ? colors.sfBlue : colors.accent;
-  const source = "ACTUAL";
-  const sourceColor = colors.terminalGreen;
-
   return (
     <View style={[lbStyles.row, {
       backgroundColor: isCurrentUser ? colors.accentSoft : "transparent",
@@ -107,8 +102,8 @@ const LeaderboardRow = React.memo(function LeaderboardRow({ entry, index, isCurr
           <View style={[lbStyles.regionTag, { backgroundColor: regionColor + '14' }]}>
             <Text style={[lbStyles.regionText, { color: regionColor }]}>{entry.region}</Text>
           </View>
-          <View style={[lbStyles.sourceTag, { backgroundColor: sourceColor + '16' }]}>
-            <Text style={[lbStyles.sourceText, { color: sourceColor }]}>{source}</Text>
+          <View style={[lbStyles.sourceTag, { backgroundColor: colors.terminalGreen + '16' }]}>
+            <Text style={[lbStyles.sourceText, { color: colors.terminalGreen }]}>ACTUAL</Text>
           </View>
         </View>
         <View style={lbStyles.statsRow}>
@@ -132,13 +127,12 @@ const lbStyles = StyleSheet.create({
   nameRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 3 },
   name: { fontSize: 14, fontWeight: "600" as const, flex: 1 },
   regionTag: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
-  regionText: { fontSize: 9, fontWeight: "700" as const, letterSpacing: 0.5 },
+  regionText: { fontSize: 12, fontWeight: "600" as const },
   sourceTag: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
-  sourceText: { fontSize: 9, fontWeight: "700" as const, letterSpacing: 0.4 },
+  sourceText: { fontSize: 12, fontWeight: "600" as const },
   statsRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
-  statVal: { fontSize: 11, fontWeight: "500" as const },
-  statSep: { fontSize: 10 },
-  metaText: { fontSize: 10, marginBottom: 4 },
+  statVal: { fontSize: 13, fontWeight: "500" as const },
+  statSep: { fontSize: 13 },
 });
 
 const ComparisonCard = React.memo(function ComparisonCard({ mxHours, sfHours, mxCompleted, sfCompleted, colors }: {
@@ -148,8 +142,8 @@ const ComparisonCard = React.memo(function ComparisonCard({ mxHours, sfHours, mx
   const mxPct = totalHours > 0 ? (mxHours / totalHours) * 100 : 50;
 
   return (
-    <View style={[compStyles.card, { backgroundColor: colors.bgCard, borderColor: colors.border, shadowColor: colors.shadow }]}>
-      <Text style={[compStyles.title, { color: colors.textMuted }]}>MX vs SF THIS WEEK</Text>
+    <View style={[compStyles.card, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
+      <Text style={[compStyles.title, { color: colors.textMuted }]}>MX vs SF This Week</Text>
       <View style={compStyles.barWrap}>
         <View style={[compStyles.barLeft, { backgroundColor: colors.mxOrange, width: `${Math.max(mxPct, 5)}%` }]}>
           <Text style={compStyles.barLabel}>MX</Text>
@@ -185,18 +179,20 @@ const ComparisonCard = React.memo(function ComparisonCard({ mxHours, sfHours, mx
 
 const compStyles = StyleSheet.create({
   card: {
-    borderRadius: DesignTokens.radius.xl, padding: DesignTokens.spacing.lg, borderWidth: 1, marginBottom: DesignTokens.spacing.md,
-    ...DesignTokens.shadow.card,
+    borderRadius: DesignTokens.radius.xl,
+    padding: DesignTokens.spacing.lg,
+    marginBottom: DesignTokens.spacing.md,
+    ...DesignTokens.shadow.float,
   },
-  title: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1.2, marginBottom: 10 },
+  title: { fontSize: 13, fontWeight: "700" as const, marginBottom: 10 },
   barWrap: { flexDirection: "row", height: 24, borderRadius: 6, overflow: "hidden", marginBottom: 12 },
   barLeft: { justifyContent: "center", alignItems: "center" },
   barRight: { justifyContent: "center", alignItems: "center" },
-  barLabel: { color: "#fff", fontSize: 10, fontWeight: "800" as const, letterSpacing: 1 },
+  barLabel: { color: "#fff", fontSize: 12, fontWeight: "700" as const, letterSpacing: 1 },
   statsWrap: { flexDirection: "row", alignItems: "center" },
   statCol: { flex: 1, alignItems: "center" },
   statValue: { fontSize: 15, fontWeight: "700" as const },
-  statSub: { fontSize: 9, marginTop: 2 },
+  statSub: { fontSize: 12, marginTop: 2 },
   divider: { width: 1, height: 24 },
 });
 
@@ -209,6 +205,7 @@ export default function StatsScreen() {
   const [lbPeriod, setLbPeriod] = useState<LeaderboardPeriod>("thisWeek");
   const [lbVisibleCount, setLbVisibleCount] = useState(10);
   const [carryoverPendingId, setCarryoverPendingId] = useState<string | null>(null);
+  const [carryoverHoursInput, setCarryoverHoursInput] = useState<Record<string, string>>({});
   const syncPulse = useRef(new Animated.Value(0)).current;
 
   const normalizedName = useMemo(() => normalizeCollectorName(selectedCollectorName), [selectedCollectorName]);
@@ -267,12 +264,24 @@ export default function StatsScreen() {
     refetchOnWindowFocus: false,
   });
 
+  const todayDateStr = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
+
+  // Only count entries assigned today. Carryover tasks from previous days
+  // (assignedDate !== today) must not inflate today's summary numbers.
+  const todayOnlyLog = useMemo(
+    () => todayLog.filter((e) => e.assignedDate === todayDateStr),
+    [todayLog, todayDateStr],
+  );
+
   const localStats = useMemo(() => {
-    const completed = todayLog.filter((e) => e.status === "Completed").length;
-    const totalLogged = todayLog.reduce((s, e) => s + e.loggedHours, 0);
-    const active = todayLog.filter((e) => e.status === "In Progress" || e.status === "Partial").length;
-    return { completed, totalLogged, active, total: todayLog.length };
-  }, [todayLog]);
+    const completed = todayOnlyLog.filter((e) => e.status === "Completed").length;
+    const totalLogged = todayOnlyLog.reduce((s, e) => s + e.loggedHours, 0);
+    const active = todayOnlyLog.filter((e) => e.status === "In Progress" || e.status === "Partial").length;
+    return { completed, totalLogged, active, total: todayOnlyLog.length };
+  }, [todayOnlyLog]);
 
   const leaderboard = useMemo<LeaderboardEntry[]>(() => {
     return leaderboardQuery.data ?? [];
@@ -317,38 +326,110 @@ export default function StatsScreen() {
 
   const recommendedTasks = useMemo(() => {
     const rows = taskActualsQuery.data ?? [];
-    return rows
+
+    // Build a set of tasks this collector has worked on (today's log as proxy for recent history).
+    // Tasks in "In Progress" or "Partial" state are their active work — highest priority.
+    const DONE_STATUSES = new Set(["DONE", "COMPLETED", "COMPLETE", "CANCELED", "CANCELLED"]);
+    const myTaskKeys = new Set(
+      todayLog.map(e => normalizeCollectorName(e.taskName).toLowerCase())
+    );
+    const myActiveKeys = new Set(
+      todayLog
+        .filter(e => e.status === "In Progress" || e.status === "Partial")
+        .map(e => normalizeCollectorName(e.taskName).toLowerCase())
+    );
+
+    // Deduplicate and filter: only tasks that genuinely need work
+    const seen = new Set<string>();
+    const candidates = rows
       .filter((row) => {
         const remaining = Number(row.remainingHours) || 0;
-        const status = String(row.status ?? "").toUpperCase();
+        const status    = String(row.status ?? "").toUpperCase();
+        // Must have hours left and not be finished
         if (remaining <= 0) return false;
-        if (status === "DONE" || status === "COMPLETED" || status === "COMPLETE") return false;
+        if (DONE_STATUSES.has(status)) return false;
+        // Deduplicate by name
+        const key = normalizeCollectorName(String(row.taskName || "")).toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
         return true;
       })
-      .sort((a, b) => (Number(b.remainingHours) || 0) - (Number(a.remainingHours) || 0))
-      .slice(0, 6);
-  }, [taskActualsQuery.data]);
+      .map((row) => {
+        const remaining   = Number(row.remainingHours) || 0;
+        const collected   = Number((row as any).collectedHours ?? (row as any).goodHours ?? 0);
+        const total       = remaining + collected;
+        const pct         = total > 0 ? collected / total : 0;
+        const isRecollect = String(row.status ?? "").toUpperCase() === "RECOLLECT";
+        const key         = normalizeCollectorName(String(row.taskName || "")).toLowerCase();
+        const isActive    = myActiveKeys.has(key);   // currently working on it
+        const isMine      = myTaskKeys.has(key);     // worked on it today (any status)
+        return { ...row, remaining, pct, isRecollect, isActive, isMine };
+      })
+      .sort((a, b) => {
+        // 1st: currently active tasks (keep going)
+        if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+        // 2nd: tasks they've done before (recollect their own tasks)
+        if (a.isMine !== b.isMine) return a.isMine ? -1 : 1;
+        // 3rd: recollect status (closest to done, needs finishing)
+        if (a.isRecollect !== b.isRecollect) return a.isRecollect ? -1 : 1;
+        // 4th: closest to completion (highest % done, least remaining)
+        if (Math.abs(b.pct - a.pct) > 0.05) return b.pct - a.pct;
+        return a.remaining - b.remaining;
+      });
+
+    // Bucket: personal tasks (active + prior) vs new tasks they've never touched
+    const personal = candidates.filter(t => t.isMine);
+    const newToThem = candidates.filter(t => !t.isMine);
+
+    if (personal.length > 0) {
+      // They have personal history — show all their tasks (up to 4)
+      // then add 1-2 of the most-actionable new tasks to fill gaps
+      const result = personal.slice(0, 4);
+      const slots  = Math.max(0, 5 - result.length);
+      // Only suggest new tasks that are close to done and worth a session (≥ 1h remaining)
+      const worthwhile = newToThem.filter(t => t.remaining >= 1 && t.pct >= 0.5);
+      return [...result, ...worthwhile.slice(0, slots)];
+    } else {
+      // No personal history — show a short list of the most actionable tasks only.
+      // Filter to tasks that are meaningfully in-progress (≥ 50% done, ≥ 1h left)
+      // so they're not starting something cold with 20h remaining.
+      const actionable = newToThem.filter(t => t.remaining >= 1 && t.pct >= 0.4);
+      return actionable.slice(0, 4);
+    }
+  }, [taskActualsQuery.data, todayLog]);
 
   const dailyCarryover = useMemo(() => dailyCarryoverQuery.data ?? [], [dailyCarryoverQuery.data]);
 
-  const handleCarryoverAction = useCallback(async (mode: "report" | "cancel", item: DailyCarryoverItem) => {
+  const handleCarryoverAction = useCallback(async (
+    mode: "report" | "reportHours" | "cancel",
+    item: DailyCarryoverItem,
+    manualHours?: number,
+  ) => {
     if (!selectedCollectorName) return;
     setCarryoverPendingId(item.assignmentId);
     try {
-      if (mode === "report") {
-        await reportDailyCarryover({
-          collector: selectedCollectorName,
-          task: item.taskName,
-          assignmentId: item.assignmentId,
-          actualHours: Number(item.actualHours) || 0,
-        });
-      } else {
+      if (mode === "cancel") {
         await cancelDailyCarryover({
           collector: selectedCollectorName,
           task: item.taskName,
           assignmentId: item.assignmentId,
         });
+      } else {
+        // "report" uses the GAS-detected actual hours; "reportHours" uses manual input
+        const hours = mode === "reportHours" ? (manualHours ?? 0) : Number(item.actualHours) || 0;
+        await reportDailyCarryover({
+          collector: selectedCollectorName,
+          task: item.taskName,
+          assignmentId: item.assignmentId,
+          actualHours: hours,
+        });
       }
+      // Clear manual input for this item
+      setCarryoverHoursInput((prev) => {
+        const next = { ...prev };
+        delete next[item.assignmentId];
+        return next;
+      });
       await Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: ["dailyCarryover", selectedCollectorName] }),
         queryClient.invalidateQueries({ queryKey: ["todayLog", selectedCollectorName] }),
@@ -376,28 +457,25 @@ export default function StatsScreen() {
         queryClient.invalidateQueries({ queryKey: ["leaderboard"] }),
         queryClient.invalidateQueries({ queryKey: ["adminStartPlan"] }),
       ]);
-      await Promise.allSettled([
-        statsQuery.refetch(),
-        profileQuery.refetch(),
-        dailyCarryoverQuery.refetch(),
-        leaderboardQuery.refetch(),
-        adminStartPlanQuery.refetch(),
-      ]);
     } finally {
       setRefreshing(false);
     }
-  }, [statsQuery, profileQuery, dailyCarryoverQuery, leaderboardQuery, adminStartPlanQuery, queryClient, selectedCollectorName]);
+  }, [queryClient, selectedCollectorName]);
 
   const stats = statsQuery.data;
   const profile = profileQuery.data;
   const adminStartPlan = adminStartPlanQuery.data;
+  // todayActualHours from GAS is Redash-verified data; it lags by at least one
+  // pipeline cycle and reads 0 for the current day. Fall back to the sum of
+  // today-only logged hours so the stat is never misleadingly empty.
   const todayActualUploaded = useMemo(() => {
-    const n = Number(stats?.todayActualHours);
-    return Number.isFinite(n) && n > 0 ? n : 0;
-  }, [stats?.todayActualHours]);
+    const fromGas = Number(stats?.todayActualHours);
+    if (Number.isFinite(fromGas) && fromGas > 0) return fromGas;
+    return localStats.totalLogged;
+  }, [stats?.todayActualHours, localStats.totalLogged]);
   const cardShadow = useMemo(() => ({
     shadowColor: colors.shadow,
-    ...DesignTokens.shadow.elevated,
+    ...DesignTokens.shadow.float,
   }), [colors]);
   const refreshControl = Platform.OS === "web"
     ? undefined
@@ -412,7 +490,7 @@ export default function StatsScreen() {
     { key: "thisWeek", label: "This Week" },
     { key: "lastWeek", label: "Last Week" },
   ];
-  const periodLabel = lbPeriod === "thisWeek" ? "THIS WEEK" : "LAST WEEK";
+  const periodLabel = lbPeriod === "thisWeek" ? "This Week" : "Last Week";
 
   const currentLbEntries = lbTab === "sf" ? sfEntries : lbTab === "mx" ? mxEntries : leaderboard;
   const visibleLbEntries = useMemo(
@@ -467,47 +545,63 @@ export default function StatsScreen() {
       showsVerticalScrollIndicator={false}
       refreshControl={refreshControl}
     >
-      <View style={[styles.pageHeader, { backgroundColor: colors.bgCard, borderColor: colors.border }]}>
-        <View pointerEvents="none" accessible={false} style={[styles.headerGlow, { backgroundColor: colors.accentSoft }]} />
-        <View>
+      {/* Header card — matches Live tab style */}
+      <View style={[styles.pageHeader, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
+        {/* Tag row: label left, rig + refresh right */}
+        <View style={styles.headerTopRow}>
           <View style={[styles.headerTag, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
             <Text style={[styles.headerTagText, { color: colors.accent }]}>PERFORMANCE</Text>
           </View>
-          <View style={styles.brandRow}>
-            <Image source={require("../../../assets/images/icon.png")} style={styles.brandLogo} contentFit="contain" />
-            <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>Stats</Text>
+          <View style={styles.pageHeaderRight}>
+            {selectedRig !== "" && (
+              <Text style={[styles.rigBadge, { color: colors.textMuted }]}>{selectedRig}</Text>
+            )}
+            {Platform.OS === "web" && (
+              <TouchableOpacity
+                style={[styles.webRefreshBtn, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}
+                onPress={handleRefresh}
+                activeOpacity={0.7}
+                disabled={refreshing}
+              >
+                <RefreshCw size={15} color={colors.accent} />
+              </TouchableOpacity>
+            )}
           </View>
-          <Text style={[styles.brandSub, { color: colors.textSecondary, fontFamily: "Lexend_400Regular" }]}>
-            {normalizeCollectorName(selectedCollector.name)}
-          </Text>
         </View>
-        <View style={styles.pageHeaderRight}>
-          {selectedRig !== "" && (
-            <Text style={[styles.rigBadge, { color: colors.textMuted }]}>{selectedRig}</Text>
-          )}
+        {/* Brand row */}
+        <View style={styles.brandRow}>
+          <Image source={require("../../../assets/images/icon.png")} style={styles.brandLogo} contentFit="contain" />
+          <Text style={[styles.brandText, { color: colors.accent, fontFamily: "Lexend_700Bold" }]}>Stats</Text>
         </View>
+        <Text style={[styles.brandSub, { color: colors.textSecondary, fontFamily: "Lexend_400Regular" }]}>
+          {normalizeCollectorName(selectedCollector.name)}
+        </Text>
       </View>
 
       <View style={styles.sectionHeader}>
         <Calendar size={12} color={colors.accent} />
-        <Text style={[styles.sectionLabel, { color: colors.accent }]}>TODAY</Text>
+        <Text style={[styles.sectionLabel, { color: colors.accent }]}>Today</Text>
       </View>
 
       <View style={styles.heroGrid}>
         <HeroStat label="Assigned" value={String(localStats.total)} icon={<Target size={18} color={colors.accent} />} color={colors.accent} index={0} />
         <HeroStat label="Completed" value={String(localStats.completed)} icon={<CheckCircle size={18} color={colors.complete} />} color={colors.complete} index={1} />
-        <HeroStat label="Actual Uploaded" value={`${todayActualUploaded.toFixed(2)}h`} icon={<Upload size={18} color={colors.statusPending} />} color={colors.statusPending} index={2} />
+        <HeroStat label="Logged Today" value={`${todayActualUploaded.toFixed(2)}h`} icon={<Upload size={18} color={colors.statusPending} />} color={colors.statusPending} index={2} />
         <HeroStat label="Active" value={String(localStats.active)} icon={<TrendingUp size={18} color={colors.accentLight} />} color={colors.accentLight} index={3} />
       </View>
 
       {dailyCarryover.length > 0 && (
-        <View style={[styles.carryoverCard, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
+        <View style={[styles.carryoverCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
           <View style={styles.carryoverHeader}>
             <AlertTriangle size={12} color={colors.alertYellow} />
-            <Text style={[styles.carryoverTitle, { color: colors.alertYellow }]}>INCOMPLETE FROM YESTERDAY</Text>
+            <Text style={[styles.carryoverTitle, { color: colors.alertYellow }]}>Incomplete from Yesterday</Text>
           </View>
           {dailyCarryover.map((item, idx) => {
             const pending = carryoverPendingId === item.assignmentId;
+            const autoHours = Number(item.actualHours || 0);
+            const manualHoursStr = carryoverHoursInput[item.assignmentId] ?? "";
+            const manualHours = parseFloat(manualHoursStr);
+            const hasManualHours = manualHoursStr.trim().length > 0 && manualHours > 0;
             return (
               <View
                 key={`carry_${item.assignmentId}_${idx}`}
@@ -515,8 +609,32 @@ export default function StatsScreen() {
               >
                 <Text style={[styles.carryoverTask, { color: colors.textPrimary }]} numberOfLines={1}>{item.taskName}</Text>
                 <Text style={[styles.carryoverMeta, { color: colors.textMuted }]}>
-                  {item.assignedDate} · Actual {Number(item.actualHours || 0).toFixed(2)}h
+                  {item.assignedDate} · CB Actual {autoHours.toFixed(2)}h
                 </Text>
+                {/* Manual hours input row */}
+                <View style={[styles.carryoverHoursRow, { borderColor: colors.border }]}>
+                  <TextInput
+                    style={[styles.carryoverHoursInput, { backgroundColor: colors.bgInput, color: colors.textPrimary, borderColor: colors.border }]}
+                    value={manualHoursStr}
+                    onChangeText={(v) => setCarryoverHoursInput((prev) => ({ ...prev, [item.assignmentId]: v }))}
+                    placeholder="Enter hours"
+                    placeholderTextColor={colors.textMuted}
+                    keyboardType="decimal-pad"
+                    returnKeyType="done"
+                  />
+                  <TouchableOpacity
+                    style={[styles.carryoverBtn, styles.carryoverHoursBtn, {
+                      backgroundColor: hasManualHours ? colors.completeBg : colors.bgInput,
+                      borderColor: hasManualHours ? colors.complete + "40" : colors.border,
+                      opacity: pending || !hasManualHours ? 0.6 : 1,
+                    }]}
+                    onPress={() => hasManualHours && handleCarryoverAction("reportHours", item, manualHours)}
+                    disabled={pending || !hasManualHours}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.carryoverBtnText, { color: hasManualHours ? colors.complete : colors.textMuted }]}>Report Hours</Text>
+                  </TouchableOpacity>
+                </View>
                 <View style={styles.carryoverActions}>
                   <TouchableOpacity
                     style={[styles.carryoverBtn, { backgroundColor: colors.completeBg, borderColor: colors.complete + "40", opacity: pending ? 0.7 : 1 }]}
@@ -524,7 +642,7 @@ export default function StatsScreen() {
                     disabled={pending}
                     activeOpacity={0.8}
                   >
-                    <Text style={[styles.carryoverBtnText, { color: colors.complete }]}>Report - {Number(item.actualHours || 0).toFixed(2)}h</Text>
+                    <Text style={[styles.carryoverBtnText, { color: colors.complete }]}>Complete ({autoHours.toFixed(2)}h)</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.carryoverBtn, { backgroundColor: colors.cancelBg, borderColor: colors.cancel + "40", opacity: pending ? 0.7 : 1 }]}
@@ -543,7 +661,7 @@ export default function StatsScreen() {
       )}
 
       {profile && (
-        <View style={[styles.profileCard, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
+        <View style={[styles.profileCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
           <View style={styles.profileTop}>
             <View style={[styles.profileAvatar, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
               <Text style={[styles.profileAvatarText, { color: colors.accent }]}>
@@ -603,7 +721,7 @@ export default function StatsScreen() {
       )}
 
       {isAdmin && adminStartPlan && (
-        <View style={[styles.startPlanCard, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
+        <View style={[styles.startPlanCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
           <View style={styles.startPlanHeader}>
             <Target size={12} color={colors.alertYellow} />
             <Text style={[styles.startPlanTitle, { color: colors.alertYellow }]}>
@@ -630,16 +748,16 @@ export default function StatsScreen() {
 
       {stats && stats.weeklyLoggedHours > 0 && (
         <>
-          <View style={[styles.sectionHeader, { marginTop: 20 }]}>
-            <Calendar size={12} color={colors.complete} />
-            <Text style={[styles.sectionLabel, { color: colors.complete }]}>THIS WEEK (MON-SUN)</Text>
+      <View style={[styles.sectionHeader, { marginTop: 20 }]}>
+        <Calendar size={12} color={colors.complete} />
+        <Text style={[styles.sectionLabel, { color: colors.complete }]}>This Week (MON-SUN)</Text>
+      </View>
+      <View style={[styles.weekCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
+        <View style={styles.weekRow}>
+          <View style={styles.weekItem}>
+            <Text style={[styles.weekVal, { color: colors.accent }]}>{stats.weeklyLoggedHours.toFixed(2)}h</Text>
+            <Text style={[styles.weekLbl, { color: colors.textMuted }]}>Hours</Text>
           </View>
-          <View style={[styles.weekCard, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
-            <View style={styles.weekRow}>
-              <View style={styles.weekItem}>
-                <Text style={[styles.weekVal, { color: colors.accent }]}>{stats.weeklyLoggedHours.toFixed(2)}h</Text>
-                <Text style={[styles.weekLbl, { color: colors.textMuted }]}>Hours</Text>
-              </View>
               <View style={[styles.weekSep, { backgroundColor: colors.border }]} />
               <View style={styles.weekItem}>
                 <Text style={[styles.weekVal, { color: colors.complete }]}>{stats.weeklyCompleted}</Text>
@@ -661,24 +779,51 @@ export default function StatsScreen() {
       )}
 
       {recommendedTasks.length > 0 && (
-        <View style={[styles.recommendCard, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
+        <View style={[styles.recommendCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
           <View style={styles.recommendHeader}>
             <Target size={12} color={colors.mxOrange} />
-            <Text style={[styles.recommendTitle, { color: colors.mxOrange }]}>RECOMMENDED NEXT TASKS</Text>
+            <Text style={[styles.recommendTitle, { color: colors.mxOrange }]}>Recommended Tasks</Text>
           </View>
-          {recommendedTasks.map((task, idx) => (
-            <View
-              key={`rec_${idx}`}
-              style={[styles.recommendRow, { borderBottomColor: colors.border }, idx === recommendedTasks.length - 1 && styles.recommendLast]}
-            >
-              <Text style={[styles.recommendName, { color: colors.textPrimary }]} numberOfLines={1}>
-                {task.taskName}
-              </Text>
-              <Text style={[styles.recommendMeta, { color: colors.statusPending }]}>
-                {Number(task.remainingHours).toFixed(2)}h left
-              </Text>
-            </View>
-          ))}
+          {recommendedTasks.map((task, idx) => {
+            const pctVal = Math.round((task.pct ?? 0) * 100);
+            const labelColor = task.isActive
+              ? colors.complete
+              : task.isMine
+              ? colors.accent
+              : task.isRecollect
+              ? colors.recollectRed
+              : colors.mxOrange;
+            const tag = task.isActive
+              ? "▶ Active"
+              : task.isMine
+              ? "↩ Continue"
+              : task.isRecollect
+              ? "↺ Recollect"
+              : null;
+            return (
+              <View
+                key={`rec_${idx}`}
+                style={[styles.recommendRow, { borderBottomColor: colors.border }, idx === recommendedTasks.length - 1 && styles.recommendLast]}
+              >
+                <View style={styles.recommendRowLeft}>
+                  {tag && (
+                    <Text style={[styles.recommendTag, { color: labelColor, borderColor: labelColor + "40" }]}>
+                      {tag}
+                    </Text>
+                  )}
+                  <Text style={[styles.recommendName, { color: colors.textPrimary }]} numberOfLines={1}>
+                    {task.taskName}
+                  </Text>
+                  <Text style={[styles.recommendSub, { color: colors.textMuted }]}>
+                    {pctVal}% collected · {Number(task.remainingHours).toFixed(1)}h left
+                  </Text>
+                </View>
+                <Text style={[styles.recommendMeta, { color: colors.statusPending }]}>
+                  {Number(task.remainingHours).toFixed(1)}h
+                </Text>
+              </View>
+            );
+          })}
         </View>
       )}
 
@@ -753,7 +898,7 @@ export default function StatsScreen() {
           <Text style={[styles.lbEmptyRetry, { color: colors.accent }]}>Tap to retry</Text>
         </TouchableOpacity>
       ) : currentLbEntries.length > 0 ? (
-        <View style={[styles.leaderboardCard, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
+        <View style={[styles.leaderboardCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
           <View style={styles.lbHeaderRow}>
             <Text style={[styles.lbHeaderText, { color: colors.textMuted }]}>
               {`${lbTab === "sf" ? "San Francisco" : lbTab === "mx" ? "Los Cabos (MX)" : "Combined"} Rankings · ${periodLabel}`}
@@ -795,7 +940,7 @@ export default function StatsScreen() {
       )}
 
       {lbTab === "combined" && recentCompleted.length > 0 && (
-        <View style={[styles.recentCard, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
+        <View style={[styles.recentCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
           <Text style={[styles.recentTitle, { color: colors.textMuted }]}>{`TOP COLLECTORS · ${periodLabel}`}</Text>
           {recentCompleted.map((item, idx) => {
             const regionColor = item.region === "MX" ? colors.mxOrange : colors.sfBlue;
@@ -838,9 +983,9 @@ export default function StatsScreen() {
         <>
           <View style={[styles.sectionHeader, { marginTop: 24 }]}>
             <TrendingUp size={12} color={colors.textMuted} />
-            <Text style={[styles.sectionLabelMuted, { color: colors.textMuted }]}>ALL TIME</Text>
+            <Text style={[styles.sectionLabelMuted, { color: colors.textMuted }]}>All Time</Text>
           </View>
-          <View style={[styles.allTimeCard, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
+          <View style={[styles.allTimeCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
             <View style={styles.allTimeGrid}>
               <View style={styles.allTimeItem}>
                 <Text style={[styles.allTimeVal, { color: colors.textPrimary }]}>{stats.totalAssigned}</Text>
@@ -870,7 +1015,7 @@ export default function StatsScreen() {
           </View>
 
           {stats.topTasks && stats.topTasks.length > 0 && (
-            <View style={[styles.topTasksCard, { backgroundColor: colors.bgCard, borderColor: colors.border, ...cardShadow }]}>
+            <View style={[styles.topTasksCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
               <Text style={[styles.topTasksTitle, { color: colors.textMuted }]}>Recent Tasks</Text>
               {stats.topTasks.slice(0, 8).map((task, idx) => {
                 const dotColor = task.status === "Completed" ? colors.statusActive : task.status === "Canceled" ? colors.statusCancelled : colors.accent;
@@ -895,180 +1040,467 @@ export default function StatsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: DesignTokens.spacing.xl, paddingBottom: 140 },
+  content: {
+    paddingHorizontal: DesignTokens.spacing.xl,
+    paddingTop: DesignTokens.spacing.lg,
+    paddingBottom: 150,
+    gap: DesignTokens.spacing.md,
+  },
+  // Header card — matches Live tab style
   pageHeader: {
-    flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end",
-    marginBottom: DesignTokens.spacing.xxl, padding: DesignTokens.spacing.lg,
-    borderRadius: DesignTokens.radius.xl, borderWidth: 1, overflow: "hidden",
+    marginBottom: DesignTokens.spacing.md,
+    padding: DesignTokens.spacing.lg,
+    borderRadius: DesignTokens.radius.xl,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.10,
+    shadowRadius: 16,
+    elevation: 6,
   },
-  headerGlow: {
-    position: "absolute",
-    top: -44,
-    left: -20,
-    right: -20,
-    height: 120,
-    opacity: 0.76,
-    borderBottomLeftRadius: 70,
-    borderBottomRightRadius: 70,
+  headerTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: DesignTokens.spacing.xs,
   },
-  pageHeaderRight: { alignItems: "flex-end", gap: DesignTokens.spacing.xs },
+  pageHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: DesignTokens.spacing.sm,
+  },
+  webRefreshBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   headerTag: {
     alignSelf: "flex-start",
-    borderRadius: DesignTokens.radius.xs,
+    borderRadius: 7,
     borderWidth: 1,
-    paddingHorizontal: DesignTokens.spacing.sm,
+    paddingHorizontal: 8,
     paddingVertical: 3,
-    marginBottom: 2,
   },
   headerTagText: {
-    fontSize: 9,
-    fontWeight: "800" as const,
-    letterSpacing: 1.1,
+    fontSize: 12,
+    fontWeight: "700" as const,
+    letterSpacing: 0.7,
   },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  brandLogo: { width: 26, height: 26, borderRadius: 8 },
-  brandText: { fontSize: 34, fontWeight: "700" as const, letterSpacing: 0.2 },
-  brandSub: { fontSize: 12, fontWeight: "500" as const, letterSpacing: 0.7, marginTop: 2, textTransform: "uppercase" },
-  rigBadge: { fontSize: 10, letterSpacing: 0.6, fontWeight: "500" as const },
-  sectionHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: DesignTokens.spacing.md },
-  sectionLabel: { fontSize: 10, letterSpacing: 1.4, fontWeight: "700" as const },
-  sectionLabelMuted: { fontSize: 10, letterSpacing: 1.2, fontWeight: "600" as const },
-  heroGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 14 },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: DesignTokens.spacing.xs,
+  },
+  brandLogo: { width: 28, height: 28, borderRadius: 8 },
+  brandText: {
+    fontSize: DesignTokens.fontSize.largeTitle,
+    fontWeight: "700" as const,
+    letterSpacing: 0.1,
+  },
+  brandSub: {
+    fontSize: DesignTokens.fontSize.footnote,
+    fontWeight: "500" as const,
+    letterSpacing: 0.3,
+    marginTop: 3,
+    marginLeft: 38,
+  },
+  rigBadge: {
+    fontSize: DesignTokens.fontSize.caption1,
+    letterSpacing: 0.4,
+    fontWeight: "500" as const,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: DesignTokens.spacing.sm,
+    paddingHorizontal: 2,
+  },
+  sectionLabel: {
+    fontSize: DesignTokens.fontSize.caption1,
+    letterSpacing: 0.8,
+    fontWeight: "700" as const,
+  },
+  sectionLabelMuted: {
+    fontSize: DesignTokens.fontSize.caption1,
+    letterSpacing: 0.8,
+    fontWeight: "600" as const,
+  },
+  heroGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  // Hero cards — shadow only, no border
   heroCard: {
-    flex: 1, minWidth: "44%", borderRadius: DesignTokens.radius.xl, padding: DesignTokens.spacing.lg, borderWidth: 1,
-    ...DesignTokens.shadow.card,
+    flex: 1,
+    minWidth: "44%",
+    borderRadius: DesignTokens.radius.xl,
+    padding: DesignTokens.spacing.lg,
+    ...DesignTokens.shadow.float,
   },
-  heroIconWrap: { width: 36, height: 36, borderRadius: DesignTokens.radius.md, alignItems: "center", justifyContent: "center", marginBottom: 10 },
-  heroValue: { fontSize: 24, letterSpacing: -0.5, fontWeight: "700" as const },
-  heroLabel: { fontSize: 11, marginTop: 2, fontWeight: "500" as const },
-  carryoverCard: { borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.lg, marginBottom: 14 },
-  carryoverHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
-  carryoverTitle: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1.1 },
-  carryoverRow: { borderBottomWidth: 1, paddingVertical: 10 },
+  heroIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: DesignTokens.radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  heroValue: { fontSize: 26, letterSpacing: -0.5, fontWeight: "700" as const },
+  heroLabel: {
+    fontSize: DesignTokens.fontSize.caption1,
+    marginTop: 3,
+    fontWeight: "500" as const,
+  },
+  // Carryover card
+  carryoverCard: {
+    borderRadius: DesignTokens.radius.xl,
+    padding: DesignTokens.spacing.lg,
+    ...DesignTokens.shadow.float,
+  },
+  carryoverHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 },
+  carryoverTitle: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "700" as const,
+    letterSpacing: 0.8,
+  },
+  carryoverRow: { borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 10 },
   carryoverLast: { borderBottomWidth: 0, paddingBottom: 2 },
-  carryoverTask: { fontSize: 12, fontWeight: "700" as const },
-  carryoverMeta: { fontSize: 10, marginTop: 2, marginBottom: 8 },
+  carryoverTask: { fontSize: DesignTokens.fontSize.footnote, fontWeight: "700" as const },
+  carryoverMeta: { fontSize: DesignTokens.fontSize.caption1, marginTop: 3, marginBottom: 8 },
+  carryoverHoursRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 6,
+    alignItems: "center",
+  },
+  carryoverHoursInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: DesignTokens.radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    fontSize: DesignTokens.fontSize.footnote,
+  },
+  carryoverHoursBtn: {
+    flexShrink: 0,
+    paddingHorizontal: 12,
+  },
   carryoverActions: { flexDirection: "row", gap: 8 },
   carryoverBtn: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 10,
-    minHeight: 32,
+    borderRadius: DesignTokens.radius.sm,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
   },
-  carryoverBtnText: { fontSize: 11, fontWeight: "700" as const, letterSpacing: 0.2 },
-  profileCard: { borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.lg, marginBottom: 14 },
-  profileTop: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
-  profileAvatar: { width: 44, height: 44, borderRadius: 14, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  profileAvatarText: { fontSize: 14, fontWeight: "800" as const, letterSpacing: 0.6 },
+  carryoverBtnText: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "700" as const,
+    letterSpacing: 0.2,
+  },
+  // Profile card
+  profileCard: {
+    borderRadius: DesignTokens.radius.xl,
+    padding: DesignTokens.spacing.lg,
+    ...DesignTokens.shadow.float,
+  },
+  profileTop: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 },
+  profileAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  profileAvatarText: {
+    fontSize: DesignTokens.fontSize.headline,
+    fontWeight: "700" as const,
+    letterSpacing: 0.3,
+  },
   profileMain: { flex: 1 },
-  profileName: { fontSize: 15, fontWeight: "700" as const },
-  profileMeta: { fontSize: 11, marginTop: 2 },
+  profileName: { fontSize: DesignTokens.fontSize.subhead + 1, fontWeight: "700" as const },
+  profileMeta: { fontSize: DesignTokens.fontSize.caption1, marginTop: 3 },
   profileMedalCount: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
-  profileMedalText: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 0.3 },
+  profileMedalText: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "700" as const,
+    letterSpacing: 0.2,
+  },
   profileStatsGrid: { flexDirection: "row", gap: 8, marginBottom: 10 },
-  profileStatBox: { flex: 1, borderRadius: 10, paddingVertical: 8, alignItems: "center" },
-  profileStatValue: { fontSize: 13, fontWeight: "700" as const },
-  profileStatLabel: { fontSize: 9, marginTop: 2, letterSpacing: 0.2 },
+  profileStatBox: {
+    flex: 1,
+    borderRadius: DesignTokens.radius.sm,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  profileStatValue: { fontSize: DesignTokens.fontSize.footnote, fontWeight: "700" as const },
+  profileStatLabel: {
+    fontSize: DesignTokens.fontSize.caption2,
+    marginTop: 3,
+    letterSpacing: 0.2,
+  },
   awardsRow: { flexDirection: "row", gap: 8 },
-  awardChip: { flex: 1, borderRadius: 9, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 8 },
-  awardChipText: { fontSize: 10, fontWeight: "600" as const, textAlign: "center" },
-  startPlanCard: { borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.lg, marginBottom: 14 },
+  awardChip: {
+    flex: 1,
+    borderRadius: DesignTokens.radius.sm,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 9,
+  },
+  awardChipText: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "600" as const,
+    textAlign: "center",
+  },
+  // Start plan card
+  startPlanCard: {
+    borderRadius: DesignTokens.radius.xl,
+    padding: DesignTokens.spacing.lg,
+    ...DesignTokens.shadow.float,
+  },
   startPlanHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
-  startPlanTitle: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1.1 },
+  startPlanTitle: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "700" as const,
+    letterSpacing: 0.8,
+  },
   startPlanRegion: { marginTop: 8 },
-  startPlanRegionLabel: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 0.9, marginBottom: 4 },
-  startPlanRow: { borderBottomWidth: 1, paddingVertical: 8 },
-  startPlanCollector: { fontSize: 12, fontWeight: "700" as const, marginBottom: 2 },
-  startPlanTasks: { fontSize: 11, lineHeight: 15 },
-  weekCard: { borderRadius: DesignTokens.radius.xl, padding: 18, marginBottom: DesignTokens.spacing.md, borderWidth: 1 },
+  startPlanRegionLabel: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "700" as const,
+    letterSpacing: 0.6,
+    marginBottom: 4,
+  },
+  startPlanRow: { borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 8 },
+  startPlanCollector: { fontSize: DesignTokens.fontSize.footnote, fontWeight: "700" as const, marginBottom: 2 },
+  startPlanTasks: { fontSize: DesignTokens.fontSize.caption1, lineHeight: 17 },
+  // Week stats card
+  weekCard: {
+    borderRadius: DesignTokens.radius.xl,
+    padding: 18,
+    ...DesignTokens.shadow.float,
+  },
   weekRow: { flexDirection: "row", alignItems: "center" },
-  weekSep: { width: 1, height: 28 },
+  weekSep: { width: StyleSheet.hairlineWidth, height: 32 },
   weekItem: { flex: 1, alignItems: "center" },
-  weekVal: { fontSize: 16, fontWeight: "600" as const },
-  weekLbl: { fontSize: 10, marginTop: 3 },
+  weekVal: { fontSize: DesignTokens.fontSize.callout, fontWeight: "600" as const },
+  weekLbl: { fontSize: DesignTokens.fontSize.caption2, marginTop: 4 },
+  // Period switcher
   periodSwitchRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     borderRadius: DesignTokens.radius.md,
     borderWidth: 1,
-    padding: 6,
-    marginBottom: DesignTokens.spacing.sm,
+    padding: 5,
   },
   periodBtn: {
     flex: 1,
-    borderRadius: DesignTokens.radius.sm,
+    borderRadius: DesignTokens.radius.xs,
     borderWidth: 1,
     borderColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 7,
+    paddingVertical: 8,
   },
-  periodBtnText: { fontSize: 11, letterSpacing: 0.3 },
+  periodBtnText: {
+    fontSize: DesignTokens.fontSize.caption1,
+    letterSpacing: 0.2,
+  },
+  // Leaderboard tabs
   lbTabRow: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    borderRadius: DesignTokens.radius.md, borderWidth: 1, padding: 6, marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: DesignTokens.radius.md,
+    borderWidth: 1,
+    padding: 5,
   },
   lbTabBtn: {
-    paddingHorizontal: 14, paddingVertical: 6, borderRadius: DesignTokens.radius.sm, borderWidth: 1, borderColor: "transparent",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    minHeight: 44,
+    borderRadius: DesignTokens.radius.xs,
+    borderWidth: 1,
+    borderColor: "transparent",
   },
-  lbTabText: { fontSize: 12, letterSpacing: 0.3 },
-  leaderboardCard: { borderRadius: DesignTokens.radius.xl, padding: 14, marginBottom: 14, borderWidth: 1 },
-  lbHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 4, paddingBottom: DesignTokens.spacing.sm, marginBottom: 4 },
-  lbHeaderText: { fontSize: 10, fontWeight: "600" as const, letterSpacing: 0.5, textTransform: "uppercase" },
-  lbEmpty: { borderRadius: DesignTokens.radius.lg, padding: DesignTokens.spacing.xl, borderWidth: 1, marginBottom: DesignTokens.spacing.md, alignItems: "center" },
-  loadingRow: { flexDirection: "row", alignItems: "center", gap: DesignTokens.spacing.sm },
+  lbTabText: { fontSize: DesignTokens.fontSize.caption1, letterSpacing: 0.2 },
+  // Leaderboard card
+  leaderboardCard: {
+    borderRadius: DesignTokens.radius.xl,
+    padding: 14,
+    ...DesignTokens.shadow.float,
+  },
+  lbHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 4,
+    paddingBottom: DesignTokens.spacing.sm,
+    marginBottom: 4,
+  },
+  lbHeaderText: {
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "600" as const,
+    letterSpacing: 0.5,
+  },
+  lbEmpty: {
+    borderRadius: DesignTokens.radius.lg,
+    padding: DesignTokens.spacing.xl,
+    borderWidth: 1,
+    alignItems: "center",
+  },
+  loadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: DesignTokens.spacing.sm,
+  },
   inlineSyncDot: { width: 7, height: 7, borderRadius: 4 },
-  lbEmptyText: { fontSize: 13 },
-  lbEmptyRetry: { fontSize: 12, marginTop: 6, fontWeight: "600" as const },
+  lbEmptyText: { fontSize: DesignTokens.fontSize.footnote },
+  lbEmptyRetry: {
+    fontSize: DesignTokens.fontSize.caption1,
+    marginTop: 6,
+    fontWeight: "600" as const,
+  },
   lbMoreBtn: {
     marginTop: 8,
     borderWidth: 1,
-    borderRadius: DesignTokens.radius.md,
-    paddingVertical: 8,
+    borderRadius: DesignTokens.radius.sm,
+    paddingVertical: 10,
     alignItems: "center",
     justifyContent: "center",
   },
-  lbMoreText: { fontSize: 12, fontWeight: "600" as const, letterSpacing: 0.2 },
-  recommendCard: { borderRadius: DesignTokens.radius.xl, borderWidth: 1, padding: DesignTokens.spacing.lg, marginBottom: 14 },
+  lbMoreText: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "600" as const,
+    letterSpacing: 0.2,
+  },
+  // Recommended tasks
+  recommendCard: {
+    borderRadius: DesignTokens.radius.xl,
+    padding: DesignTokens.spacing.lg,
+    ...DesignTokens.shadow.float,
+  },
   recommendHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
-  recommendTitle: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1.2 },
-  recommendRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, borderBottomWidth: 1 },
+  recommendTitle: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "700" as const,
+    letterSpacing: 0.8,
+  },
+  recommendRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 9,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   recommendLast: { borderBottomWidth: 0 },
-  recommendName: { flex: 1, fontSize: 12, fontWeight: "600" as const },
-  recommendMeta: { fontSize: 11, fontWeight: "600" as const },
-  recentCard: { borderRadius: DesignTokens.radius.xl, padding: DesignTokens.spacing.lg, marginBottom: 14, borderWidth: 1 },
-  recentTitle: { fontSize: 10, fontWeight: "700" as const, letterSpacing: 1.2, marginBottom: 10 },
-  recentRow: { flexDirection: "row", alignItems: "center", paddingVertical: DesignTokens.spacing.sm, borderBottomWidth: 1, gap: DesignTokens.spacing.sm },
+  recommendRowLeft: { flex: 1, gap: 2 },
+  recommendTag: {
+    alignSelf: "flex-start",
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "700" as const,
+    borderWidth: 1,
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  recommendName: {
+    fontSize: DesignTokens.fontSize.footnote,
+    fontWeight: "600" as const,
+  },
+  recommendSub: { fontSize: DesignTokens.fontSize.caption2 },
+  recommendMeta: { fontSize: DesignTokens.fontSize.caption1, fontWeight: "600" as const, paddingTop: 2 },
+  // Recent collectors
+  recentCard: {
+    borderRadius: DesignTokens.radius.xl,
+    padding: DesignTokens.spacing.lg,
+    ...DesignTokens.shadow.float,
+  },
+  recentTitle: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "700" as const,
+    letterSpacing: 0.8,
+    marginBottom: 10,
+  },
+  recentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: DesignTokens.spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: DesignTokens.spacing.sm,
+  },
   recentRowLast: { borderBottomWidth: 0 },
-  recentDot: { width: 6, height: 6, borderRadius: 3 },
-  recentName: { flex: 1, fontSize: 13, fontWeight: "500" as const },
-  recentRegionTag: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: DesignTokens.radius.xs },
-  recentRegionText: { fontSize: 9, fontWeight: "700" as const, letterSpacing: 0.5 },
-  recentTasks: { fontSize: 12, fontWeight: "600" as const },
-  loadingWrap: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: DesignTokens.spacing.sm, paddingVertical: DesignTokens.spacing.xl },
-  loadingText: { fontSize: 13 },
-  allTimeCard: { borderRadius: DesignTokens.radius.xl, padding: DesignTokens.spacing.lg, marginBottom: DesignTokens.spacing.md, borderWidth: 1 },
+  recentDot: { width: 7, height: 7, borderRadius: 4 },
+  recentName: { flex: 1, fontSize: DesignTokens.fontSize.footnote, fontWeight: "500" as const },
+  recentRegionTag: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: DesignTokens.radius.xs,
+  },
+  recentRegionText: {
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "700" as const,
+    letterSpacing: 0.4,
+  },
+  recentTasks: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "600" as const,
+  },
+  loadingWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: DesignTokens.spacing.sm,
+    paddingVertical: DesignTokens.spacing.xl,
+  },
+  loadingText: { fontSize: DesignTokens.fontSize.footnote },
+  // All-time card
+  allTimeCard: {
+    borderRadius: DesignTokens.radius.xl,
+    padding: DesignTokens.spacing.lg,
+    ...DesignTokens.shadow.float,
+  },
   allTimeGrid: { flexDirection: "row", alignItems: "center", marginBottom: DesignTokens.spacing.md },
   allTimeItem: { flex: 1, alignItems: "center" },
-  allTimeSep: { width: 1, height: 24 },
-  allTimeVal: { fontSize: 15, fontWeight: "600" as const },
-  allTimeLbl: { fontSize: 10, marginTop: 3 },
-  allTimeDivider: { height: 1, marginBottom: 10 },
-  allTimeSub: { fontSize: 10, marginTop: DesignTokens.spacing.sm, textAlign: "center" },
-  topTasksCard: { borderRadius: DesignTokens.radius.xl, padding: DesignTokens.spacing.lg, marginBottom: DesignTokens.spacing.md, borderWidth: 1 },
-  topTasksTitle: { fontSize: 10, letterSpacing: 1.1, textTransform: "uppercase", marginBottom: 10, fontWeight: "600" as const },
-  topTaskRow: { flexDirection: "row", alignItems: "center", paddingVertical: DesignTokens.spacing.sm, borderBottomWidth: 1, gap: 10 },
+  allTimeSep: { width: StyleSheet.hairlineWidth, height: 28 },
+  allTimeVal: { fontSize: DesignTokens.fontSize.subhead, fontWeight: "600" as const },
+  allTimeLbl: { fontSize: DesignTokens.fontSize.caption2, marginTop: 4 },
+  allTimeDivider: { height: StyleSheet.hairlineWidth, marginBottom: 12 },
+  allTimeSub: {
+    fontSize: DesignTokens.fontSize.caption2,
+    marginTop: DesignTokens.spacing.sm,
+    textAlign: "center",
+  },
+  // Recent tasks
+  topTasksCard: {
+    borderRadius: DesignTokens.radius.xl,
+    padding: DesignTokens.spacing.lg,
+    ...DesignTokens.shadow.float,
+  },
+  topTasksTitle: {
+    fontSize: DesignTokens.fontSize.caption1,
+    letterSpacing: 0.8,
+    marginBottom: 10,
+    fontWeight: "600" as const,
+  },
+  topTaskRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: DesignTokens.spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 10,
+  },
   topTaskLast: { borderBottomWidth: 0 },
-  topTaskDot: { width: 5, height: 5, borderRadius: 3 },
-  topTaskName: { flex: 1, fontSize: 12 },
-  topTaskHours: { fontSize: 12, fontWeight: "600" as const },
+  topTaskDot: { width: 6, height: 6, borderRadius: 3 },
+  topTaskName: { flex: 1, fontSize: DesignTokens.fontSize.caption1 },
+  topTaskHours: { fontSize: DesignTokens.fontSize.caption1, fontWeight: "600" as const },
   empty: { flex: 1, alignItems: "center", justifyContent: "center", padding: 40, gap: 10 },
-  emptyTitle: { fontSize: 17, fontWeight: "600" as const },
-  emptyText: { fontSize: 14, textAlign: "center" },
+  emptyTitle: { fontSize: DesignTokens.fontSize.headline, fontWeight: "600" as const },
+  emptyText: { fontSize: DesignTokens.fontSize.footnote, textAlign: "center" },
   spacer: { height: DesignTokens.spacing.xl },
 });

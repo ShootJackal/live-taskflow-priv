@@ -277,6 +277,7 @@ function doGet(e) {
       case 'getCollectorStats':     result = handleGetCollectorStats(e.parameter.collector || ''); break;
       case 'getTodayLog':           result = handleGetTodayLog(e.parameter.collector || ''); break;
       case 'getDailyCarryover':     result = handleGetDailyCarryover(e.parameter.collector || ''); break;
+      case 'getPendingReview':      result = handleGetPendingReview(e.parameter); break;
       case 'getRecollections':      result = handleGetRecollections(); break;
       case 'getFullLog':            result = handleGetFullLog(e.parameter.collector || ''); break;
       case 'getTaskActualsSheet':   result = handleGetTaskActuals(); break;
@@ -434,35 +435,57 @@ function handlePushLiveAlert(body) {
   var message = safeStr(body && body.message);
   if (!message) throw new Error('Missing message');
 
-  var level = safeStr(body && body.level).toUpperCase() || 'INFO';
-  var target = safeStr(body && body.target).toUpperCase() || 'ALL';
-  var createdBy = safeStr(body && body.createdBy) || safeStr(body && body.collector) || 'ADMIN';
+  // Special command: clear all active alerts
+  if (message === '__CLEAR_ALL__') {
+    return handleClearAllAlerts_();
+  }
+
+  var level      = safeStr(body && body.level).toUpperCase() || 'INFO';
+  var target     = safeStr(body && body.target).toUpperCase() || 'ALL';
+  var createdBy  = safeStr(body && body.createdBy) || safeStr(body && body.collector) || 'ADMIN';
+  var expiryHours = safeNum(body && body.expiryHours); // 0 = no expiry
   var now = new Date();
   var alertId = 'AL-' + now.getTime();
 
+  // Calculate expiry timestamp (optional)
+  var expiresAt = '';
+  if (expiryHours > 0 && expiryHours <= 720) {
+    expiresAt = new Date(now.getTime() + expiryHours * 3600000).toISOString();
+  }
+
   var sheet = getOrCreateLiveAlertsSheet();
+  // Ensure the sheet has an ExpiresAt column (column 8)
+  if (sheet.getLastColumn() < 8) {
+    sheet.getRange(1, 8).setValue('ExpiresAt');
+  }
+
   sheet.insertRows(2, 1);
-  sheet.getRange(2, 1, 1, 7).setValues([[
-    alertId,
-    message,
-    level,
-    target,
-    now.toISOString(),
-    createdBy,
-    true
+  sheet.getRange(2, 1, 1, 8).setValues([[
+    alertId, message, level, target,
+    now.toISOString(), createdBy, true, expiresAt
   ]]);
 
   var latest = handleGetLiveAlerts();
   writeCache('liveAlerts', latest);
-  return {
-    id: alertId,
-    message: message,
-    level: level,
-    target: target,
-    createdAt: now.toISOString(),
-    createdBy: createdBy,
-    success: true
-  };
+  return { id: alertId, message: message, level: level, target: target, createdAt: now.toISOString(), createdBy: createdBy, expiresAt: expiresAt, success: true };
+}
+
+/** Deactivate all currently active alerts (called by Clear All in the admin panel). */
+function handleClearAllAlerts_() {
+  var sheet;
+  try { sheet = getOrCreateLiveAlertsSheet(); } catch (e) { return { success: true, cleared: 0 }; }
+  var data = sheet.getDataRange().getValues();
+  var cleared = 0;
+  for (var i = 1; i < data.length; i++) {
+    var activeRaw = safeStr(data[i][6]).toLowerCase();
+    var isActive = !(activeRaw === 'false' || activeRaw === '0' || activeRaw === 'no');
+    if (isActive) {
+      sheet.getRange(i + 1, 7).setValue(false);
+      cleared++;
+    }
+  }
+  writeCache('liveAlerts', []);
+  return { success: true, cleared: cleared };
 }
 
 function handleGetLiveAlerts() {
@@ -486,6 +509,16 @@ function handleGetLiveAlerts() {
     var activeRaw = safeStr(row[6]).toLowerCase();
     var isActive = !(activeRaw === 'false' || activeRaw === '0' || activeRaw === 'no');
     if (!isActive) continue;
+
+    // Respect optional expiry timestamp (column 8, index 7)
+    var expiresAt = safeStr(row[7]);
+    if (expiresAt) {
+      var expDate = new Date(expiresAt);
+      if (!isNaN(expDate.getTime()) && expDate.getTime() < Date.now()) {
+        sheet.getRange(i + 1, 7).setValue(false); // auto-deactivate
+        continue;
+      }
+    }
 
     out.push({
       id: id,
@@ -2338,7 +2371,9 @@ function handleGetTodayLog(collectorName) {
       }
     }
 
-    var include = (dateStr === todayStr || completedStr === todayStr || isActive);
+    // Only include tasks assigned today OR completed/closed today.
+    // Previous-day In Progress tasks are exclusively visible via getDailyCarryover.
+    var include = (dateStr === todayStr || completedStr === todayStr);
     if (!include) continue;
 
     var eventTs = Math.max(toTimestampMs(row[9]), toTimestampMs(row[4]));
@@ -2379,6 +2414,111 @@ function handleGetTodayLog(collectorName) {
     delete results[r]._rowOrder;
   }
   writeCache('todayLog_' + normName, results);
+  return results;
+}
+
+/**
+ * Returns today's Redash-detected tasks for the collector's rig
+ * that haven't yet been completed or canceled in the Assignment Log.
+ * Used by the "Ready to Review" EOD approval flow in the app.
+ *
+ * Reads from "Collector Actuals | RedashPull" (written by RS import sync).
+ * Falls back to empty array if the RS pipeline hasn't run yet.
+ *
+ * @param {object} params  { collector: string, rig: string }
+ */
+function handleGetPendingReview(params) {
+  var collectorName = safeStr(params && params.collector);
+  var rig           = safeStr(params && params.rig);
+  if (!collectorName || !rig) return [];
+
+  var normName = normalizeCollectorKey(collectorName);
+  var rigLower = rig.toLowerCase().trim();
+  var today    = getScriptTodayDate();
+  var todayStr = Utilities.formatDate(today, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+
+  // ── Read Collector Actuals | RedashPull ──────────────────────────────────
+  var ss = getSS();
+  var caSheet = ss.getSheetByName('Collector Actuals | RedashPull');
+  if (!caSheet || caSheet.getLastRow() < 3) return [];
+
+  var caData = caSheet.getDataRange().getValues();
+  // Row index 0: blank/title  |  Row index 1: headers  |  Row index 2+: data
+  var rawHeaders = caData[1] || [];
+  var headers = rawHeaders.map(function(h) { return safeStr(h).trim().toLowerCase(); });
+
+  var idxDate = headers.indexOf('date');
+  var idxRig  = headers.indexOf('rig id');
+  var idxTask = headers.indexOf('task name');
+  var idxHrs  = headers.indexOf('hours uploaded');
+
+  if (idxDate < 0 || idxRig < 0 || idxTask < 0 || idxHrs < 0) return [];
+
+  // Aggregate hours per task for this rig today
+  var taskAgg = {};
+  for (var i = 2; i < caData.length; i++) {
+    var row = caData[i];
+    if (!row || !row[idxDate]) continue;
+
+    var rowDate = toDateSafe(row[idxDate]);
+    if (!rowDate) continue;
+    var rowDateStr = Utilities.formatDate(rowDate, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    if (rowDateStr !== todayStr) continue;
+
+    var rowRig = safeStr(row[idxRig]).toLowerCase().trim();
+    if (rowRig !== rigLower) continue;
+
+    var taskName = safeStr(row[idxTask]).trim();
+    if (!taskName) continue;
+
+    var hrs = idxHrs >= 0 ? safeNum(row[idxHrs]) : 0;
+    if (hrs <= 0) continue;
+
+    var taskKey = normalizeTaskKey(taskName);
+    if (!taskAgg[taskKey]) {
+      taskAgg[taskKey] = { taskName: taskName, hours: 0 };
+    }
+    taskAgg[taskKey].hours += hrs;
+  }
+
+  if (Object.keys(taskAgg).length === 0) return [];
+
+  // ── Find already-resolved tasks for this collector today ─────────────────
+  var assignData;
+  try { assignData = getSheetData(TASKFLOW_SHEETS.ASSIGNMENTS); } catch (e) { assignData = []; }
+
+  var resolvedKeys = {};
+  for (var j = 1; j < assignData.length; j++) {
+    var aRow = assignData[j];
+    if (normalizeCollectorKey(safeStr(aRow[3])) !== normName) continue;
+
+    var status = safeStr(aRow[6]).toLowerCase();
+    if (status !== 'completed' && status !== 'canceled') continue;
+
+    var closedDate   = toDateSafe(aRow[9]);
+    var assignedDate = toDateSafe(aRow[4]);
+    var closedStr    = closedDate   ? Utilities.formatDate(closedDate,   Session.getScriptTimeZone(), 'yyyy-MM-dd') : '';
+    var assignedStr  = assignedDate ? Utilities.formatDate(assignedDate, Session.getScriptTimeZone(), 'yyyy-MM-dd') : '';
+    if (closedStr !== todayStr && assignedStr !== todayStr) continue;
+
+    resolvedKeys[normalizeTaskKey(safeStr(aRow[2]))] = true;
+  }
+
+  // ── Build result ─────────────────────────────────────────────────────────
+  var results = [];
+  for (var key in taskAgg) {
+    if (resolvedKeys[key]) continue;
+    results.push({
+      rig:          rig,
+      taskName:     taskAgg[key].taskName,
+      taskKey:      key,
+      redashHours:  Math.round(taskAgg[key].hours * 100) / 100,
+      date:         todayStr
+    });
+  }
+
+  results.sort(function(a, b) { return b.redashHours - a.redashHours; });
+  writeCache('pendingReview_' + normName, results);
   return results;
 }
 
@@ -2998,11 +3138,11 @@ function handleSubmitCore(collector, task, hours, actionType, notes, normCol, no
       };
     }
 
-    var plannedAssign = Math.max(0, safeNum(hours));
+    // plannedHours is always 0 for new assignments — actual hours are recorded on Done.
     var aId = 'A-' + Date.now();
-    insertAssignmentLogRow(sheet, [aId, latestTaskId, task, collector, now, plannedAssign, 'In Progress', 0, plannedAssign, '', notes, getWeekStart(now)]);
+    insertAssignmentLogRow(sheet, [aId, latestTaskId, task, collector, now, 0, 'In Progress', 0, 0, '', notes, getWeekStart(now)]);
     refreshPostSubmitCaches(collector);
-    return { success: true, message: 'Assigned: ' + task, assignmentId: aId, planned: plannedAssign, hours: 0, remaining: plannedAssign, status: 'In Progress' };
+    return { success: true, message: 'Assigned: ' + task, assignmentId: aId, planned: 0, hours: 0, remaining: 0, status: 'In Progress' };
   }
 
   if (actionType === 'COMPLETE') {

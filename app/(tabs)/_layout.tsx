@@ -36,7 +36,7 @@ const TAB_CONFIG: Record<TabName, { titleKey: string; fallback: string; icon: (c
 };
 
 function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const { t } = useLocale();
   const { configured } = useCollection();
   const insets = useSafeAreaInsets();
@@ -156,22 +156,12 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
           {
             width: islandWidth,
             backgroundColor: colors.tabBar,
-            borderColor: isDark ? colors.border : colors.borderLight,
+            borderColor: colors.tabBarBorder,
             shadowColor: colors.shadow,
           },
         ]}
         {...(Platform.OS === "web" ? ({ role: "tablist", "aria-label": "TaskFlow navigation" } as any) : {})}
       >
-        <View
-          pointerEvents="none"
-          accessible={false}
-          style={[
-            barStyles.glassSheen,
-            { backgroundColor: isDark ? "rgba(255,255,255,0.05)" : colors.cardDepth },
-          ]}
-          {...(Platform.OS === "web" ? ({ "aria-hidden": true, focusable: false } as any) : {})}
-        />
-
         <Animated.View
           pointerEvents="none"
           accessible={false}
@@ -179,8 +169,8 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
             barStyles.activePill,
             {
               width: TAB_WIDTH - 10,
-              backgroundColor: colors.accent + "20",
-              borderColor: colors.accent + "42",
+              backgroundColor: colors.accent + "18",
+              borderColor: colors.accent + "38",
               transform: [{ translateX: sliderAnim }],
             },
           ]}
@@ -248,13 +238,13 @@ function CustomTabBar({ state, navigation }: { state: any; navigation: any }) {
                   {
                     color: iconColor,
                     fontWeight: isFocused ? ("700" as const) : ("500" as const),
-                    fontSize: tabName === "live" ? 9 : 9,
-                    letterSpacing: tabName === "live" ? 1.2 : 0.6,
+                    fontSize: 11,
+                    letterSpacing: isFocused ? 0.2 : 0.1,
                     fontFamily: isFocused ? "Lexend_700Bold" : "Lexend_500Medium",
                   },
                 ]}
               >
-                {tabName === "live" ? label.toUpperCase() : label}
+                {label}
               </Text>
             </TouchableOpacity>
           );
@@ -277,7 +267,7 @@ export default function TabLayout() {
         tabBarInactiveTintColor: colors.textMuted,
       }}
     >
-      <Tabs.Screen name="live" options={{ title: t("live", "LIVE").toUpperCase() }} />
+      <Tabs.Screen name="live" options={{ title: t("live", "Live") }} />
       <Tabs.Screen name="index" options={{ title: t("collect", "Collect"), headerShown: false }} />
       <Tabs.Screen name="stats" options={{ title: t("stats", "Stats") }} />
       <Tabs.Screen name="tools" options={{ title: t("tools", "Tools") }} />
@@ -295,44 +285,36 @@ const barStyles = StyleSheet.create({
     paddingHorizontal: DesignTokens.spacing.lg,
   },
   island: {
-    borderRadius: 30,
+    borderRadius: 32,
     borderWidth: 1,
     paddingVertical: 6,
     paddingHorizontal: 4,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 18,
-    elevation: 11,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.28,
+    shadowRadius: 24,
+    elevation: 14,
     overflow: "hidden",
     position: "relative",
-  },
-  glassSheen: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: "48%",
-    opacity: 0.9,
   },
   activePill: {
     position: "absolute",
     top: 4,
     bottom: 4,
     left: 5,
-    borderRadius: 24,
+    borderRadius: 26,
     borderWidth: 1,
   },
   tab: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 6,
+    paddingVertical: 8,
     gap: 3,
   },
   iconWrap: {
-    width: 40,
+    width: 42,
     height: 30,
     alignItems: "center",
     justifyContent: "center",
@@ -364,6 +346,6 @@ const barStyles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   label: {
-    textTransform: "uppercase",
+    textAlign: "center",
   },
 });

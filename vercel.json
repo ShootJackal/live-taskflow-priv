@@ -3,8 +3,25 @@
   "installCommand": "npm install --legacy-peer-deps",
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "dist",
-  "cleanUrls": true,
+  "functions": {
+    "api/gas.ts":  { "maxDuration": 20 },
+    "api/warm.ts": { "maxDuration": 28 }
+  },
+  "crons": [
+    { "path": "/api/warm", "schedule": "*/5 * * * *" }
+  ],
+  "headers": [
+    {
+      "source": "/version.json",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0" }
+      ]
+    }
+  ],
   "rewrites": [
-    { "source": "/:path*", "destination": "/index.html" }
+    {
+      "source": "/((?!api|_expo|favicon\\.ico|version\\.json|manifest\\.json|logo192\\.png|logo512\\.png|metadata\\.json).*)",
+      "destination": "/index.html"
+    }
   ]
 }
