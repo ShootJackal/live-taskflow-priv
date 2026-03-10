@@ -348,18 +348,17 @@ const CollectFormCard = React.memo(function CollectFormCard({
     }
   }, [hoursToLog, notes, isWeb]);
 
-  // Web: update validity state (minimal re-renders, only on valid/invalid toggle)
+  // Web: ZERO re-renders during typing.
+  // Only toggle hasValidHours state when validity changes (first valid digit / clear).
+  // Button label updates on blur, not on every keystroke.
   const handleHoursChangeWeb = useCallback((v: string) => {
     hoursRef.current = v;
     const valid = !!v.trim() && parseFloat(v) > 0;
-    setHasValidHours((prev) => {
-      if (prev !== valid) return valid;
-      return prev;
-    });
-    if (valid) setLocalHoursDisplay(v);
+    setHasValidHours((prev) => (prev !== valid ? valid : prev));
   }, []);
 
   const handleHoursBlurWeb = useCallback(() => {
+    // Sync display and provider on blur (single re-render after user finishes typing)
     setLocalHoursDisplay(hoursRef.current);
     setHoursToLog(hoursRef.current);
   }, [setHoursToLog]);
