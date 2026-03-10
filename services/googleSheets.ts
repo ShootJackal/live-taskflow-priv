@@ -37,6 +37,12 @@ const APP_CACHE_SNAPSHOT_TTL_MS = 20 * 1000;
 const WARM_SERVER_MIN_INTERVAL_MS = 45 * 1000; // re-warm every 45 s
 
 const STORAGE_PREFIX = "tf_cache_";
+let adminAuthToken: string | null = null;
+
+export interface AdminLoginResponse {
+  token: string;
+  expiresAt: number;
+}
 
 type ScriptRole = "core" | "analytics";
 
@@ -248,6 +254,86 @@ function createTimeoutController(ms: number): { controller: AbortController; can
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+
+export class AdminUnauthorizedError extends Error {
+  constructor(message = "Admin session expired. Please log in again.") {
+    super(message);
+    this.name = "AdminUnauthorizedError";
+  }
+}
+
+export function setAdminAuthToken(token: string | null): void {
+  adminAuthToken = token && token.trim().length > 0 ? token.trim() : null;
+}
+
+function getAdminActionUrl(): string {
+  if (typeof window === "undefined") return "/api/admin/action";
+  return new URL("/api/admin/action", window.location.origin).toString();
+}
+
+function getAdminLoginUrl(pathname: string): string {
+  if (typeof window === "undefined") return pathname;
+  return new URL(pathname, window.location.origin).toString();
+}
+
+function buildAdminHeaders(): Record<string, string> {
+  if (!adminAuthToken) {
+    throw new AdminUnauthorizedError();
+  }
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${adminAuthToken}`,
+  };
+}
+
+export async function adminLogin(password: string): Promise<AdminLoginResponse> {
+  const response = await fetch(getAdminLoginUrl("/api/admin/login"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: String(password ?? "").trim() }),
+    credentials: "include",
+  });
+
+  const json = (await response.json()) as { success?: boolean; error?: string; token?: string; expiresAt?: number };
+  if (!response.ok || !json.success || !json.token || !json.expiresAt) {
+    throw new Error(json.error ?? "Authentication failed");
+  }
+
+  setAdminAuthToken(json.token);
+  return { token: json.token, expiresAt: json.expiresAt };
+}
+
+export async function adminLogout(): Promise<void> {
+  try {
+    await fetch(getAdminLoginUrl("/api/admin/logout"), {
+      method: "POST",
+      credentials: "include",
+    });
+  } finally {
+    setAdminAuthToken(null);
+  }
+}
+
+export async function verifyAdminSession(): Promise<{ expiresAt: number }> {
+  const headers: Record<string, string> = {};
+  if (adminAuthToken) {
+    headers.Authorization = `Bearer ${adminAuthToken}`;
+  }
+  const response = await fetch(getAdminLoginUrl("/api/admin/session"), {
+    method: "GET",
+    headers,
+    credentials: "include",
+    cache: "no-store",
+  });
+
+  const json = (await response.json()) as { success?: boolean; error?: string; expiresAt?: number };
+  if (!response.ok || !json.success || !json.expiresAt) {
+    setAdminAuthToken(null);
+    throw new AdminUnauthorizedError(json.error ?? "Unauthorized");
+  }
+  return { expiresAt: json.expiresAt };
 }
 
 function shouldRetryError(error: unknown): boolean {
@@ -497,6 +583,30 @@ async function apiMetaPost<T>(payload: Record<string, unknown>): Promise<T> {
   } finally {
     timeout.cancel();
   }
+}
+
+async function apiAdminPost<T>(payload: Record<string, unknown>): Promise<T> {
+  const response = await fetch(getAdminActionUrl(), {
+    method: "POST",
+    headers: buildAdminHeaders(),
+    body: JSON.stringify(payload),
+    credentials: "include",
+    cache: "no-store",
+  });
+
+  if (response.status === 401) {
+    setAdminAuthToken(null);
+    throw new AdminUnauthorizedError();
+  }
+
+  const json = await parseApiResponse<T>(response);
+  if (!response.ok || !json.success) {
+    throw new Error(json.error ?? json.message ?? "Admin request failed");
+  }
+
+  memoryCache.clear();
+  appCacheSnapshotMemo.clear();
+  return json.data as T;
 }
 
 function normalizeCacheKeyList(keys?: string[]): string[] {
@@ -808,75 +918,21 @@ export async function pushLiveAlert(payload: {
   createdBy?: string;
   expiryHours?: number;
 }): Promise<void> {
-  const scriptUrl = getScriptUrlForMetaAction("PUSH_ALERT");
-  if (!scriptUrl) {
-    throw getMissingScriptUrlError("core");
+  const body: Record<string, unknown> = {
+    metaAction: "PUSH_ALERT",
+    message: String(payload.message ?? "").trim(),
+    level: String(payload.level ?? "INFO").trim(),
+    target: String(payload.target ?? "ALL").trim(),
+    createdBy: String(payload.createdBy ?? "").trim(),
+  };
+  if (payload.expiryHours && payload.expiryHours > 0) {
+    body.expiryHours = payload.expiryHours;
   }
-
-  const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
-  try {
-    const body: Record<string, unknown> = {
-      metaAction: "PUSH_ALERT",
-      message: String(payload.message ?? "").trim(),
-      level: String(payload.level ?? "INFO").trim(),
-      target: String(payload.target ?? "ALL").trim(),
-      createdBy: String(payload.createdBy ?? "").trim(),
-    };
-    if (payload.expiryHours && payload.expiryHours > 0) {
-      body.expiryHours = payload.expiryHours;
-    }
-
-    const response = await fetch(scriptUrl, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify(body),
-      redirect: "follow",
-      signal: timeout.controller.signal,
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`HTTP ${response.status}: ${text || "Alert push failed"}`);
-    }
-
-    const json = await parseApiResponse<Record<string, unknown>>(response);
-    if (!json.success) {
-      throw new Error(json.error ?? json.message ?? "Alert push failed");
-    }
-
-    memoryCache.clear();
-    appCacheSnapshotMemo.clear();
-  } finally {
-    timeout.cancel();
-  }
+  await apiAdminPost<Record<string, unknown>>(body);
 }
 
 export async function clearAllAlerts(): Promise<void> {
-  const scriptUrl = getScriptUrlForMetaAction("CLEAR_ALL_ALERTS");
-  if (!scriptUrl) throw getMissingScriptUrlError("core");
-
-  const timeout = createTimeoutController(REQUEST_TIMEOUT_MS);
-  try {
-    const response = await fetch(scriptUrl, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify({ metaAction: "CLEAR_ALL_ALERTS" }),
-      redirect: "follow",
-      signal: timeout.controller.signal,
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`HTTP ${response.status}: ${text || "Clear alerts failed"}`);
-    }
-    const json = await parseApiResponse<Record<string, unknown>>(response);
-    if (!json.success) throw new Error(json.error ?? json.message ?? "Clear alerts failed");
-    memoryCache.clear();
-    appCacheSnapshotMemo.clear();
-  } finally {
-    timeout.cancel();
-  }
+  await apiAdminPost<Record<string, unknown>>({ metaAction: "CLEAR_ALL_ALERTS" });
 }
 
 export async function adminAssignTask(payload: {
@@ -886,7 +942,7 @@ export async function adminAssignTask(payload: {
   notes?: string;
   rig?: string;
 }): Promise<SubmitResponse> {
-  return await apiMetaPost<SubmitResponse>({
+  return await apiAdminPost<SubmitResponse>({
     metaAction: "ADMIN_ASSIGN_TASK",
     collector: String(payload.collector ?? "").trim(),
     task: String(payload.task ?? "").trim(),
@@ -902,7 +958,7 @@ export async function adminCancelTask(payload: {
   notes?: string;
   rig?: string;
 }): Promise<SubmitResponse> {
-  return await apiMetaPost<SubmitResponse>({
+  return await apiAdminPost<SubmitResponse>({
     metaAction: "ADMIN_CANCEL_TASK",
     collector: String(payload.collector ?? "").trim(),
     task: String(payload.task ?? "").trim(),
@@ -919,7 +975,7 @@ export async function adminEditHours(payload: {
   status?: string;
   notes?: string;
 }): Promise<SubmitResponse> {
-  return await apiMetaPost<SubmitResponse>({
+  return await apiAdminPost<SubmitResponse>({
     metaAction: "ADMIN_EDIT_HOURS",
     collector: String(payload.collector ?? "").trim(),
     task: String(payload.task ?? "").trim(),
@@ -937,7 +993,7 @@ export async function grantCollectorAward(payload: {
   grantedBy?: string;
   notes?: string;
 }): Promise<void> {
-  await apiMetaPost<Record<string, unknown>>({
+  await apiAdminPost<Record<string, unknown>>({
     metaAction: "GRANT_AWARD",
     collector: String(payload.collector ?? "").trim(),
     award: String(payload.award ?? "").trim(),
@@ -954,7 +1010,7 @@ export async function reportDailyCarryover(payload: {
   actualHours?: number;
   notes?: string;
 }): Promise<SubmitResponse> {
-  return await apiMetaPost<SubmitResponse>({
+  return await apiAdminPost<SubmitResponse>({
     metaAction: "CARRYOVER_REPORT",
     collector: String(payload.collector ?? "").trim(),
     task: String(payload.task ?? "").trim(),
@@ -970,7 +1026,7 @@ export async function cancelDailyCarryover(payload: {
   assignmentId: string;
   notes?: string;
 }): Promise<SubmitResponse> {
-  return await apiMetaPost<SubmitResponse>({
+  return await apiAdminPost<SubmitResponse>({
     metaAction: "CARRYOVER_CANCEL",
     collector: String(payload.collector ?? "").trim(),
     task: String(payload.task ?? "").trim(),
