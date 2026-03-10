@@ -553,6 +553,8 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
       queryClient.invalidateQueries({ queryKey: ["collectorStats", selectedCollectorName] }),
       queryClient.invalidateQueries({ queryKey: ["dailyCarryover", selectedCollectorName] }),
       queryClient.invalidateQueries({ queryKey: ["pendingReview", selectedCollectorName, selectedRig] }),
+      queryClient.invalidateQueries({ queryKey: ["rigStatus"] }),
+      queryClient.invalidateQueries({ queryKey: ["rigSwitchRequests", selectedCollectorName] }),
     ]);
   }, [queryClient, selectedCollectorName, selectedRig]);
 

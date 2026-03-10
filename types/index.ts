@@ -128,6 +128,12 @@ export interface TaskActualRow {
   assignedCollector?: string;
   collectorHours?: number;
   collectorCount?: number;
+  // Computed fields added by the recommendations useMemo in stats/index.tsx
+  isActive?: boolean;
+  isMine?: boolean;
+  isRecollect?: boolean;
+  remaining?: number;
+  pct?: number;
 }
 
 export interface FullLogEntry {

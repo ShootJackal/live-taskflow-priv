@@ -971,7 +971,7 @@ export default function DashboardScreen() {
                 <ActionButton
                   title={
                     hasValidHours
-                      ? `Log ${parseFloat(hoursToLog).toFixed(2)}h — Done`
+                      ? `Log ${parseFloat(localHours).toFixed(2)}h — Done`
                       : "Enter hours above to complete"
                   }
                   icon={<CheckCircle size={17} color={hasValidHours ? colors.white : colors.complete} />}

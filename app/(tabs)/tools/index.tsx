@@ -41,6 +41,7 @@ import { useCollection } from "@/providers/CollectionProvider";
 import { DesignTokens } from "@/constants/colors";
 import ScreenContainer from "@/components/ScreenContainer";
 import SelectPicker from "@/components/SelectPicker";
+import RigAssignmentModal from "@/components/RigAssignmentModal";
 import { AdminOverview } from "@/components/tools/AdminOverview";
 import { AdminToolsPanel } from "@/components/tools/AdminToolsPanel";
 import { SectionHeader } from "@/components/tools/SectionHeader";
@@ -56,13 +57,14 @@ export default function ToolsScreen() {
   const { t, locale, setLocale } = useLocale();
   const { hideStatusBar, setHideStatusBar } = useUiPrefs();
   const {
-    collectors, tasks, selectedCollectorName, selectedRig,
+    collectors, tasks, selectedCollectorName, selectedCollector, selectedRig,
     selectCollector, setSelectedRig, configured, isAdmin, authenticateAdmin, logoutAdmin,
   } = useCollection();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [showDisplayModal, setShowDisplayModal] = useState(false);
+  const [showRigPicker, setShowRigPicker] = useState(false);
   const adminModalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -84,13 +86,18 @@ export default function ToolsScreen() {
     return opts;
   }, [collectors]);
 
+  // SF collectors use the SOD rig picker in the Collect tab, not the tools picker.
+  // MX collectors still pick from their collector-sheet assigned rigs here.
+  const isSFCollector = selectedCollector?.team === "SF";
+
   const rigOptions = useMemo(() => {
+    if (isSFCollector) return [];
     const rigSet = new Set<string>();
-    for (const collector of collectors) {
-      for (const rig of collector.rigs ?? []) {
-        const clean = String(rig ?? "").trim();
-        if (clean) rigSet.add(clean);
-      }
+    // Only show rigs from the selected collector, not the entire fleet.
+    const myRigs = selectedCollector?.rigs ?? [];
+    for (const rig of myRigs) {
+      const clean = String(rig ?? "").trim();
+      if (clean) rigSet.add(clean);
     }
     if (selectedRig) rigSet.add(selectedRig);
     return Array.from(rigSet)
@@ -101,7 +108,7 @@ export default function ToolsScreen() {
         return aText.localeCompare(bText, undefined, { numeric: true, sensitivity: "base" });
       })
       .map((rig) => ({ value: rig, label: rig }));
-  }, [collectors, selectedRig]);
+  }, [isSFCollector, selectedCollector, selectedRig]);
 
   const handleSelectCollector = useCallback((name: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -292,7 +299,13 @@ export default function ToolsScreen() {
                 </View>
                 <View style={styles.settingContent}>
                   <Text style={[styles.settingLabel, { color: colors.textMuted }]}>Your Rig</Text>
-                  {rigOptions.length > 0 ? (
+                  {isSFCollector ? (
+                    <TouchableOpacity onPress={() => setShowRigPicker(true)} activeOpacity={0.7}>
+                      <Text style={[styles.settingValue, { color: selectedRig ? colors.accent : colors.textMuted }]}>
+                        {selectedRig ? `Rig ${selectedRig}` : "No rig assigned — tap to pick"}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : rigOptions.length > 0 ? (
                     <SelectPicker
                       label="" options={rigOptions} selectedValue={selectedRig}
                       onValueChange={handleSelectRig} placeholder="Select your rig..." testID="rig-picker"
@@ -300,9 +313,11 @@ export default function ToolsScreen() {
                   ) : (
                     <Text style={[styles.noRigText, { color: colors.textMuted }]}>No rigs assigned</Text>
                   )}
-                  <Text style={[styles.settingHint, { color: colors.textMuted }]}>
-                    {rigOptions.length} available rigs
-                  </Text>
+                  {!isSFCollector && (
+                    <Text style={[styles.settingHint, { color: colors.textMuted }]}>
+                      {rigOptions.length} available rigs
+                    </Text>
+                  )}
                 </View>
               </View>
             </>
@@ -454,6 +469,11 @@ export default function ToolsScreen() {
           onClose={() => setShowAdminModal(false)}
           onAuthenticate={handleAdminAuth}
         />
+
+        <RigAssignmentModal
+          visible={showRigPicker}
+          onClose={() => setShowRigPicker(false)}
+        />
       </Animated.View>
     </ScreenContainer>
   );
@@ -588,6 +608,11 @@ const styles = StyleSheet.create({
   noRigText: {
     fontSize: DesignTokens.fontSize.caption1,
     fontStyle: "italic" as const,
+    paddingVertical: 4,
+  },
+  settingValue: {
+    fontSize: DesignTokens.fontSize.callout,
+    fontWeight: "500" as const,
     paddingVertical: 4,
   },
   profileBadge: {
