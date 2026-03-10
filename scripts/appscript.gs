@@ -51,32 +51,31 @@ var TASKFLOW_SHEETS = {
 };
 // Backward-compat alias for projects that still reference SHEETS in old helper snippets.
 var SHEETS = TASKFLOW_SHEETS;
-var SF_RIG_NUMBERS = { '2': true, '3': true, '4': true, '5': true, '6': true, '9': true, '11': true };
+// SF rigs — keyed by both bare number and full EGO-PROD-* name (normalised lowercase).
+var SF_RIG_NUMBERS = {
+  '2': true, '3': true, '4': true, '5': true, '6': true, '9': true, '11': true,
+  'ego-prod-2': true, 'ego-prod-3': true, 'ego-prod-4': true, 'ego-prod-5': true,
+  'ego-prod-6': true, 'ego-prod-9': true, 'ego-prod-11': true
+};
 
 // ── SF Rig Assignment System ─────────────────────────────────────────────────
-// SF rig numbers as an ordered list for the SOD picker UI.
-var SF_RIG_LIST = [2, 3, 4, 5, 6, 9, 11];
+// Full rig names (EGO-PROD-* format) for the SOD picker UI.
+var SF_RIG_LIST = ['EGO-PROD-2', 'EGO-PROD-3', 'EGO-PROD-4', 'EGO-PROD-5', 'EGO-PROD-6', 'EGO-PROD-9', 'EGO-PROD-11'];
 
-// SF team collectors. Add names here when the team grows.
-// Comparison is case/whitespace-insensitive (uses normalizeCollectorKey).
+// SF team collector first names. isSFCollector_ uses first-word matching so
+// "Travis B." and "Veronika T." are both recognised correctly.
 var SF_COLLECTORS_LIST = ['Travis', 'Tony', 'Veronika'];
 
-// Historical rig-to-collector mapping — used as a last-resort fallback when
-// no Rig History Log session covers a given date (e.g. data before the SOD
-// system was in use). Once collectors are using the SOD picker, the session
-// log takes over and this map is no longer needed for current data.
-// NOTE: rig 9 is listed as Veronika here (her primary rig) but Travis has
-// also used it. The date-range lookup in getCollectorForRigOnDate_ handles
-// the split correctly once sessions exist; this fallback only fires when
-// no session covers the row's date.
+// Historical rig-to-collector fallback (normalised lowercase keys).
+// Only fires when no Rig History Log session covers a given date.
 var SF_HISTORICAL_RIG_MAP = {
-  '2': 'Travis',
-  '3': 'Tony',
-  '4': 'Travis',
-  '5': 'Tony',
-  '6': 'Veronika',
-  '9': 'Veronika'
-  // rig 11 has no primary historical owner
+  'ego-prod-2': 'Travis B.',
+  'ego-prod-3': 'Tony',
+  'ego-prod-4': 'Travis B.',
+  'ego-prod-5': 'Tony',
+  'ego-prod-6': 'Veronika T.',
+  'ego-prod-9': 'Veronika T.'  // primary; Travis also uses it — date-range lookup handles the split
+  // ego-prod-11: unassigned historically
 };
 
 var CACHE_CELL_MAX_CHARS = 49000; // Sheets hard limit is ~50000 chars per cell.
@@ -1023,8 +1022,12 @@ function normalizeTaskKey(name) {
 function getRegionFromRigId(rigId) {
   var clean = safeStr(rigId).toLowerCase();
   if (!clean) return 'MX';
+  // EGO-PROD-* rigs are SF regardless of number.
+  if (clean.indexOf('ego-prod') >= 0) return 'SF';
   if (clean.indexOf('ego-sf') >= 0 || clean.indexOf('-sf') >= 0 || clean.indexOf('sf') === 0) return 'SF';
-  var match = clean.match(/(\d+)(?!.*\d)/); // last numeric suffix in rig id
+  // Full key or numeric suffix lookup.
+  if (SF_RIG_NUMBERS[clean]) return 'SF';
+  var match = clean.match(/(\d+)(?!.*\d)/);
   if (match && SF_RIG_NUMBERS[match[1]]) return 'SF';
   return 'MX';
 }
@@ -3361,9 +3364,10 @@ var RH = {
 };
 
 function isSFCollector_(name) {
-  var norm = normalizeCollectorKey(safeStr(name));
+  // Match by first word so "Travis B." matches "Travis", "Veronika T." matches "Veronika".
+  var firstWord = normalizeCollectorKey(safeStr(name)).split(' ')[0];
   for (var i = 0; i < SF_COLLECTORS_LIST.length; i++) {
-    if (normalizeCollectorKey(SF_COLLECTORS_LIST[i]) === norm) return true;
+    if (normalizeCollectorKey(SF_COLLECTORS_LIST[i]).split(' ')[0] === firstWord) return true;
   }
   return false;
 }
@@ -3477,7 +3481,7 @@ function handleAssignRigSOD(body) {
     var existing = findOpenRigSession_(data, collector, rig);
     if (existing) {
       var start = existing.data[RH.SESSION_START];
-      return { assignmentId: makeRigAssignmentId_(collector, rig), collector: collector, rig: Number(rig), assignedAt: start ? new Date(start).toISOString() : null, status: 'ACTIVE', message: 'Already assigned to rig ' + rig };
+      return { assignmentId: makeRigAssignmentId_(collector, rig), collector: collector, rig: rig, assignedAt: start ? new Date(start).toISOString() : null, status: 'ACTIVE', message: 'Already assigned to rig ' + rig };
     }
     // Check if another collector has this rig open today.
     var taken = findOpenRigSessionByRig_(data, rig);
@@ -3492,7 +3496,7 @@ function handleAssignRigSOD(body) {
   return {
     assignmentId: makeRigAssignmentId_(collector, rig),
     collector: collector,
-    rig: Number(rig),
+    rig: rig,
     assignedAt: now.toISOString(),
     status: 'ACTIVE',
     message: result.message || ('Rig ' + rig + ' assigned')
@@ -3528,7 +3532,7 @@ function handleReleaseRig(body) {
     sh.getRange(i + 1, RH.SESSION_HOURS + 1).setValue(hours);
     sh.getRange(i + 1, RH.NOTES + 1).setValue(safeStr(data[i][RH.NOTES]) + ' | released:' + reason);
     _rigHistorySnapshot = null;
-    return { assignmentId: assignmentId, collector: rowCollector, rig: Number(rowRig), releasedAt: now.toISOString(), hours: hours, reason: reason, message: 'Rig released. ' + hours.toFixed(2) + 'h recorded.' };
+    return { assignmentId: assignmentId, collector: rowCollector, rig: rowRig, releasedAt: now.toISOString(), hours: hours, reason: reason, message: 'Rig released. ' + hours.toFixed(2) + 'h recorded.' };
   }
   throw new Error('Active session not found for assignmentId: ' + assignmentId);
 }
@@ -3583,7 +3587,7 @@ function handleRequestRigSwitch(body) {
     assignmentId: makeRigAssignmentId_(currentAssignee, rig),
     currentAssignee: currentAssignee,
     requestingCollector: requestingCollector,
-    rig: Number(rig),
+    rig: rig,
     message: 'Switch request sent to ' + currentAssignee
   };
 }
@@ -3615,7 +3619,7 @@ function handleRespondRigSwitch(body) {
       sh.getRange(i + 1, RH.SWITCH_REQ_BY + 1).setValue('');
       sh.getRange(i + 1, RH.SWITCH_STATUS + 1).setValue('DENIED');
       _rigHistorySnapshot = null;
-      return { result: 'DENIED', rig: Number(rig), message: 'Switch denied. Rig ' + rig + ' stays with ' + rowCollector };
+      return { result: 'DENIED', rig: rig, message: 'Switch denied. Rig ' + rig + ' stays with ' + rowCollector };
     }
 
     if (action === 'APPROVE') {
@@ -3635,7 +3639,7 @@ function handleRespondRigSwitch(body) {
       return {
         result: 'APPROVED',
         newAssignmentId: makeRigAssignmentId_(requestingCollector, rig),
-        rig: Number(rig),
+        rig: rig,
         hours: hours,
         message: 'Rig ' + rig + ' transferred to ' + requestingCollector + '. ' + hours.toFixed(2) + 'h recorded for ' + rowCollector
       };
@@ -3673,11 +3677,11 @@ function handleGetPendingSwitchRequests(params) {
 
     // Incoming: this collector is the current assignee and someone wants their rig.
     if (normalizeCollectorKey(rowCollector) === normCollector) {
-      results.push({ type: 'incoming', assignmentId: assignmentId, rig: Number(rowRig), requestedBy: switchReqBy, requestedAt: start ? new Date(start).toISOString() : null });
+      results.push({ type: 'incoming', assignmentId: assignmentId, rig: rowRig, requestedBy: switchReqBy, requestedAt: start ? new Date(start).toISOString() : null });
     }
     // Outgoing: this collector sent the switch request.
     if (normalizeCollectorKey(switchReqBy) === normCollector) {
-      results.push({ type: 'outgoing', assignmentId: assignmentId, rig: Number(rowRig), currentAssignee: rowCollector, requestedAt: start ? new Date(start).toISOString() : null });
+      results.push({ type: 'outgoing', assignmentId: assignmentId, rig: rowRig, currentAssignee: rowCollector, requestedAt: start ? new Date(start).toISOString() : null });
     }
   }
   return results;
@@ -3697,4 +3701,60 @@ function handleClearAllAlerts() {
     }
   }
   return { cleared: cleared };
+}
+
+// ============================================================================
+// RIG HISTORY SEED — run ONCE from Apps Script editor to populate historical
+// sessions for SF collectors based on the known rig assignments.
+// Safe to re-run: clears all SF collector rows first, then rewrites them.
+// ============================================================================
+function seedRigHistoryData() {
+  var sheet = getOrCreateRigHistorySheet();
+  ensureRigHistorySwitchCols_(sheet);
+
+  // Remove existing SF collector rows (iterate backwards to preserve row indices).
+  var data = sheet.getDataRange().getValues();
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (isSFCollector_(safeStr(data[i][1]))) sheet.deleteRow(i + 1);
+  }
+
+  function d(y, m, day, h, min) { return new Date(y, m - 1, day, h, min || 0, 0); }
+
+  // Each row: EventTs | Collector | Rig | Event | SessionStart | SessionEnd | SessionHours | Source | WeekStart | Notes | SwitchReqBy | SwitchStatus
+  function row(collector, rig, start, end) {
+    var hrs = end ? Math.round(((end - start) / 3600000) * 100) / 100 : '';
+    return [start, collector, rig, 'RIG_SELECTED', start, end || '', hrs, 'SOD_ASSIGN', getWeekStart(start), '', '', ''];
+  }
+
+  var rows = [];
+
+  // ── Last week Mon 2 Mar – Thu 5 Mar ──────────────────────────────────────
+  for (var day = 2; day <= 5; day++) {
+    rows.push(row('Travis B.',    'EGO-PROD-2', d(2026,3,day,8), d(2026,3,day,23,59)));
+    rows.push(row('Veronika T.', 'EGO-PROD-6', d(2026,3,day,8), d(2026,3,day,23,59)));
+  }
+
+  // ── Fri 6 Mar: Travis on EGO-PROD-2, Veronika switched to EGO-PROD-9 ────
+  rows.push(row('Travis B.',    'EGO-PROD-2', d(2026,3,6,8), d(2026,3,6,23,59)));
+  rows.push(row('Veronika T.', 'EGO-PROD-9', d(2026,3,6,8), d(2026,3,6,23,59)));
+
+  // ── Sat 7 Mar – Sun 8 Mar: Veronika back to EGO-PROD-6 ──────────────────
+  rows.push(row('Veronika T.', 'EGO-PROD-6', d(2026,3,7,8), d(2026,3,7,23,59)));
+  rows.push(row('Veronika T.', 'EGO-PROD-6', d(2026,3,8,8), d(2026,3,8,23,59)));
+
+  // ── Yesterday Mon 9 Mar: Travis on EGO-PROD-9, Veronika on EGO-PROD-6 ───
+  rows.push(row('Travis B.',    'EGO-PROD-9', d(2026,3,9,8), d(2026,3,9,23,59)));
+  rows.push(row('Veronika T.', 'EGO-PROD-6', d(2026,3,9,8), d(2026,3,9,23,59)));
+
+  // ── Today Tue 10 Mar: Travis EGO-PROD-2, Veronika EGO-PROD-9 (open) ─────
+  rows.push(row('Travis B.',    'EGO-PROD-2', d(2026,3,10,8), null));
+  rows.push(row('Veronika T.', 'EGO-PROD-9', d(2026,3,10,8), null));
+
+  if (rows.length > 0) {
+    var start = sheet.getLastRow() + 1;
+    sheet.getRange(start, 1, rows.length, rows[0].length).setValues(rows);
+  }
+
+  _rigHistorySnapshot = null;
+  return { seeded: rows.length, message: 'SF rig history seeded. Run me once only.' };
 }

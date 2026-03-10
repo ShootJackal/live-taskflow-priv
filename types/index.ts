@@ -11,7 +11,7 @@ export interface Collector {
 }
 
 export interface RigStatus {
-  rig: number;
+  rig: string;  // e.g. "EGO-PROD-9"
   status: "available" | "in_use" | "pending_transfer";
   assignedTo: string | null;
   assignmentId: string | null;
@@ -23,7 +23,7 @@ export interface RigAssignment {
   assignmentId: string;
   collector: string;
   team: string;
-  rig: number;
+  rig: string;  // e.g. "EGO-PROD-9"
   assignedAt: string;
   releasedAt?: string;
   status: "ACTIVE" | "RELEASED";
@@ -33,7 +33,7 @@ export interface RigAssignment {
 export interface RigSwitchRequest {
   type: "incoming" | "outgoing";
   assignmentId: string;
-  rig: number;
+  rig: string;  // e.g. "EGO-PROD-9"
   requestedBy?: string;
   currentAssignee?: string;
   requestedAt: string | null;

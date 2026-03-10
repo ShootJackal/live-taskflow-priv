@@ -537,9 +537,10 @@ function readFirstCachedValue<T>(cache: Record<string, AppCacheEntry> | null, ke
   return null;
 }
 
-// SF collector names used as a client-side fallback when the Collectors sheet
-// doesn't have a Team column yet (or GAS hasn't been redeployed).
-const SF_COLLECTOR_NAMES = new Set(["travis", "tony", "veronika"]);
+// SF collector first names — used as a client-side fallback when the Collectors
+// sheet doesn't have a Team column yet (or GAS hasn't been redeployed).
+// Matching uses the first word of the collector's name so "Travis B." matches "travis".
+const SF_COLLECTOR_FIRST_NAMES = new Set(["travis", "tony", "veronika"]);
 
 interface RawCollector {
   name: string;
@@ -566,7 +567,7 @@ export async function fetchCollectors(): Promise<Collector[]> {
       ? "SF"
       : sheetTeam === "MX"
       ? "MX"
-      : SF_COLLECTOR_NAMES.has(normalizeCollectorName(c.name).toLowerCase())
+      : SF_COLLECTOR_FIRST_NAMES.has(normalizeCollectorName(c.name).toLowerCase().split(/\s+/)[0])
       ? "SF"
       : "MX";
     return {
@@ -1139,7 +1140,7 @@ export async function fetchRigStatus(): Promise<RigStatus[]> {
 
 export async function assignRigSOD(payload: {
   collector: string;
-  rig: number;
+  rig: string;  // e.g. "EGO-PROD-9"
 }): Promise<RigAssignment> {
   return await apiMetaPost<RigAssignment>({
     metaAction: "ASSIGN_RIG_SOD",
@@ -1161,7 +1162,7 @@ export async function releaseRig(payload: {
 
 export async function requestRigSwitch(payload: {
   requestingCollector: string;
-  rig: number;
+  rig: string;  // e.g. "EGO-PROD-9"
 }): Promise<{ assignmentId: string; currentAssignee: string; message: string }> {
   return await apiMetaPost({
     metaAction: "REQUEST_RIG_SWITCH",

@@ -30,7 +30,10 @@ import {
 import type { RigStatus } from "@/types";
 
 // SF rig list used as a client-side fallback when getRigStatus isn't available yet.
-const SF_RIGS_FALLBACK: RigStatus[] = [2, 3, 4, 5, 6, 9, 11].map((rig) => ({
+const SF_RIGS_FALLBACK: RigStatus[] = [
+  "EGO-PROD-2", "EGO-PROD-3", "EGO-PROD-4",
+  "EGO-PROD-5", "EGO-PROD-6", "EGO-PROD-9", "EGO-PROD-11",
+].map((rig) => ({
   rig,
   status: "available" as const,
   assignedTo: null,
@@ -53,7 +56,7 @@ export default function RigAssignmentModal({ visible, onClose }: Props) {
 
   const [view, setView] = useState<ModalView>("picker");
   const [selectedRigForSwitch, setSelectedRigForSwitch] = useState<RigStatus | null>(null);
-  const [assigning, setAssigning] = useState<number | null>(null);
+  const [assigning, setAssigning] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -197,7 +200,7 @@ export default function RigAssignmentModal({ visible, onClose }: Props) {
                         </View>
                         <View>
                           <Text style={[s.rigNum, { color: colors.textPrimary }]}>
-                            Rig {rig.rig}
+                            {rig.rig}
                           </Text>
                           <Text style={[s.rigStatus, { color: statusColor }]}>
                             {statusLabel}
