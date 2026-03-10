@@ -29,8 +29,11 @@ import {
   clearApiCache,
 } from "@/services/googleSheets";
 import { CollectorStats, LeaderboardEntry, TaskActualRow, CollectorProfile, AdminStartPlanData, DailyCarryoverItem } from "@/types";
-import { normalizeCollectorName } from "@/utils/normalize";
+import { deriveRegionLeaderboard, deriveRecommendedTasks } from "@/app/(tabs)/stats/view-models/statsViewModels";
+import { AdminStartPlanSection } from "@/app/(tabs)/stats/components/AdminStartPlanSection";
+import { RecommendationsSection } from "@/app/(tabs)/stats/components/RecommendationsSection";
 import { Image } from "expo-image";
+import { normalizeCollectorName } from "@/utils/normalize";
 import * as Haptics from "expo-haptics";
 
 type LeaderboardTab = "combined" | "sf" | "mx";
@@ -287,30 +290,7 @@ export default function StatsScreen() {
     return leaderboardQuery.data ?? [];
   }, [leaderboardQuery.data]);
 
-  const { sfEntries, mxEntries, regionStats } = useMemo(() => {
-    const sf: LeaderboardEntry[] = [];
-    const mx: LeaderboardEntry[] = [];
-    for (const e of leaderboard) {
-      if (e.region === "SF") sf.push({ ...e });
-      else mx.push({ ...e, region: "MX" });
-    }
-    sf.sort((a, b) => b.hoursLogged - a.hoursLogged);
-    mx.sort((a, b) => b.hoursLogged - a.hoursLogged);
-
-    const sfRanked = sf.map((e, i) => ({ ...e, rank: i + 1 }));
-    const mxRanked = mx.map((e, i) => ({ ...e, rank: i + 1 }));
-
-    const mxHours = mx.reduce((s, e) => s + e.hoursLogged, 0);
-    const sfHours = sf.reduce((s, e) => s + e.hoursLogged, 0);
-    const mxCompleted = mx.reduce((s, e) => s + e.tasksCompleted, 0);
-    const sfCompleted = sf.reduce((s, e) => s + e.tasksCompleted, 0);
-
-    return {
-      sfEntries: sfRanked,
-      mxEntries: mxRanked,
-      regionStats: { mxHours, sfHours, mxCompleted, sfCompleted },
-    };
-  }, [leaderboard]);
+  const { sfEntries, mxEntries, regionStats } = useMemo(() => deriveRegionLeaderboard(leaderboard), [leaderboard]);
 
   const recentCompleted = useMemo(() => {
     return leaderboard
@@ -324,79 +304,7 @@ export default function StatsScreen() {
       }));
   }, [leaderboard]);
 
-  const recommendedTasks = useMemo(() => {
-    const rows = taskActualsQuery.data ?? [];
-
-    // Build a set of tasks this collector has worked on (today's log as proxy for recent history).
-    // Tasks in "In Progress" or "Partial" state are their active work — highest priority.
-    const DONE_STATUSES = new Set(["DONE", "COMPLETED", "COMPLETE", "CANCELED", "CANCELLED"]);
-    const myTaskKeys = new Set(
-      todayLog.map(e => normalizeCollectorName(e.taskName).toLowerCase())
-    );
-    const myActiveKeys = new Set(
-      todayLog
-        .filter(e => e.status === "In Progress" || e.status === "Partial")
-        .map(e => normalizeCollectorName(e.taskName).toLowerCase())
-    );
-
-    // Deduplicate and filter: only tasks that genuinely need work
-    const seen = new Set<string>();
-    const candidates = rows
-      .filter((row) => {
-        const remaining = Number(row.remainingHours) || 0;
-        const status    = String(row.status ?? "").toUpperCase();
-        // Must have hours left and not be finished
-        if (remaining <= 0) return false;
-        if (DONE_STATUSES.has(status)) return false;
-        // Deduplicate by name
-        const key = normalizeCollectorName(String(row.taskName || "")).toLowerCase();
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .map((row) => {
-        const remaining   = Number(row.remainingHours) || 0;
-        const collected   = Number((row as any).collectedHours ?? (row as any).goodHours ?? 0);
-        const total       = remaining + collected;
-        const pct         = total > 0 ? collected / total : 0;
-        const isRecollect = String(row.status ?? "").toUpperCase() === "RECOLLECT";
-        const key         = normalizeCollectorName(String(row.taskName || "")).toLowerCase();
-        const isActive    = myActiveKeys.has(key);   // currently working on it
-        const isMine      = myTaskKeys.has(key);     // worked on it today (any status)
-        return { ...row, remaining, pct, isRecollect, isActive, isMine };
-      })
-      .sort((a, b) => {
-        // 1st: currently active tasks (keep going)
-        if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
-        // 2nd: tasks they've done before (recollect their own tasks)
-        if (a.isMine !== b.isMine) return a.isMine ? -1 : 1;
-        // 3rd: recollect status (closest to done, needs finishing)
-        if (a.isRecollect !== b.isRecollect) return a.isRecollect ? -1 : 1;
-        // 4th: closest to completion (highest % done, least remaining)
-        if (Math.abs(b.pct - a.pct) > 0.05) return b.pct - a.pct;
-        return a.remaining - b.remaining;
-      });
-
-    // Bucket: personal tasks (active + prior) vs new tasks they've never touched
-    const personal = candidates.filter(t => t.isMine);
-    const newToThem = candidates.filter(t => !t.isMine);
-
-    if (personal.length > 0) {
-      // They have personal history — show all their tasks (up to 4)
-      // then add 1-2 of the most-actionable new tasks to fill gaps
-      const result = personal.slice(0, 4);
-      const slots  = Math.max(0, 5 - result.length);
-      // Only suggest new tasks that are close to done and worth a session (≥ 1h remaining)
-      const worthwhile = newToThem.filter(t => t.remaining >= 1 && t.pct >= 0.5);
-      return [...result, ...worthwhile.slice(0, slots)];
-    } else {
-      // No personal history — show a short list of the most actionable tasks only.
-      // Filter to tasks that are meaningfully in-progress (≥ 50% done, ≥ 1h left)
-      // so they're not starting something cold with 20h remaining.
-      const actionable = newToThem.filter(t => t.remaining >= 1 && t.pct >= 0.4);
-      return actionable.slice(0, 4);
-    }
-  }, [taskActualsQuery.data, todayLog]);
+  const recommendedTasks = useMemo(() => deriveRecommendedTasks(taskActualsQuery.data ?? [], todayLog), [taskActualsQuery.data, todayLog]);
 
   const dailyCarryover = useMemo(() => dailyCarryoverQuery.data ?? [], [dailyCarryoverQuery.data]);
 
@@ -720,31 +628,7 @@ export default function StatsScreen() {
         </View>
       )}
 
-      {isAdmin && adminStartPlan && (
-        <View style={[styles.startPlanCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
-          <View style={styles.startPlanHeader}>
-            <Target size={12} color={colors.alertYellow} />
-            <Text style={[styles.startPlanTitle, { color: colors.alertYellow }]}>
-              START OF DAY PLAN ({adminStartPlan.yesterday})
-            </Text>
-          </View>
-          {(["SF", "MX"] as const).map((region) => (
-            <View key={`plan_${region}`} style={styles.startPlanRegion}>
-              <Text style={[styles.startPlanRegionLabel, { color: region === "SF" ? colors.sfBlue : colors.mxOrange }]}>
-                {region} TEAM
-              </Text>
-              {(adminStartPlan.regions?.[region] ?? []).slice(0, 8).map((entry, idx) => (
-                <View key={`plan_${region}_${idx}`} style={[styles.startPlanRow, { borderBottomColor: colors.border }]}>
-                  <Text style={[styles.startPlanCollector, { color: colors.textPrimary }]}>{entry.collector}</Text>
-                  <Text style={[styles.startPlanTasks, { color: colors.textSecondary }]} numberOfLines={2}>
-                    {(entry.suggested ?? []).length > 0 ? (entry.suggested ?? []).join(" · ") : "No task suggestion"}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ))}
-        </View>
-      )}
+      <AdminStartPlanSection isAdmin={isAdmin} adminStartPlan={adminStartPlan} colors={colors} cardShadow={cardShadow} styles={styles} />
 
       {stats && stats.weeklyLoggedHours > 0 && (
         <>
@@ -778,54 +662,7 @@ export default function StatsScreen() {
         </>
       )}
 
-      {recommendedTasks.length > 0 && (
-        <View style={[styles.recommendCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
-          <View style={styles.recommendHeader}>
-            <Target size={12} color={colors.mxOrange} />
-            <Text style={[styles.recommendTitle, { color: colors.mxOrange }]}>Recommended Tasks</Text>
-          </View>
-          {recommendedTasks.map((task, idx) => {
-            const pctVal = Math.round((task.pct ?? 0) * 100);
-            const labelColor = task.isActive
-              ? colors.complete
-              : task.isMine
-              ? colors.accent
-              : task.isRecollect
-              ? colors.recollectRed
-              : colors.mxOrange;
-            const tag = task.isActive
-              ? "▶ Active"
-              : task.isMine
-              ? "↩ Continue"
-              : task.isRecollect
-              ? "↺ Recollect"
-              : null;
-            return (
-              <View
-                key={`rec_${idx}`}
-                style={[styles.recommendRow, { borderBottomColor: colors.border }, idx === recommendedTasks.length - 1 && styles.recommendLast]}
-              >
-                <View style={styles.recommendRowLeft}>
-                  {tag && (
-                    <Text style={[styles.recommendTag, { color: labelColor, borderColor: labelColor + "40" }]}>
-                      {tag}
-                    </Text>
-                  )}
-                  <Text style={[styles.recommendName, { color: colors.textPrimary }]} numberOfLines={1}>
-                    {task.taskName}
-                  </Text>
-                  <Text style={[styles.recommendSub, { color: colors.textMuted }]}>
-                    {pctVal}% collected · {Number(task.remainingHours).toFixed(1)}h left
-                  </Text>
-                </View>
-                <Text style={[styles.recommendMeta, { color: colors.statusPending }]}>
-                  {Number(task.remainingHours).toFixed(1)}h
-                </Text>
-              </View>
-            );
-          })}
-        </View>
-      )}
+      <RecommendationsSection recommendedTasks={recommendedTasks} colors={colors} cardShadow={cardShadow} styles={styles} />
 
       <View style={[styles.sectionHeader, { marginTop: 24 }]}>
         <Trophy size={12} color={colors.gold} />

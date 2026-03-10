@@ -48,7 +48,8 @@ import { SectionHeader } from "@/components/tools/SectionHeader";
 import { QuickCard } from "@/components/tools/QuickCard";
 import { AdminPasswordModal } from "@/components/tools/AdminPasswordModal";
 import { DisplaySettingsModal } from "@/components/tools/DisplaySettingsModal";
-import { buildRigSortValue, SHEET_PAGES } from "@/components/tools/toolConstants";
+import { SHEET_PAGES } from "@/components/tools/toolConstants";
+import { deriveRigOptions } from "@/app/(tabs)/tools/view-models/rigOptions";
 import { clearAllCaches } from "@/services/googleSheets";
 import { Image } from "expo-image";
 
@@ -92,22 +93,7 @@ export default function ToolsScreen() {
 
   const rigOptions = useMemo(() => {
     if (isSFCollector) return [];
-    const rigSet = new Set<string>();
-    // Only show rigs from the selected collector, not the entire fleet.
-    const myRigs = selectedCollector?.rigs ?? [];
-    for (const rig of myRigs) {
-      const clean = String(rig ?? "").trim();
-      if (clean) rigSet.add(clean);
-    }
-    if (selectedRig) rigSet.add(selectedRig);
-    return Array.from(rigSet)
-      .sort((a, b) => {
-        const [aNum, aText] = buildRigSortValue(a);
-        const [bNum, bText] = buildRigSortValue(b);
-        if (aNum !== bNum) return aNum - bNum;
-        return aText.localeCompare(bText, undefined, { numeric: true, sensitivity: "base" });
-      })
-      .map((rig) => ({ value: rig, label: rig }));
+    return deriveRigOptions(selectedCollector?.rigs ?? [], selectedRig);
   }, [isSFCollector, selectedCollector, selectedRig]);
 
   const handleSelectCollector = useCallback((name: string) => {
