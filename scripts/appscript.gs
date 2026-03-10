@@ -3547,7 +3547,7 @@ function handleRespondRigSwitch(body) {
       sh.getRange(i + 1, RH.SESSION_HOURS + 1).setValue(hours);
       sh.getRange(i + 1, RH.SWITCH_STATUS + 1).setValue('APPROVED');
       // Open new session for the requesting collector.
-      try { handleLogCollectorRig({ collector: requestingCollector, rig: rig, source: 'SWITCH_APPROVE' }); } catch(e) {}
+      handleLogCollectorRig({ collector: requestingCollector, rig: rig, source: 'SWITCH_APPROVE' });
       _rigHistorySnapshot = null;
       return {
         result: 'APPROVED',
