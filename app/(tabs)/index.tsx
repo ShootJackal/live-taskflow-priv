@@ -272,6 +272,230 @@ const switchBannerStyles = StyleSheet.create({
   btn: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
 });
 
+// ─── Collect form card (memoized so typing only re-renders this, not the page) ─
+
+interface CollectFormCardProps {
+  latestOpenTask: LogEntry | null;
+  isSyncing: boolean;
+  submitError: string | null;
+  canSubmit: boolean;
+  hasCarryover: boolean;
+  carryoverCount: number;
+  hasPendingReview: boolean;
+  pendingReviewCount: number;
+  colors: ThemeColors;
+  cardShadow: object;
+  hoursToLog: string;
+  notes: string;
+  selectedCollectorName: string;
+  isLoadingCollectors: boolean;
+  isLoadingTasks: boolean;
+  collectorOptions: { value: string; label: string }[];
+  taskOptions: { value: string; label: string }[];
+  selectedTaskName: string;
+  showTaskSearch: boolean;
+  taskSearch: string;
+  searchAnim: Animated.Value;
+  selectCollector: (name: string) => void;
+  setSelectedTaskName: (name: string) => void;
+  toggleTaskSearch: () => void;
+  setTaskSearch: (q: string) => void;
+  onAssign: (localNotes: string) => void;
+  onComplete: (localHours: string, localNotes: string) => void;
+  onCancel: () => void;
+  onAddNote: (localNotes: string) => void;
+  setHoursToLog: (h: string) => void;
+  setNotes: (n: string) => void;
+  onShowReview: () => void;
+}
+
+const CollectFormCard = React.memo(function CollectFormCard({
+  latestOpenTask, isSyncing, submitError, canSubmit, hasCarryover, carryoverCount,
+  hasPendingReview, pendingReviewCount, colors, cardShadow, hoursToLog, notes,
+  selectedCollectorName, isLoadingCollectors, isLoadingTasks,
+  collectorOptions, taskOptions, selectedTaskName,
+  showTaskSearch, taskSearch, searchAnim,
+  selectCollector, setSelectedTaskName, toggleTaskSearch, setTaskSearch,
+  onAssign, onComplete, onCancel, onAddNote, setHoursToLog, setNotes, onShowReview,
+}: CollectFormCardProps) {
+  // Local draft state lives HERE — typing only re-renders CollectFormCard, not the page.
+  const [localHours, setLocalHours] = useState(hoursToLog);
+  const [localNotes, setLocalNotes] = useState(notes);
+  useEffect(() => { setLocalHours(hoursToLog); }, [hoursToLog]);
+  useEffect(() => { setLocalNotes(notes); }, [notes]);
+
+  const hasValidHours = !!localHours.trim() && parseFloat(localHours) > 0;
+
+  return (
+    <>
+      {/* ── iOS-grouped form section ──────────────────────────── */}
+      <View style={[styles.formSection, { backgroundColor: colors.bgCard, ...cardShadow, shadowColor: colors.shadow }]}>
+        {/* Collector field — shown when not yet set */}
+        {!selectedCollectorName && (
+          <>
+            <View style={styles.formRow}>
+              <View style={styles.formRowContent}>
+                <Text style={[styles.formRowLabel, { color: colors.textSecondary }]}>Collector</Text>
+                {isLoadingCollectors ? (
+                  <ActivityIndicator size="small" color={colors.accent} />
+                ) : (
+                  <SelectPicker label="" options={collectorOptions} selectedValue={selectedCollectorName}
+                    onValueChange={selectCollector} placeholder="Who are you? (set in Tools)" testID="collector-picker" />
+                )}
+              </View>
+            </View>
+            <View style={[styles.insetSeparator, { backgroundColor: colors.border }]} />
+          </>
+        )}
+
+        {/* Task field */}
+        <View style={styles.formRow}>
+          <View style={styles.formRowContent}>
+            <View style={styles.formRowLabelRow}>
+              <Text style={[styles.formRowLabel, { color: colors.textSecondary }]}>Task</Text>
+              <View style={styles.formRowLabelRight}>
+                {isLoadingTasks && <ActivityIndicator size="small" color={colors.accent} />}
+                <TouchableOpacity onPress={toggleTaskSearch}
+                  style={[styles.searchToggle, { backgroundColor: showTaskSearch ? colors.accentSoft : "transparent" }]}
+                  activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} testID="task-search-toggle">
+                  {showTaskSearch ? <X size={14} color={colors.accent} /> : <Search size={14} color={colors.textMuted} />}
+                </TouchableOpacity>
+              </View>
+            </View>
+            {showTaskSearch && (
+              <Animated.View style={[styles.searchWrap, {
+                opacity: searchAnim,
+                maxHeight: searchAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 48] }),
+              }]}>
+                <View style={[styles.searchBar, { backgroundColor: colors.bgInput, borderColor: colors.border }]}>
+                  <Search size={13} color={colors.textMuted} />
+                  <TextInput style={[styles.searchInput, { color: colors.textPrimary }]}
+                    value={taskSearch} onChangeText={setTaskSearch}
+                    placeholder="Search tasks…" placeholderTextColor={colors.textMuted}
+                    autoFocus testID="task-search-input" />
+                  {taskSearch.length > 0 && (
+                    <TouchableOpacity onPress={() => setTaskSearch("")} activeOpacity={0.7}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <X size={13} color={colors.textMuted} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </Animated.View>
+            )}
+            <SelectPicker label="" options={taskOptions} selectedValue={selectedTaskName}
+              onValueChange={setSelectedTaskName}
+              placeholder={taskSearch ? `${taskOptions.length} tasks found…` : "Choose a task…"}
+              testID="task-picker" />
+          </View>
+        </View>
+
+        <View style={[styles.insetSeparator, { backgroundColor: colors.border }]} />
+
+        {/* Hours field */}
+        <View style={styles.formRow}>
+          <View style={styles.formRowContent}>
+            <View style={styles.formRowLabelRow}>
+              <Text style={[styles.formRowLabel, { color: colors.textSecondary }]}>Hours</Text>
+              <Text style={[styles.optionalTag, { color: colors.textMuted }]}>for completion</Text>
+            </View>
+            <TextInput
+              style={[styles.input, { backgroundColor: colors.bgInput, borderColor: colors.border, color: colors.textPrimary }]}
+              value={localHours} onChangeText={setLocalHours}
+              onBlur={() => setHoursToLog(localHours)}
+              placeholder="0.00" placeholderTextColor={colors.textMuted}
+              keyboardType="decimal-pad" returnKeyType="done" testID="hours-input" />
+          </View>
+        </View>
+
+        <View style={[styles.insetSeparator, { backgroundColor: colors.border }]} />
+
+        {/* Notes field */}
+        <View style={[styles.formRow, { alignItems: "flex-start" }]}>
+          <View style={styles.formRowContent}>
+            <View style={styles.formRowLabelRow}>
+              <Text style={[styles.formRowLabel, { color: colors.textSecondary }]}>Notes</Text>
+              <Text style={[styles.optionalTag, { color: colors.textMuted }]}>optional</Text>
+            </View>
+            <TextInput
+              style={[styles.input, styles.notesInput, { backgroundColor: colors.bgInput, borderColor: colors.border, color: colors.textPrimary }]}
+              value={localNotes} onChangeText={setLocalNotes}
+              onBlur={() => setNotes(localNotes)}
+              placeholder="Add notes…" placeholderTextColor={colors.textMuted}
+              multiline numberOfLines={3} textAlignVertical="top" testID="notes-input" />
+          </View>
+        </View>
+      </View>
+
+      {/* ── Primary CTA ───────────────────────────────────────── */}
+      {latestOpenTask ? (
+        <ActionButton
+          title={hasValidHours ? `Log ${parseFloat(localHours).toFixed(2)}h — Done` : "Enter hours above to complete"}
+          icon={<CheckCircle size={17} color={hasValidHours ? colors.white : colors.complete} />}
+          color={hasValidHours ? colors.white : colors.complete}
+          bgColor={hasValidHours ? colors.complete : colors.completeBg}
+          onPress={() => onComplete(localHours, localNotes)}
+          disabled={!hasValidHours} fullWidth testID="complete-btn" />
+      ) : (
+        <ActionButton
+          title="Assign Task"
+          icon={<UserCheck size={17} color={colors.white} />}
+          color={colors.white} bgColor={colors.accent}
+          onPress={() => onAssign(localNotes)}
+          disabled={!canSubmit} fullWidth testID="assign-btn" />
+      )}
+
+      {/* ── Cancel current task ───────────────────────────────── */}
+      {latestOpenTask && (
+        <TouchableOpacity
+          style={[styles.cancelBtn, { backgroundColor: colors.cancelBg, borderColor: colors.cancel + "55" }]}
+          onPress={onCancel} activeOpacity={0.75} testID="cancel-btn">
+          <XCircle size={16} color={colors.cancel} />
+          <View style={styles.cancelBtnInner}>
+            <Text style={[styles.cancelBtnLabel, { color: colors.cancel }]}>Cancel Current Task</Text>
+            <Text style={[styles.cancelBtnTask, { color: colors.cancel + "99" }]} numberOfLines={1}>
+              {latestOpenTask.taskName.split("|").pop()?.trim() ?? latestOpenTask.taskName}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      )}
+
+      {/* ── Syncing indicator ─────────────────────────────────── */}
+      {isSyncing && (
+        <View style={styles.syncBadge}>
+          <ActivityIndicator size="small" color={colors.accent} />
+          <Text style={[styles.syncText, { color: colors.textMuted }]}>Syncing…</Text>
+        </View>
+      )}
+
+      {/* ── Save Note Only ────────────────────────────────────── */}
+      {latestOpenTask !== null && localNotes.trim().length > 0 && (
+        <ActionButton title="Save Note Only"
+          icon={<StickyNote size={15} color={colors.accent} />}
+          color={colors.accent} bgColor={colors.accentSoft}
+          onPress={() => onAddNote(localNotes)} fullWidth testID="note-btn" />
+      )}
+
+      {/* ── Ready to Review (Redash EOD flow) ────────────────── */}
+      {hasPendingReview && (
+        <TouchableOpacity
+          style={[styles.reviewBanner, { backgroundColor: colors.completeBg, borderColor: colors.complete + "55" }]}
+          onPress={onShowReview} activeOpacity={0.8}>
+          <View style={[styles.reviewBadge, { backgroundColor: colors.complete }]}>
+            <Text style={styles.reviewBadgeText}>{pendingReviewCount}</Text>
+          </View>
+          <View style={styles.reviewBannerInfo}>
+            <Text style={[styles.reviewBannerTitle, { color: colors.complete }]}>Ready to Review</Text>
+            <Text style={[styles.reviewBannerSub, { color: colors.textMuted }]}>
+              Redash detected {pendingReviewCount} task{pendingReviewCount === 1 ? "" : "s"} on your rig today
+            </Text>
+          </View>
+          <CheckCircle size={18} color={colors.complete} />
+        </TouchableOpacity>
+      )}
+    </>
+  );
+});
+
 // ─── Main screen ─────────────────────────────────────────────────────────────
 
 export default function DashboardScreen() {
@@ -311,16 +535,9 @@ export default function DashboardScreen() {
     assignRigForDay,
   } = useCollection();
 
-  // ── Local draft state for text inputs ────────────────────────────────────
-  // Using local state prevents every keystroke from triggering a full context
-  // re-render (which dismissed the keyboard on iOS PWA). We sync to the
-  // provider on blur so the rest of the app stays in sync.
-  const [localHours, setLocalHours] = useState(hoursToLog);
-  const [localNotes, setLocalNotes] = useState(notes);
-
-  // Keep local state in sync when the provider resets (e.g. after submit)
-  useEffect(() => { setLocalHours(hoursToLog); }, [hoursToLog]);
-  useEffect(() => { setLocalNotes(notes); }, [notes]);
+  // localHours/localNotes state has moved into CollectFormCard (React.memo).
+  // This prevents the entire DashboardScreen from re-rendering on every keystroke,
+  // which was causing keyboard/focus loss on React Native Web.
 
   const [refreshing, setRefreshing] = useState(false);
   const [taskSearch, setTaskSearch] = useState("");
@@ -375,9 +592,7 @@ export default function DashboardScreen() {
     return allTasks.filter((t) => t.label.toLowerCase().includes(q));
   }, [tasks, taskSearch]);
 
-  const hasValidHours =
-    !!localHours.trim() && parseFloat(localHours) > 0;
-  // Assign only needs collector + task. Hours are for Done/Cancel.
+  // Assign only needs collector + task. Hours are managed inside CollectFormCard.
   const canSubmit = !!selectedCollectorName && !!selectedTaskName;
   const latestOpenTask = openTasks.length > 0 ? openTasks[0] : null;
 
@@ -401,8 +616,8 @@ export default function DashboardScreen() {
     }
   }, [refreshData]);
 
-  const handleAssign = useCallback(() => {
-    // Flush local notes draft before assigning
+  // These callbacks receive the current draft values as params from CollectFormCard.
+  const handleAssign = useCallback((localNotes: string) => {
     setNotes(localNotes);
     if (hasCarryover) {
       Alert.alert(
@@ -410,73 +625,48 @@ export default function DashboardScreen() {
         `You have ${carryoverItems.length} unresolved task${carryoverItems.length === 1 ? "" : "s"} from yesterday. Close them on the Stats tab first.`,
         [
           { text: "Go to Stats", style: "cancel" },
-          {
-            text: "Assign Anyway",
-            onPress: () => {
-              try { assignTask(); } catch (e: unknown) {
-                Alert.alert("Error", e instanceof Error ? e.message : "Failed to assign task");
-              }
-            },
-          },
+          { text: "Assign Anyway", onPress: () => {
+            try { assignTask(); } catch (e: unknown) {
+              Alert.alert("Error", e instanceof Error ? e.message : "Failed to assign task");
+            }
+          }},
         ]
       );
       return;
     }
-    try {
-      assignTask();
-    } catch (e: unknown) {
+    try { assignTask(); } catch (e: unknown) {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed to assign task");
     }
-  }, [assignTask, hasCarryover, carryoverItems.length, localNotes, setNotes]);
+  }, [assignTask, hasCarryover, carryoverItems.length, setNotes]);
 
-  const handleComplete = useCallback(() => {
+  const handleComplete = useCallback((localHours: string, localNotes: string) => {
     if (!latestOpenTask) return;
-    // Flush local draft to provider before submitting
     setHoursToLog(localHours);
     setNotes(localNotes);
-    try {
-      completeTask(latestOpenTask.taskName);
-    } catch (e: unknown) {
-      Alert.alert(
-        "Error",
-        e instanceof Error ? e.message : "Failed to complete task"
-      );
+    try { completeTask(latestOpenTask.taskName); } catch (e: unknown) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Failed to complete task");
     }
-  }, [completeTask, latestOpenTask, localHours, localNotes, setHoursToLog, setNotes]);
+  }, [completeTask, latestOpenTask, setHoursToLog, setNotes]);
 
   const handleCancel = useCallback(() => {
     if (!latestOpenTask) return;
     Alert.alert("Cancel Task", `Cancel "${latestOpenTask.taskName}"?`, [
       { text: "No", style: "cancel" },
-      {
-        text: "Yes",
-        style: "destructive",
-        onPress: () => {
-          try {
-            cancelTask(latestOpenTask.taskName);
-          } catch (e: unknown) {
-            Alert.alert(
-              "Error",
-              e instanceof Error ? e.message : "Failed to cancel"
-            );
-          }
-        },
-      },
+      { text: "Yes", style: "destructive", onPress: () => {
+        try { cancelTask(latestOpenTask.taskName); } catch (e: unknown) {
+          Alert.alert("Error", e instanceof Error ? e.message : "Failed to cancel");
+        }
+      }},
     ]);
   }, [cancelTask, latestOpenTask]);
 
-  const handleAddNote = useCallback(() => {
+  const handleAddNote = useCallback((localNotes: string) => {
     if (!latestOpenTask || !localNotes.trim()) return;
     setNotes(localNotes);
-    try {
-      addNote(latestOpenTask.taskName);
-    } catch (e: unknown) {
-      Alert.alert(
-        "Error",
-        e instanceof Error ? e.message : "Failed to save note"
-      );
+    try { addNote(latestOpenTask.taskName); } catch (e: unknown) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Failed to save note");
     }
-  }, [addNote, latestOpenTask, localNotes, setNotes]);
+  }, [addNote, latestOpenTask, setNotes]);
 
   const todayDateStr = useMemo(() => {
     const d = new Date();
@@ -716,369 +906,41 @@ export default function DashboardScreen() {
                 </View>
               )}
 
-              {/* ── iOS-grouped form section ──────────────────────────── */}
-              <View
-                style={[
-                  styles.formSection,
-                  {
-                    backgroundColor: colors.bgCard,
-                    ...cardShadow,
-                    shadowColor: colors.shadow,
-                  },
-                ]}
-              >
-                {/* Collector field — shown when not yet set */}
-                {!selectedCollectorName && (
-                  <>
-                    <View style={styles.formRow}>
-                      <View style={styles.formRowContent}>
-                        <Text style={[styles.formRowLabel, { color: colors.textSecondary }]}>
-                          Collector
-                        </Text>
-                        {isLoadingCollectors ? (
-                          <ActivityIndicator size="small" color={colors.accent} />
-                        ) : (
-                          <SelectPicker
-                            label=""
-                            options={collectorOptions}
-                            selectedValue={selectedCollectorName}
-                            onValueChange={selectCollector}
-                            placeholder="Who are you? (set in Tools)"
-                            testID="collector-picker"
-                          />
-                        )}
-                      </View>
-                    </View>
-                    <View style={[styles.insetSeparator, { backgroundColor: colors.border }]} />
-                  </>
-                )}
-
-                {/* Task field */}
-                <View style={styles.formRow}>
-                  <View style={styles.formRowContent}>
-                    <View style={styles.formRowLabelRow}>
-                      <Text
-                        style={[
-                          styles.formRowLabel,
-                          { color: colors.textSecondary },
-                        ]}
-                      >
-                        Task
-                      </Text>
-                      <View style={styles.formRowLabelRight}>
-                        {isLoadingTasks && (
-                          <ActivityIndicator
-                            size="small"
-                            color={colors.accent}
-                          />
-                        )}
-                        <TouchableOpacity
-                          onPress={toggleTaskSearch}
-                          style={[
-                            styles.searchToggle,
-                            {
-                              backgroundColor: showTaskSearch
-                                ? colors.accentSoft
-                                : "transparent",
-                            },
-                          ]}
-                          activeOpacity={0.7}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          testID="task-search-toggle"
-                        >
-                          {showTaskSearch ? (
-                            <X size={14} color={colors.accent} />
-                          ) : (
-                            <Search size={14} color={colors.textMuted} />
-                          )}
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-
-                    {showTaskSearch && (
-                      <Animated.View
-                        style={[
-                          styles.searchWrap,
-                          {
-                            opacity: searchAnim,
-                            maxHeight: searchAnim.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [0, 48],
-                            }),
-                          },
-                        ]}
-                      >
-                        <View
-                          style={[
-                            styles.searchBar,
-                            {
-                              backgroundColor: colors.bgInput,
-                              borderColor: colors.border,
-                            },
-                          ]}
-                        >
-                          <Search size={13} color={colors.textMuted} />
-                          <TextInput
-                            style={[
-                              styles.searchInput,
-                              { color: colors.textPrimary },
-                            ]}
-                            value={taskSearch}
-                            onChangeText={setTaskSearch}
-                            placeholder="Search tasks…"
-                            placeholderTextColor={colors.textMuted}
-                            autoFocus
-                            testID="task-search-input"
-                          />
-                          {taskSearch.length > 0 && (
-                            <TouchableOpacity
-                              onPress={() => setTaskSearch("")}
-                              activeOpacity={0.7}
-                              hitSlop={{
-                                top: 8,
-                                bottom: 8,
-                                left: 8,
-                                right: 8,
-                              }}
-                            >
-                              <X size={13} color={colors.textMuted} />
-                            </TouchableOpacity>
-                          )}
-                        </View>
-                      </Animated.View>
-                    )}
-
-                    <SelectPicker
-                      label=""
-                      options={taskOptions}
-                      selectedValue={selectedTaskName}
-                      onValueChange={setSelectedTaskName}
-                      placeholder={
-                        taskSearch
-                          ? `${taskOptions.length} tasks found…`
-                          : "Choose a task…"
-                      }
-                      testID="task-picker"
-                    />
-                  </View>
-                </View>
-
-                <View
-                  style={[
-                    styles.insetSeparator,
-                    { backgroundColor: colors.border },
-                  ]}
-                />
-
-                {/* Hours field */}
-                <View style={styles.formRow}>
-                  <View style={styles.formRowContent}>
-                    <View style={styles.formRowLabelRow}>
-                      <Text
-                        style={[
-                          styles.formRowLabel,
-                          { color: colors.textSecondary },
-                        ]}
-                      >
-                        Hours
-                      </Text>
-                      <Text
-                        style={[
-                          styles.optionalTag,
-                          { color: colors.textMuted },
-                        ]}
-                      >
-                        for completion
-                      </Text>
-                    </View>
-                    <TextInput
-                      style={[
-                        styles.input,
-                        {
-                          backgroundColor: colors.bgInput,
-                          borderColor: colors.border,
-                          color: colors.textPrimary,
-                        },
-                      ]}
-                      value={localHours}
-                      onChangeText={setLocalHours}
-                      onBlur={() => setHoursToLog(localHours)}
-                      placeholder="0.00"
-                      placeholderTextColor={colors.textMuted}
-                      keyboardType="decimal-pad"
-                      returnKeyType="done"
-                      testID="hours-input"
-                    />
-                  </View>
-                </View>
-
-                <View
-                  style={[
-                    styles.insetSeparator,
-                    { backgroundColor: colors.border },
-                  ]}
-                />
-
-                {/* Notes field */}
-                <View style={[styles.formRow, { alignItems: "flex-start" }]}>
-                  <View style={styles.formRowContent}>
-                    <View style={styles.formRowLabelRow}>
-                      <Text
-                        style={[
-                          styles.formRowLabel,
-                          { color: colors.textSecondary },
-                        ]}
-                      >
-                        Notes
-                      </Text>
-                      <Text
-                        style={[
-                          styles.optionalTag,
-                          { color: colors.textMuted },
-                        ]}
-                      >
-                        optional
-                      </Text>
-                    </View>
-                    <TextInput
-                      style={[
-                        styles.input,
-                        styles.notesInput,
-                        {
-                          backgroundColor: colors.bgInput,
-                          borderColor: colors.border,
-                          color: colors.textPrimary,
-                        },
-                      ]}
-                      value={localNotes}
-                      onChangeText={setLocalNotes}
-                      onBlur={() => setNotes(localNotes)}
-                      placeholder="Add notes…"
-                      placeholderTextColor={colors.textMuted}
-                      multiline
-                      numberOfLines={3}
-                      textAlignVertical="top"
-                      testID="notes-input"
-                    />
-                  </View>
-                </View>
-              </View>
-
-              {/* ── Primary CTA ───────────────────────────────────────── */}
-              {/*  • Open task present → Done is primary, shows hours in label  */}
-              {/*  • No open task     → Assign Task is primary                  */}
-              {latestOpenTask ? (
-                <ActionButton
-                  title={
-                    hasValidHours
-                      ? `Log ${parseFloat(localHours).toFixed(2)}h — Done`
-                      : "Enter hours above to complete"
-                  }
-                  icon={<CheckCircle size={17} color={hasValidHours ? colors.white : colors.complete} />}
-                  color={hasValidHours ? colors.white : colors.complete}
-                  bgColor={hasValidHours ? colors.complete : colors.completeBg}
-                  onPress={handleComplete}
-                  disabled={!hasValidHours}
-                  fullWidth
-                  testID="complete-btn"
-                />
-              ) : (
-                <ActionButton
-                  title="Assign Task"
-                  icon={<UserCheck size={17} color={colors.white} />}
-                  color={colors.white}
-                  bgColor={colors.accent}
-                  onPress={handleAssign}
-                  disabled={!canSubmit}
-                  fullWidth
-                  testID="assign-btn"
-                />
-              )}
-
-              {/* ── Cancel current task — explicit destructive button ─── */}
-              {latestOpenTask && (
-                <TouchableOpacity
-                  style={[
-                    styles.cancelBtn,
-                    {
-                      backgroundColor: colors.cancelBg,
-                      borderColor: colors.cancel + "55",
-                    },
-                  ]}
-                  onPress={handleCancel}
-                  activeOpacity={0.75}
-                  testID="cancel-btn"
-                >
-                  <XCircle size={16} color={colors.cancel} />
-                  <View style={styles.cancelBtnInner}>
-                    <Text style={[styles.cancelBtnLabel, { color: colors.cancel }]}>
-                      Cancel Current Task
-                    </Text>
-                    <Text
-                      style={[styles.cancelBtnTask, { color: colors.cancel + "99" }]}
-                      numberOfLines={1}
-                    >
-                      {latestOpenTask.taskName.split("|").pop()?.trim() ?? latestOpenTask.taskName}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-
-              {/* ── Syncing indicator ─────────────────────────────────── */}
-              {isSyncing && (
-                <View style={styles.syncBadge}>
-                  <ActivityIndicator size="small" color={colors.accent} />
-                  <Text
-                    style={[
-                      styles.syncText,
-                      { color: colors.textMuted },
-                    ]}
-                  >
-                    Syncing…
-                  </Text>
-                </View>
-              )}
-
-              {/* ── Save Note Only ────────────────────────────────────── */}
-              {latestOpenTask !== null && localNotes.trim().length > 0 && (
-                <ActionButton
-                  title="Save Note Only"
-                  icon={<StickyNote size={15} color={colors.accent} />}
-                  color={colors.accent}
-                  bgColor={colors.accentSoft}
-                  onPress={handleAddNote}
-                  fullWidth
-                  testID="note-btn"
-                />
-              )}
-
-              {/* ── Ready to Review (Redash EOD flow) ────────────────── */}
-              {hasPendingReview && (
-                <TouchableOpacity
-                  style={[
-                    styles.reviewBanner,
-                    {
-                      backgroundColor: colors.completeBg,
-                      borderColor: colors.complete + "55",
-                    },
-                  ]}
-                  onPress={() => setShowReviewSheet(true)}
-                  activeOpacity={0.8}
-                >
-                  <View style={[styles.reviewBadge, { backgroundColor: colors.complete }]}>
-                    <Text style={styles.reviewBadgeText}>{pendingReview.length}</Text>
-                  </View>
-                  <View style={styles.reviewBannerInfo}>
-                    <Text style={[styles.reviewBannerTitle, { color: colors.complete }]}>
-                      Ready to Review
-                    </Text>
-                    <Text style={[styles.reviewBannerSub, { color: colors.textMuted }]}>
-                      Redash detected {pendingReview.length} task{pendingReview.length === 1 ? "" : "s"} on your rig today
-                    </Text>
-                  </View>
-                  <CheckCircle size={18} color={colors.complete} />
-                </TouchableOpacity>
-              )}
+              {/* ── Form + actions (memoized — typing only re-renders CollectFormCard) */}
+              <CollectFormCard
+                latestOpenTask={latestOpenTask}
+                isSyncing={isSyncing}
+                submitError={submitError}
+                canSubmit={canSubmit}
+                hasCarryover={hasCarryover}
+                carryoverCount={carryoverItems.length}
+                hasPendingReview={hasPendingReview}
+                pendingReviewCount={pendingReview.length}
+                colors={colors}
+                cardShadow={cardShadow}
+                hoursToLog={hoursToLog}
+                notes={notes}
+                selectedCollectorName={selectedCollectorName}
+                isLoadingCollectors={isLoadingCollectors}
+                isLoadingTasks={isLoadingTasks}
+                collectorOptions={collectorOptions}
+                taskOptions={taskOptions}
+                selectedTaskName={selectedTaskName}
+                showTaskSearch={showTaskSearch}
+                taskSearch={taskSearch}
+                searchAnim={searchAnim}
+                selectCollector={selectCollector}
+                setSelectedTaskName={setSelectedTaskName}
+                toggleTaskSearch={toggleTaskSearch}
+                setTaskSearch={setTaskSearch}
+                onAssign={handleAssign}
+                onComplete={handleComplete}
+                onCancel={handleCancel}
+                onAddNote={handleAddNote}
+                setHoursToLog={setHoursToLog}
+                setNotes={setNotes}
+                onShowReview={() => setShowReviewSheet(true)}
+              />
 
               {/* ── Today's activity log ─────────────────────────────── */}
               {selectedCollectorName !== "" && todayLog.length > 0 && (

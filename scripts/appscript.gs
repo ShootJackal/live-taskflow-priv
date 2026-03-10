@@ -3312,7 +3312,12 @@ function handleSubmit(body) {
     }
 
     if (rig) {
-      logCollectorRigEvent(collector, rig, 'SUBMIT', actionType, new Date());
+      try {
+        logCollectorRigEvent(collector, rig, 'SUBMIT', actionType, new Date());
+      } catch (rigErr) {
+        // Rig history logging is informational — never let it fail the actual submit.
+        Logger.log('[handleSubmit] rig event log failed (non-fatal): ' + String(rigErr));
+      }
     }
 
     var result = handleSubmitCore(collector, task, hours, actionType, notes, normCol, normTask);
