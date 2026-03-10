@@ -28,6 +28,10 @@ import {
   logCollectorRigSelection,
   assignRigSOD,
   fetchPendingSwitchRequests,
+  adminLogin,
+  adminLogout,
+  verifyAdminSession,
+  setAdminAuthToken,
 } from "@/services/googleSheets";
 import { normalizeCollectorName } from "@/utils/normalize";
 import { log } from "@/utils/logger";
@@ -36,14 +40,7 @@ const STORAGE_KEYS = {
   SELECTED_COLLECTOR: "ci_selected_collector",
   SELECTED_RIG: "ci_selected_rig",
   ACTIVITY: "ci_activity_log",
-  ADMIN_AUTH: "ci_admin_auth",
 };
-
-// WARNING: Client-side password check is not secure. Anyone can inspect the
-// JS bundle and extract this value. For production use, validate the password
-// server-side (e.g. inside your Google Apps Script doPost handler) and return
-// a signed session token.
-const ADMIN_PASSWORD = process.env.EXPO_PUBLIC_ADMIN_PASSWORD ?? "";
 
 function mergeCollectors(raw: Collector[]): Collector[] {
   const map = new Map<string, Collector>();
@@ -73,6 +70,8 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
   const [notes, setNotes] = useState<string>("");
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const adminExpiresAtRef = useRef<number | null>(null);
+  const adminExpiryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const submitInFlightRef = useRef(false);
 
   const configured = isApiConfigured();
@@ -152,17 +151,6 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     },
   });
 
-  const adminAuthQuery = useQuery({
-    queryKey: ["adminAuth"],
-    queryFn: async () => {
-      const stored = await AsyncStorage.getItem(STORAGE_KEYS.ADMIN_AUTH);
-      if (!stored) return false;
-      const parsed = JSON.parse(stored) as { authenticated: boolean; ts: number };
-      const ONE_DAY = 24 * 60 * 60 * 1000;
-      if (Date.now() - parsed.ts > ONE_DAY) return false;
-      return parsed.authenticated;
-    },
-  });
 
   useEffect(() => {
     if (savedCollectorQuery.data && !selectedCollectorName) {
@@ -182,11 +170,6 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     }
   }, [activityQuery.data]);
 
-  useEffect(() => {
-    if (adminAuthQuery.data !== undefined) {
-      setIsAdmin(adminAuthQuery.data);
-    }
-  }, [adminAuthQuery.data]);
 
   useEffect(() => {
     if (!configured) return;
@@ -220,29 +203,59 @@ export const [CollectionProvider, useCollection] = createContextHook(() => {
     [collectors, selectedCollectorName]
   );
 
+  const scheduleAdminExpiry = useCallback((expiresAt: number | null) => {
+    adminExpiresAtRef.current = expiresAt;
+    if (adminExpiryTimeoutRef.current) {
+      clearTimeout(adminExpiryTimeoutRef.current);
+      adminExpiryTimeoutRef.current = null;
+    }
+    if (!expiresAt) return;
+    const msUntilExpiry = Math.max(expiresAt - Date.now(), 0);
+    adminExpiryTimeoutRef.current = setTimeout(() => {
+      setAdminAuthToken(null);
+      setIsAdmin(false);
+      Alert.alert("Admin session expired", "Please log in again.");
+    }, msUntilExpiry);
+  }, []);
+
+  useEffect(() => {
+    void verifyAdminSession()
+      .then(({ expiresAt }) => {
+        setIsAdmin(true);
+        scheduleAdminExpiry(expiresAt);
+      })
+      .catch(() => {
+        setIsAdmin(false);
+        scheduleAdminExpiry(null);
+      });
+
+    return () => {
+      if (adminExpiryTimeoutRef.current) {
+        clearTimeout(adminExpiryTimeoutRef.current);
+      }
+    };
+  }, [scheduleAdminExpiry]);
+
   const authenticateAdmin = useCallback(async (password: string): Promise<boolean> => {
     log("[Provider] authenticateAdmin attempt");
-    if (!ADMIN_PASSWORD) {
-      // EXPO_PUBLIC_ADMIN_PASSWORD not set in the deployment environment.
-      // The variable must be added in Vercel → Project Settings → Environment Variables.
-      throw new Error("Admin password not configured. Add EXPO_PUBLIC_ADMIN_PASSWORD in Vercel environment variables.");
-    }
-    if (password === ADMIN_PASSWORD) {
+    try {
+      const { expiresAt } = await adminLogin(password);
       setIsAdmin(true);
-      await AsyncStorage.setItem(
-        STORAGE_KEYS.ADMIN_AUTH,
-        JSON.stringify({ authenticated: true, ts: Date.now() })
-      );
+      scheduleAdminExpiry(expiresAt);
       return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Authentication failed";
+      if (/invalid credentials/i.test(message)) return false;
+      throw err;
     }
-    return false;
-  }, []);
+  }, [scheduleAdminExpiry]);
 
   const logoutAdmin = useCallback(async () => {
     log("[Provider] logoutAdmin");
+    await adminLogout();
+    scheduleAdminExpiry(null);
     setIsAdmin(false);
-    await AsyncStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH);
-  }, []);
+  }, [scheduleAdminExpiry]);
 
   const selectCollector = useCallback(async (name: string) => {
     log("[Provider] selectCollector:", name);
