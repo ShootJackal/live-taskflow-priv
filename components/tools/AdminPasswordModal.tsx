@@ -42,7 +42,16 @@ export function AdminPasswordModal({
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Authentication failed");
+      // Only surface the message for deliberate configuration errors thrown by
+      // authenticateAdmin (e.g. missing env var). All other unexpected errors
+      // get a safe generic message so internal details are never shown.
+      const raw = err instanceof Error ? err.message : "";
+      const isConfigError = raw.startsWith("Admin password not configured");
+      setErrorMsg(
+        isConfigError
+          ? "Admin access is not configured on this deployment."
+          : "Authentication failed. Please try again."
+      );
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setLoading(false);

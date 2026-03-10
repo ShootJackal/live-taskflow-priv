@@ -137,7 +137,9 @@ export default function RigAssignmentModal({ visible, onClose }: Props) {
 
               {rigStatusQuery.isError && (
                 <Text style={[s.errorText, { color: colors.cancel }]}>
-                  Could not load rig status. Check your connection.
+                  {String((rigStatusQuery.error as Error)?.message ?? "").includes("Unknown action")
+                    ? "Rig system not active yet — redeploy the GAS script to enable this."
+                    : "Could not load rig status. Check your connection and try again."}
                 </Text>
               )}
 

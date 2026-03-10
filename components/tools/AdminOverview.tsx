@@ -23,6 +23,7 @@ export function AdminOverview({
 }) {
   const { configured } = useCollection();
 
+  // Admin dashboard data: admin-only (collector summary, task requirements, recollections).
   const adminQuery = useQuery<AdminDashboardData>({
     queryKey: ["adminDashboard"],
     queryFn: fetchAdminDashboardData,
@@ -31,10 +32,11 @@ export function AdminOverview({
     retry: 1,
   });
 
+  // Task actuals (counts grid): visible to all users as "System Overview".
   const taskActualsQuery = useQuery<TaskActualRow[]>({
     queryKey: ["adminTaskActualsOverview"],
     queryFn: fetchTaskActualsData,
-    enabled: configured && isAdmin,
+    enabled: configured,
     staleTime: 60000,
     retry: 1,
   });
@@ -70,21 +72,24 @@ export function AdminOverview({
     return { totalTasks, completedTasks, recollectTasks, inProgressTasks };
   }, [taskActuals]);
 
-  if (adminQuery.isLoading) {
+  const isLoading = taskActualsQuery.isLoading || (isAdmin && adminQuery.isLoading);
+  if (isLoading) {
     return (
       <View style={adminStyles.loadingWrap}>
         <ActivityIndicator size="small" color={colors.accent} />
-        <Text style={[adminStyles.loadingText, { color: colors.textMuted }]}>Loading dashboard...</Text>
+        <Text style={[adminStyles.loadingText, { color: colors.textMuted }]}>Loading overview...</Text>
       </View>
     );
   }
 
-  if (!data) return null;
+  // Nothing to show at all if neither query has data yet.
+  if (!derivedCounts && !data) return null;
 
-  const totalTasks = derivedCounts?.totalTasks ?? data.totalTasks;
-  const completedTasks = derivedCounts?.completedTasks ?? data.completedTasks;
-  const recollectTasks = derivedCounts?.recollectTasks ?? data.recollectTasks;
-  const inProgressTasks = derivedCounts?.inProgressTasks ?? data.inProgressTasks;
+  // Prefer derived counts from task actuals; fall back to admin dashboard totals.
+  const totalTasks = derivedCounts?.totalTasks ?? data?.totalTasks ?? 0;
+  const completedTasks = derivedCounts?.completedTasks ?? data?.completedTasks ?? 0;
+  const recollectTasks = derivedCounts?.recollectTasks ?? data?.recollectTasks ?? 0;
+  const inProgressTasks = derivedCounts?.inProgressTasks ?? data?.inProgressTasks ?? 0;
 
   const items = [
     { label: "Total Tasks", value: String(totalTasks), color: colors.textPrimary, icon: <FileText size={14} color={colors.accent} /> },
@@ -100,7 +105,9 @@ export function AdminOverview({
       <View style={adminStyles.headerRow}>
         <View style={adminStyles.headerLeft}>
           <Shield size={14} color={colors.accent} />
-          <Text style={[adminStyles.headerText, { color: colors.accent }]}>System Overview</Text>
+          <Text style={[adminStyles.headerText, { color: colors.accent }]}>
+            {isAdmin ? "Admin Dashboard" : "System Overview"}
+          </Text>
         </View>
         <Text style={[adminStyles.rateText, { color: colors.complete }]}>{completionRate}%</Text>
       </View>
@@ -115,7 +122,7 @@ export function AdminOverview({
         ))}
       </View>
 
-      {data.recollections && data.recollections.length > 0 && (
+      {data?.recollections && data.recollections.length > 0 && (
         <View style={[adminStyles.recollectSection, { borderTopColor: colors.border }]}>
           <Text style={[adminStyles.recollectTitle, { color: colors.cancel }]}>
             Pending Recollections ({data.recollections.length})
@@ -133,15 +140,15 @@ export function AdminOverview({
         </View>
       )}
 
-      {isAdmin && data.collectorSummary && data.collectorSummary.length > 0 && (
+      {isAdmin && data?.collectorSummary && data.collectorSummary.length > 0 && (
         <View style={[adminStyles.collectorSection, { borderTopColor: colors.border }]}>
           <View style={adminStyles.collectorHeader}>
             <Users size={12} color={colors.accent} />
             <Text style={[adminStyles.collectorTitle, { color: colors.accent }]}>
-              All Collectors ({data.totalCollectors ?? data.collectorSummary.length})
+              All Collectors ({data?.totalCollectors ?? data?.collectorSummary?.length ?? 0})
             </Text>
             <Text style={[adminStyles.totalHours, { color: colors.complete }]}>
-              {(data.totalHoursUploaded ?? 0).toFixed(2)}h total
+              {(data?.totalHoursUploaded ?? 0).toFixed(2)}h total
             </Text>
           </View>
           {data.collectorSummary.map((c: CollectorSummary, idx: number) => (
@@ -164,7 +171,7 @@ export function AdminOverview({
         </View>
       )}
 
-      {isAdmin && data.taskRequirements && data.taskRequirements.length > 0 && (
+      {isAdmin && data?.taskRequirements && data.taskRequirements.length > 0 && (
         <View style={[adminStyles.reqSection, { borderTopColor: colors.border }]}>
           <Text style={[adminStyles.reqTitle, { color: colors.mxOrange }]}>
             Task Requirements ({data.taskRequirements.length})

@@ -3540,14 +3540,18 @@ function handleRespondRigSwitch(body) {
     }
 
     if (action === 'APPROVE') {
-      // Close current assignee's session.
+      // Open the requesting collector's session FIRST — before touching the current
+      // assignee's row. If this throws (e.g. sheet write error), no changes have
+      // been made and we can safely propagate the error without leaving the rig
+      // in a half-transferred, unassigned state.
+      handleLogCollectorRig({ collector: requestingCollector, rig: rig, source: 'SWITCH_APPROVE' });
+
+      // New session is open — now safe to close the current assignee's session.
       var sessionStart = data[i][RH.SESSION_START] ? new Date(data[i][RH.SESSION_START]) : null;
       var hours = sessionStart ? Math.round(((now.getTime() - sessionStart.getTime()) / 3600000) * 100) / 100 : 0;
       sh.getRange(i + 1, RH.SESSION_END + 1).setValue(now);
       sh.getRange(i + 1, RH.SESSION_HOURS + 1).setValue(hours);
       sh.getRange(i + 1, RH.SWITCH_STATUS + 1).setValue('APPROVED');
-      // Open new session for the requesting collector.
-      try { handleLogCollectorRig({ collector: requestingCollector, rig: rig, source: 'SWITCH_APPROVE' }); } catch(e) {}
       _rigHistorySnapshot = null;
       return {
         result: 'APPROVED',
