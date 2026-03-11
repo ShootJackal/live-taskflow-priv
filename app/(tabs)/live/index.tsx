@@ -259,7 +259,13 @@ export default function LiveScreen() {
 
   // ── Operational log (terminal) ─────────────────────────────────────────────
   type LogEntry = { id: string; ts: string; type: "sync"|"change"|"alert"|"recollect"|"error"; text: string };
-  const [opLog, setOpLog] = useState<LogEntry[]>([]);
+  const bootTs = useRef((() => {
+    const n = new Date();
+    return `${String(n.getHours()).padStart(2,"0")}:${String(n.getMinutes()).padStart(2,"0")}:${String(n.getSeconds()).padStart(2,"0")}`;
+  })());
+  const [opLog, setOpLog] = useState<LogEntry[]>([
+    { id: "boot_0", ts: bootTs.current, type: "sync", text: "TaskFlow live — monitoring active" },
+  ]);
   const prevLeaderboard = useRef<Record<string, number>>({});  // collectorName → hoursLogged
   const prevAlertIds    = useRef<Set<string>>(new Set());
   const prevRecollect   = useRef<Set<string>>(new Set());
@@ -322,16 +328,20 @@ export default function LiveScreen() {
   const fallbackCollectorCounts = useMemo(() => {
     let mx = 0, sf = 0;
     for (const c of collectors) {
-      if ((c.rigs ?? []).some(r => getRigRegion(r) === "SF")) sf++; else mx++;
+      // Use team field (set by GAS/fetchCollectors) — SF collectors no longer
+      // have rigs in their rigs[] array so getRigRegion would always return MX.
+      if (c.team === "SF") sf++; else mx++;
     }
     return { mx, sf };
   }, [collectors]);
 
   const mappedRigCounts = useMemo(() => {
-    let mxRigs = 0, sfRigs = 0;
-    for (const c of collectors)
-      for (const r of (c.rigs ?? []))
-        if (r) { if (getRigRegion(r) === "SF") sfRigs++; else mxRigs++; }
+    // SF uses the SOD rig system; count active SF collectors as SF "rigs"
+    let sfRigs = 0, mxRigs = 0;
+    for (const c of collectors) {
+      if (c.team === "SF") sfRigs++;
+      else for (const r of (c.rigs ?? [])) { if (r) mxRigs++; }
+    }
     return { mxRigs, sfRigs, total: mxRigs + sfRigs };
   }, [collectors]);
 
@@ -796,8 +806,8 @@ export default function LiveScreen() {
           </View>
         )}
 
-        {/* ── Operational log ──────────────────────────────────────────── */}
-        {opLog.length > 0 && (
+        {/* ── Operational log (always visible) ────────────────────────── */}
+        {(
           <View style={[s.section, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
             <View style={[s.sectionHeader, { borderBottomColor: colors.border }]}>
               <View style={s.sectionHeaderLeft}>
@@ -834,6 +844,11 @@ export default function LiveScreen() {
                   </View>
                 );
               })}
+              {opLog.length === 1 && (
+                <Text style={[s.termText, { color: colors.textMuted, fontStyle: "italic", marginLeft: 54 }]}>
+                  Waiting for repulls and task completions…
+                </Text>
+              )}
             </ScrollView>
           </View>
         )}

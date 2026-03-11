@@ -9,6 +9,8 @@ import {
   Animated,
   Platform,
   Alert,
+  Modal,
+  SafeAreaView,
 } from "react-native";
 import {
   MessageSquare,
@@ -63,6 +65,7 @@ export default function ToolsScreen() {
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [showAdminModal, setShowAdminModal] = useState(false);
+  const [showAdminToolsModal, setShowAdminToolsModal] = useState(false);
   const [showDisplayModal, setShowDisplayModal] = useState(false);
   const [showRigPicker, setShowRigPicker] = useState(false);
   const adminModalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -334,14 +337,24 @@ export default function ToolsScreen() {
         )}
 
         {isAdmin && (
-          <TouchableOpacity
-            style={[styles.adminLogoutRow, { borderColor: colors.cancel + '30' }]}
-            onPress={handleAdminLogout}
-            activeOpacity={0.7}
-          >
-            <LogOut size={14} color={colors.cancel} />
-            <Text style={[styles.adminLogoutText, { color: colors.cancel }]}>Logout Admin</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 6 }}>
+            <TouchableOpacity
+              style={[styles.adminLogoutRow, { flex: 1, borderColor: colors.accent + '44', backgroundColor: colors.accentSoft }]}
+              onPress={() => setShowAdminToolsModal(true)}
+              activeOpacity={0.7}
+            >
+              <Activity size={14} color={colors.accent} />
+              <Text style={[styles.adminLogoutText, { color: colors.accent }]}>Admin Tools</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.adminLogoutRow, { borderColor: colors.cancel + '30' }]}
+              onPress={handleAdminLogout}
+              activeOpacity={0.7}
+            >
+              <LogOut size={14} color={colors.cancel} />
+              <Text style={[styles.adminLogoutText, { color: colors.cancel }]}>Logout</Text>
+            </TouchableOpacity>
+          </View>
         )}
 
 
@@ -387,13 +400,7 @@ export default function ToolsScreen() {
           </>
         )}
 
-        {configured && isAdmin && (
-          <>
-            <View style={styles.sectionGap} />
-            <SectionHeader label="Admin Tools" icon={<Activity size={11} color={colors.textMuted} />} />
-            <AdminToolsPanel colors={colors} collectors={collectors} tasks={tasks} />
-          </>
-        )}
+        {/* Admin tools are now in the Admin Tools modal (button near top) */}
 
         {configured && (
           <>
@@ -474,6 +481,26 @@ export default function ToolsScreen() {
           visible={showRigPicker}
           onClose={() => setShowRigPicker(false)}
         />
+
+        {/* ── Admin Tools full-screen modal ── */}
+        <Modal
+          visible={showAdminToolsModal}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setShowAdminToolsModal(false)}
+        >
+          <SafeAreaView style={{ flex: 1, backgroundColor: colors.bgPrimary }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }}>
+              <Text style={{ fontSize: 17, fontWeight: "700", color: colors.textPrimary }}>Admin Tools</Text>
+              <TouchableOpacity onPress={() => setShowAdminToolsModal(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={{ fontSize: 15, color: colors.accent }}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
+              <AdminToolsPanel colors={colors} collectors={collectors} tasks={tasks} />
+            </ScrollView>
+          </SafeAreaView>
+        </Modal>
       </Animated.View>
     </ScreenContainer>
   );

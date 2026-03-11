@@ -279,6 +279,7 @@ interface CollectFormCardProps {
   isSyncing: boolean;
   submitError: string | null;
   canSubmit: boolean;
+  adminViewMode: boolean;
   hasCarryover: boolean;
   carryoverCount: number;
   hasPendingReview: boolean;
@@ -310,7 +311,7 @@ interface CollectFormCardProps {
 }
 
 const CollectFormCard = React.memo(function CollectFormCard({
-  latestOpenTask, isSyncing, submitError, canSubmit, hasCarryover, carryoverCount,
+  latestOpenTask, isSyncing, submitError, canSubmit, adminViewMode, hasCarryover, carryoverCount,
   hasPendingReview, pendingReviewCount, colors, cardShadow, hoursToLog, notes,
   selectedCollectorName, isLoadingCollectors, isLoadingTasks,
   collectorOptions, taskOptions, selectedTaskName,
@@ -479,14 +480,14 @@ const CollectFormCard = React.memo(function CollectFormCard({
           color={hasValidHours ? colors.white : colors.complete}
           bgColor={hasValidHours ? colors.complete : colors.completeBg}
           onPress={() => onComplete(isWeb ? hoursRef.current : localHours, isWeb ? notesRef.current : localNotes)}
-          disabled={!hasValidHours} fullWidth testID="complete-btn" />
+          disabled={!hasValidHours || adminViewMode} fullWidth testID="complete-btn" />
       ) : (
         <ActionButton
           title="Assign Task"
           icon={<UserCheck size={17} color={colors.white} />}
           color={colors.white} bgColor={colors.accent}
           onPress={() => onAssign(isWeb ? notesRef.current : localNotes)}
-          disabled={!canSubmit} fullWidth testID="assign-btn" />
+          disabled={!canSubmit || adminViewMode} fullWidth testID="assign-btn" />
       )}
 
       {/* ── Cancel current task ───────────────────────────────── */}
@@ -578,6 +579,7 @@ export default function DashboardScreen() {
     refreshData,
     pendingSwitchRequests,
     assignRigForDay,
+    isAdmin,
   } = useCollection();
 
   // localHours/localNotes state has moved into CollectFormCard (React.memo).
@@ -592,14 +594,9 @@ export default function DashboardScreen() {
   const [showRigPicker, setShowRigPicker] = useState(false);
   const handleShowReview = useCallback(() => setShowReviewSheet(true), []);
 
-  // SF collectors: show SOD rig picker if no rig is assigned yet today.
+  // SF team detection (used for incoming switch-request banner only).
+  // The SOD rig picker is now in Tools — no auto-popup on the Collect tab.
   const isSFCollector = selectedCollector?.team === "SF";
-  useEffect(() => {
-    if (isSFCollector && selectedCollectorName && !selectedRig && configured) {
-      const t = setTimeout(() => setShowRigPicker(true), 600);
-      return () => clearTimeout(t);
-    }
-  }, [isSFCollector, selectedCollectorName, selectedRig, configured]);
 
   // Incoming switch requests (someone wants the SF collector's rig).
   const incomingSwitchRequests = useMemo(
@@ -908,22 +905,6 @@ export default function DashboardScreen() {
                 </View>
               )}
 
-              {/* ── SF rig picker shortcut ───────────────────────────── */}
-              {isSFCollector && !selectedRig && (
-                <TouchableOpacity
-                  style={[
-                    styles.carryoverBanner,
-                    { backgroundColor: colors.accentSoft, borderColor: colors.accentDim },
-                  ]}
-                  onPress={() => setShowRigPicker(true)}
-                  activeOpacity={0.8}
-                >
-                  <Radio size={14} color={colors.accent} />
-                  <Text style={[styles.carryoverBannerText, { color: colors.accent }]}>
-                    No rig assigned — tap to pick your rig for today
-                  </Text>
-                </TouchableOpacity>
-              )}
 
               {/* ── Incoming switch requests ──────────────────────────── */}
               {incomingSwitchRequests.map((req) => (
@@ -952,12 +933,23 @@ export default function DashboardScreen() {
                 </View>
               )}
 
+              {/* ── Admin view-mode banner ───────────────────────────── */}
+              {isAdmin && selectedCollectorName && (
+                <View style={[styles.carryoverBanner, { backgroundColor: colors.accentSoft, borderColor: colors.accentDim }]}>
+                  <UserCheck size={14} color={colors.accent} />
+                  <Text style={[styles.carryoverBannerText, { color: colors.accent }]}>
+                    Admin view — viewing {selectedCollectorName}. Switch off admin to submit.
+                  </Text>
+                </View>
+              )}
+
               {/* ── Form + actions (memoized — typing only re-renders CollectFormCard) */}
               <CollectFormCard
                 latestOpenTask={latestOpenTask}
                 isSyncing={isSyncing}
                 submitError={submitError}
                 canSubmit={canSubmit}
+                adminViewMode={isAdmin}
                 hasCarryover={hasCarryover}
                 carryoverCount={carryoverItems.length}
                 hasPendingReview={hasPendingReview}
