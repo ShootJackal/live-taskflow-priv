@@ -273,7 +273,40 @@ function ensureDeployEpoch_() {
 function handleForceServerRepull(collectorName, scope, reason) {
   var resetInfo = clearDerivedCaches_('manual_force_repull:' + safeStr(reason));
   var warm = handleRefreshCache(collectorName || '', scope || 'full');
-  return { reset: resetInfo, warmed: warm };
+  // If RS_WEB_APP_URL is set as a Script Property, also ping the RS import
+  // script so Redash → Sheet data is fresh before the TaskFlow cache rebuilds.
+  var rsSync = pingRSImportSync_();
+  return { reset: resetInfo, warmed: warm, rsSync: rsSync };
+}
+
+/**
+ * Calls the RS import script's web app endpoint to trigger an immediate sync
+ * of Redash data into Collector Actuals and Task Actuals sheets.
+ *
+ * Setup (one-time):
+ *   1. In your RS script (the Redash/SSOT spreadsheet), add a doGet handler
+ *      that calls RS_forceResyncNow() when action=sync (see DEPLOY_APPSCRIPT.md).
+ *   2. Deploy it as a Web App (Execute as: Me, Access: Anyone with link).
+ *   3. Copy the web app URL.
+ *   4. In THIS script's Script Properties, add:
+ *        Key:   RS_WEB_APP_URL
+ *        Value: https://script.google.com/macros/s/YOUR_RS_DEPLOYMENT_ID/exec
+ */
+function pingRSImportSync_() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var rsUrl = safeStr(props.getProperty('RS_WEB_APP_URL') || '').trim();
+    if (!rsUrl) return { skipped: true, reason: 'RS_WEB_APP_URL not set in Script Properties' };
+    var resp = UrlFetchApp.fetch(rsUrl + '?action=sync', {
+      method: 'GET',
+      muteHttpExceptions: true,
+      followRedirects: true,
+    });
+    return { status: resp.getResponseCode(), ok: resp.getResponseCode() === 200 };
+  } catch (e) {
+    // Non-fatal — TaskFlow cache still gets rebuilt even if RS ping fails.
+    return { error: String(e) };
+  }
 }
 
 function doGet(e) {
