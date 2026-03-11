@@ -288,10 +288,17 @@ export default function StatsScreen() {
   }, [leaderboardQuery.data]);
 
   const { sfEntries, mxEntries, regionStats } = useMemo(() => {
+    // SF first-name fallback: GAS may return MX for SF collectors whose rig
+    // was removed from the Collectors sheet (now using SOD rig system).
+    const SF_FIRST_NAMES = new Set(["travis", "tony", "veronika"]);
+    const isSFCollector = (name: string) =>
+      SF_FIRST_NAMES.has((name ?? "").toLowerCase().split(/\s+/)[0]);
+
     const sf: LeaderboardEntry[] = [];
     const mx: LeaderboardEntry[] = [];
     for (const e of leaderboard) {
-      if (e.region === "SF") sf.push({ ...e });
+      const region = e.region === "SF" || isSFCollector(e.collectorName) ? "SF" : "MX";
+      if (region === "SF") sf.push({ ...e, region: "SF" });
       else mx.push({ ...e, region: "MX" });
     }
     sf.sort((a, b) => b.hoursLogged - a.hoursLogged);

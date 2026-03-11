@@ -1,5 +1,5 @@
-import React, { useMemo } from "react";
-import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
+import React, { useMemo, useState } from "react";
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from "react-native";
 import { Check, Activity, AlertTriangle, FileText, Shield, Users, Star } from "lucide-react-native";
 import { useCollection } from "@/providers/CollectionProvider";
 import { useQuery } from "@tanstack/react-query";
@@ -22,6 +22,8 @@ export function AdminOverview({
   isAdmin: boolean;
 }) {
   const { configured } = useCollection();
+  const [showAllCollectors, setShowAllCollectors] = useState(false);
+  const COLLECTOR_PREVIEW = 3;
 
   // Admin dashboard data: admin-only (collector summary, task requirements, recollections).
   const adminQuery = useQuery<AdminDashboardData>({
@@ -145,13 +147,20 @@ export function AdminOverview({
           <View style={adminStyles.collectorHeader}>
             <Users size={12} color={colors.accent} />
             <Text style={[adminStyles.collectorTitle, { color: colors.accent }]}>
-              All Collectors ({data?.totalCollectors ?? data?.collectorSummary?.length ?? 0})
+              Collectors ({data?.totalCollectors ?? data?.collectorSummary?.length ?? 0})
             </Text>
             <Text style={[adminStyles.totalHours, { color: colors.complete }]}>
               {(data?.totalHoursUploaded ?? 0).toFixed(2)}h total
             </Text>
           </View>
-          {data.collectorSummary.map((c: CollectorSummary, idx: number) => (
+          {/* Star legend */}
+          <View style={adminStyles.starLegend}>
+            <Star size={9} color={colors.gold} />
+            <Text style={[adminStyles.starLegendText, { color: colors.textMuted }]}>
+              = Performance rating from your Collectors sheet (set manually per collector)
+            </Text>
+          </View>
+          {(showAllCollectors ? data.collectorSummary : data.collectorSummary.slice(0, COLLECTOR_PREVIEW)).map((c: CollectorSummary, idx: number) => (
             <View key={idx} style={[adminStyles.collectorRow, { borderBottomColor: colors.border }]}>
               <View style={adminStyles.collectorInfo}>
                 <Text style={[adminStyles.collectorName, { color: colors.textPrimary }]} numberOfLines={1}>{c.name}</Text>
@@ -168,6 +177,19 @@ export function AdminOverview({
               </View>
             </View>
           ))}
+          {data.collectorSummary.length > COLLECTOR_PREVIEW && (
+            <TouchableOpacity
+              onPress={() => setShowAllCollectors(v => !v)}
+              style={adminStyles.loadMoreBtn}
+              activeOpacity={0.7}
+            >
+              <Text style={[adminStyles.loadMoreText, { color: colors.accent }]}>
+                {showAllCollectors
+                  ? "Show less"
+                  : `Load ${data.collectorSummary.length - COLLECTOR_PREVIEW} more collectors`}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -265,6 +287,13 @@ const adminStyles = StyleSheet.create({
   collectorHours: { fontSize: DesignTokens.fontSize.footnote, fontWeight: "700" as const },
   ratingRow: { flexDirection: "row", alignItems: "center", gap: 3, marginTop: 2 },
   ratingText: { fontSize: DesignTokens.fontSize.caption2 },
+  starLegend: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    marginBottom: 8, paddingHorizontal: 2,
+  },
+  starLegendText: { fontSize: DesignTokens.fontSize.caption2, flex: 1, lineHeight: 14 },
+  loadMoreBtn: { paddingVertical: 10, alignItems: "center" },
+  loadMoreText: { fontSize: DesignTokens.fontSize.footnote, fontWeight: "500" as const },
   reqSection: {
     borderTopWidth: StyleSheet.hairlineWidth,
     marginTop: 14,
