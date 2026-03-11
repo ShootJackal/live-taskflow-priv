@@ -18,7 +18,7 @@ Both scripts point to the same spreadsheet, but each only allows its own action 
   - `getFullLog`
   - `getLiveAlerts`
   - submit write actions (`ASSIGN/COMPLETE/CANCEL/NOTE_ONLY`)
-  - meta actions: `SET_RIG`, `PUSH_ALERT`, `ADMIN_ASSIGN_TASK`, `ADMIN_CANCEL_TASK`, `ADMIN_EDIT_HOURS`, `GRANT_AWARD`, `CARRYOVER_REPORT`, `CARRYOVER_CANCEL`
+  - meta actions: `SET_RIG`, `PUSH_ALERT`, `CLEAR_ALL_ALERTS`, `ADMIN_ASSIGN_TASK`, `ADMIN_CANCEL_TASK`, `ADMIN_EDIT_HOURS`, `GRANT_AWARD`, `CARRYOVER_REPORT`, `CARRYOVER_CANCEL`
 
 ## Analytics Script
 
@@ -53,3 +53,16 @@ Optional fallback:
 - Keep both scripts on the same sheet file.
 - Core owns writes to source tabs.
 - Analytics handles volatile derived calculations and cache warming.
+
+## Alerts clear contract (canonical)
+
+Use an explicit meta action for clear-all alerts:
+
+- `POST` body: `{ "metaAction": "CLEAR_ALL_ALERTS" }`
+- Script route: **Core** (`scripts/appscript-core.gs`)
+- Success response shape:
+  - `{ "success": true, "data": { "success": true, "cleared": <number> }, "message": "All alerts cleared" }`
+
+Do **not** use `metaAction: "PUSH_ALERT"` with sentinel message values (for example `"__CLEAR_ALL__"`) for this behavior.
+
+Reference fixture: `scripts/contracts/alerts-clear.json`.
