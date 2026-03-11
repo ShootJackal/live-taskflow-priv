@@ -1,11 +1,11 @@
 {
   "expo": {
     "name": "TaskFlow",
-    "slug": "taskflow-er0rp8c",
+    "slug": "taskflow",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "rork-app",
+    "scheme": "taskflow",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -15,25 +15,20 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.rork.taskflow-er0rp8c"
+      "bundleIdentifier": "com.shootjackal.taskflow"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#1A0640"
       },
-      "package": "app.rork.taskflow_er0rp8c"
+      "package": "com.shootjackal.taskflow"
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      [
-        "expo-router",
-        {
-          "origin": "https://rork.com/"
-        }
-      ],
+      "expo-router",
       "expo-font",
       "expo-web-browser"
     ],

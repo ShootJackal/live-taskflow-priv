@@ -8,8 +8,8 @@ Do **Part 1** to save and push your app changes. Do **Part 2** to update the scr
 
 ### 1.1 Open Terminal
 
-- In Cursor: **Terminal → New Terminal** (or `` Ctrl+` `` / `` Cmd+` ``).
-- Make sure you’re in the project: `cd /path/to/RORK-WorkFlow` (if needed).
+- Open a terminal in your editor (e.g. `` Ctrl+` `` / `` Cmd+` ``).
+- Make sure you’re in the project: `cd /path/to/live-taskflow-priv` (if needed).
 
 ### 1.2 Check what will be committed
 
@@ -81,8 +81,8 @@ This updates the script that your Google Sheet runs so it matches the code in th
 2. **Select all**: **Cmd+A** (Mac) or **Ctrl+A** (Windows).
 3. **Delete** (Backspace or Delete) so the file is empty.
 4. On your computer, open the repo file:  
-   **`RORK-WorkFlow/scripts/appscript.gs`**  
-   (in Cursor or any editor).
+   **`live-taskflow-priv/scripts/appscript.gs`**  
+   (in your editor).
 5. In `appscript.gs`: **Cmd+A** / **Ctrl+A** to select all, then **Cmd+C** / **Ctrl+C** to copy.
 6. Back in the **Apps Script** browser tab, click in the empty editor and **Cmd+V** / **Ctrl+V** to paste.
 7. **Save**: **Cmd+S** / **Ctrl+S**, or click the disk icon. The title should show that the project is saved.
