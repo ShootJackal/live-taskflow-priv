@@ -727,29 +727,47 @@ export default function StatsScreen() {
         </View>
       )}
 
-      {isAdmin && adminStartPlan && (
+      {/* ── Today's focus: recent activity + tasks near completion ────── */}
+      {selectedCollectorName !== "" && (todayLog.length > 0 || recommendedTasks.some(t => (t.pct ?? 0) >= 0.6)) && (
         <View style={[styles.startPlanCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
           <View style={styles.startPlanHeader}>
-            <Target size={12} color={colors.alertYellow} />
-            <Text style={[styles.startPlanTitle, { color: colors.alertYellow }]}>
-              START OF DAY PLAN ({adminStartPlan.yesterday})
-            </Text>
+            <Target size={12} color={colors.accent} />
+            <Text style={[styles.startPlanTitle, { color: colors.accent }]}>Today's Focus</Text>
           </View>
-          {(["SF", "MX"] as const).map((region) => (
-            <View key={`plan_${region}`} style={styles.startPlanRegion}>
-              <Text style={[styles.startPlanRegionLabel, { color: region === "SF" ? colors.sfBlue : colors.mxOrange }]}>
-                {region} TEAM
-              </Text>
-              {(adminStartPlan.regions?.[region] ?? []).slice(0, 8).map((entry, idx) => (
-                <View key={`plan_${region}_${idx}`} style={[styles.startPlanRow, { borderBottomColor: colors.border }]}>
-                  <Text style={[styles.startPlanCollector, { color: colors.textPrimary }]}>{entry.collector}</Text>
-                  <Text style={[styles.startPlanTasks, { color: colors.textSecondary }]} numberOfLines={2}>
-                    {(entry.suggested ?? []).length > 0 ? (entry.suggested ?? []).join(" · ") : "No task suggestion"}
+
+          {/* Recent collections today */}
+          {todayLog.length > 0 && (
+            <View style={styles.startPlanRegion}>
+              <Text style={[styles.startPlanRegionLabel, { color: colors.complete }]}>COLLECTED TODAY</Text>
+              {todayLog.slice(0, 4).map((entry, idx) => (
+                <View key={`tod_${idx}`} style={[styles.startPlanRow, { borderBottomColor: colors.border }]}>
+                  <Text style={[styles.startPlanCollector, { color: colors.textPrimary }]} numberOfLines={1}>
+                    {entry.taskName}
+                  </Text>
+                  <Text style={[styles.startPlanTasks, { color: entry.status === "Completed" ? colors.complete : colors.accent }]}>
+                    {entry.status} · {Number(entry.loggedHours) > 0 ? `${Number(entry.loggedHours).toFixed(2)}h` : ""}
                   </Text>
                 </View>
               ))}
             </View>
-          ))}
+          )}
+
+          {/* Tasks close to done */}
+          {recommendedTasks.filter(t => (t.pct ?? 0) >= 0.6).length > 0 && (
+            <View style={[styles.startPlanRegion, todayLog.length > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, marginTop: 8, paddingTop: 8 }]}>
+              <Text style={[styles.startPlanRegionLabel, { color: colors.mxOrange }]}>CLOSE TO DONE</Text>
+              {recommendedTasks.filter(t => (t.pct ?? 0) >= 0.6).slice(0, 4).map((task, idx) => (
+                <View key={`near_${idx}`} style={[styles.startPlanRow, { borderBottomColor: colors.border }]}>
+                  <Text style={[styles.startPlanCollector, { color: colors.textPrimary }]} numberOfLines={1}>
+                    {task.taskName}
+                  </Text>
+                  <Text style={[styles.startPlanTasks, { color: colors.mxOrange }]}>
+                    {Math.round((task.pct ?? 0) * 100)}% done · {Number(task.remainingHours).toFixed(1)}h left
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
       )}
 

@@ -490,13 +490,13 @@ export default function ToolsScreen() {
           onRequestClose={() => setShowAdminToolsModal(false)}
         >
           <SafeAreaView style={{ flex: 1, backgroundColor: colors.bgPrimary }}>
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, backgroundColor: colors.bgPrimary }}>
               <Text style={{ fontSize: 17, fontWeight: "700", color: colors.textPrimary }}>Admin Tools</Text>
               <TouchableOpacity onPress={() => setShowAdminToolsModal(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <Text style={{ fontSize: 15, color: colors.accent }}>Done</Text>
               </TouchableOpacity>
             </View>
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
+            <ScrollView style={{ flex: 1, backgroundColor: colors.bgPrimary }} contentContainerStyle={{ padding: 12, paddingBottom: 60, backgroundColor: colors.bgPrimary }} showsVerticalScrollIndicator={false}>
               <AdminToolsPanel colors={colors} collectors={collectors} tasks={tasks} />
             </ScrollView>
           </SafeAreaView>
