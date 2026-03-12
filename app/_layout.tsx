@@ -13,6 +13,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import UpdateBanner from "@/components/UpdateBanner";
 import { useFonts, Lexend_400Regular, Lexend_500Medium, Lexend_700Bold } from "@expo-google-fonts/lexend";
 import { Image } from "expo-image";
+import SpeedInsights from "@/components/SpeedInsights";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -207,6 +208,7 @@ export default function RootLayout() {
           </UiPrefsProvider>
         </ThemeProvider>
       </LocaleProvider>
+      <SpeedInsights />
     </QueryClientProvider>
   );
 }
