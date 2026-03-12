@@ -1,6 +1,11 @@
 {
   "framework": null,
   "installCommand": "npm install --legacy-peer-deps",
+  "build": {
+    "env": {
+      "NODE_VERSION": "22"
+    }
+  },
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "dist",
   "functions": {
