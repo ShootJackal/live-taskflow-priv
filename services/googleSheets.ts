@@ -21,6 +21,7 @@ import {
 } from "@/types";
 import { normalizeCollectorName } from "@/utils/normalize";
 import { log } from "@/utils/logger";
+import { extractTaskProject } from "@/utils/taskProject";
 
 // Single deployment — all actions route through this URL.
 // EXPO_PUBLIC_GOOGLE_SCRIPT_URL in your env overrides this at build time.
@@ -555,6 +556,10 @@ interface RawCollector {
 
 interface RawTask {
   name: string;
+  label?: string;
+  taskId?: string;
+  taskID?: string;
+  id?: string;
 }
 
 export async function fetchCollectors(): Promise<Collector[]> {
@@ -586,11 +591,18 @@ export async function fetchCollectors(): Promise<Collector[]> {
 
 export async function fetchTasks(): Promise<Task[]> {
   const raw = await apiGet<RawTask[]>("getTasks");
-  return raw.map((t, i) => ({
-    id: `t_${i}_${t.name.replace(/\s/g, "_")}`,
-    name: t.name,
-    label: t.name,
-  }));
+  return raw.map((t, i) => {
+    const taskName = String(t.name ?? "").trim();
+    const taskId = String(t.taskId ?? t.taskID ?? t.id ?? "").trim();
+    const projectMeta = extractTaskProject(taskName, taskId);
+    return {
+      id: `t_${i}_${taskName.replace(/\s/g, "_")}`,
+      name: taskName,
+      label: String(t.label ?? taskName),
+      taskId: taskId || undefined,
+      project: projectMeta.project,
+    };
+  });
 }
 
 export async function fetchTodayLog(collectorName: string): Promise<LogEntry[]> {

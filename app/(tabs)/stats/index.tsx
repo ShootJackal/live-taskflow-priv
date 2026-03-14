@@ -17,6 +17,7 @@ import { useCollection } from "@/providers/CollectionProvider";
 import { useTheme } from "@/providers/ThemeProvider";
 import { DesignTokens } from "@/constants/colors";
 import ScreenContainer from "@/components/ScreenContainer";
+import SelectPicker from "@/components/SelectPicker";
 import {
   fetchCollectorStats,
   fetchCollectorProfile,
@@ -30,6 +31,12 @@ import {
 } from "@/services/googleSheets";
 import { CollectorStats, LeaderboardEntry, TaskActualRow, CollectorProfile, AdminStartPlanData, DailyCarryoverItem } from "@/types";
 import { normalizeCollectorName } from "@/utils/normalize";
+import {
+  extractTaskProject,
+  getProjectFilterOptions,
+  matchesProjectFilter,
+  type ProjectFilter,
+} from "@/utils/taskProject";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 
@@ -203,12 +210,17 @@ export default function StatsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [lbTab, setLbTab] = useState<LeaderboardTab>("combined");
   const [lbPeriod, setLbPeriod] = useState<LeaderboardPeriod>("thisWeek");
+  const [projectFilter, setProjectFilter] = useState<ProjectFilter>("overall");
   const [lbVisibleCount, setLbVisibleCount] = useState(10);
   const [carryoverPendingId, setCarryoverPendingId] = useState<string | null>(null);
   const [carryoverHoursInput, setCarryoverHoursInput] = useState<Record<string, string>>({});
   const syncPulse = useRef(new Animated.Value(0)).current;
 
   const normalizedName = useMemo(() => normalizeCollectorName(selectedCollectorName), [selectedCollectorName]);
+  const projectOptions = useMemo(
+    () => getProjectFilterOptions().map((opt) => ({ value: opt.value, label: opt.label })),
+    []
+  );
 
   const statsQuery = useQuery<CollectorStats>({
     queryKey: ["collectorStats", selectedCollectorName],
@@ -272,8 +284,13 @@ export default function StatsScreen() {
   // Only count entries assigned today. Carryover tasks from previous days
   // (assignedDate !== today) must not inflate today's summary numbers.
   const todayOnlyLog = useMemo(
-    () => todayLog.filter((e) => e.assignedDate === todayDateStr),
-    [todayLog, todayDateStr],
+    () =>
+      todayLog.filter((e) => {
+        if (e.assignedDate !== todayDateStr) return false;
+        const project = extractTaskProject(e.taskName, e.taskId).project;
+        return matchesProjectFilter(projectFilter, project);
+      }),
+    [todayLog, todayDateStr, projectFilter],
   );
 
   const localStats = useMemo(() => {
@@ -405,6 +422,22 @@ export default function StatsScreen() {
     }
   }, [taskActualsQuery.data, todayLog]);
 
+  const filteredRecommendedTasks = useMemo(
+    () =>
+      recommendedTasks.filter((task) =>
+        matchesProjectFilter(projectFilter, extractTaskProject(task.taskName, task.taskId).project)
+      ),
+    [recommendedTasks, projectFilter]
+  );
+
+  const filteredProfileTopTasks = useMemo(
+    () =>
+      (statsQuery.data?.topTasks ?? []).filter((task) =>
+        matchesProjectFilter(projectFilter, extractTaskProject(task.name).project)
+      ),
+    [statsQuery.data?.topTasks, projectFilter]
+  );
+
   const dailyCarryover = useMemo(() => dailyCarryoverQuery.data ?? [], [dailyCarryoverQuery.data]);
 
   const handleCarryoverAction = useCallback(async (
@@ -476,10 +509,13 @@ export default function StatsScreen() {
   // pipeline cycle and reads 0 for the current day. Fall back to the sum of
   // today-only logged hours so the stat is never misleadingly empty.
   const todayActualUploaded = useMemo(() => {
+    if (projectFilter !== "overall") {
+      return localStats.totalLogged;
+    }
     const fromGas = Number(stats?.todayActualHours);
     if (Number.isFinite(fromGas) && fromGas > 0) return fromGas;
     return localStats.totalLogged;
-  }, [stats?.todayActualHours, localStats.totalLogged]);
+  }, [stats?.todayActualHours, localStats.totalLogged, projectFilter]);
   const cardShadow = useMemo(() => ({
     shadowColor: colors.shadow,
     ...DesignTokens.shadow.float,
@@ -498,6 +534,7 @@ export default function StatsScreen() {
     { key: "lastWeek", label: "Last Week" },
   ];
   const periodLabel = lbPeriod === "thisWeek" ? "This Week" : "Last Week";
+  const projectScopeLabel = projectFilter === "overall" ? "Overall" : projectFilter;
 
   const currentLbEntries = lbTab === "sf" ? sfEntries : lbTab === "mx" ? mxEntries : leaderboard;
   const visibleLbEntries = useMemo(
@@ -585,9 +622,21 @@ export default function StatsScreen() {
         </Text>
       </View>
 
+      <View style={[styles.projectFilterCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
+        <Text style={[styles.projectFilterTitle, { color: colors.textSecondary }]}>System Overview Scope</Text>
+        <SelectPicker
+          label=""
+          options={projectOptions}
+          selectedValue={projectFilter}
+          onValueChange={(value) => setProjectFilter(value as ProjectFilter)}
+          placeholder="Overall (All Projects)"
+          testID="stats-project-filter"
+        />
+      </View>
+
       <View style={styles.sectionHeader}>
         <Calendar size={12} color={colors.accent} />
-        <Text style={[styles.sectionLabel, { color: colors.accent }]}>Today</Text>
+        <Text style={[styles.sectionLabel, { color: colors.accent }]}>{`Today · ${projectScopeLabel}`}</Text>
       </View>
 
       <View style={styles.heroGrid}>
@@ -728,7 +777,7 @@ export default function StatsScreen() {
       )}
 
       {/* ── Today's focus: recent activity + tasks near completion ────── */}
-      {selectedCollectorName !== "" && (todayLog.length > 0 || recommendedTasks.some(t => (t.pct ?? 0) >= 0.6)) && (
+      {selectedCollectorName !== "" && (todayOnlyLog.length > 0 || filteredRecommendedTasks.some(t => (t.pct ?? 0) >= 0.6)) && (
         <View style={[styles.startPlanCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
           <View style={styles.startPlanHeader}>
             <Target size={12} color={colors.accent} />
@@ -736,10 +785,10 @@ export default function StatsScreen() {
           </View>
 
           {/* Recent collections today */}
-          {todayLog.length > 0 && (
+          {todayOnlyLog.length > 0 && (
             <View style={styles.startPlanRegion}>
               <Text style={[styles.startPlanRegionLabel, { color: colors.complete }]}>COLLECTED TODAY</Text>
-              {todayLog.slice(0, 4).map((entry, idx) => (
+              {todayOnlyLog.slice(0, 4).map((entry, idx) => (
                 <View key={`tod_${idx}`} style={[styles.startPlanRow, { borderBottomColor: colors.border }]}>
                   <Text style={[styles.startPlanCollector, { color: colors.textPrimary }]} numberOfLines={1}>
                     {entry.taskName}
@@ -753,10 +802,10 @@ export default function StatsScreen() {
           )}
 
           {/* Tasks close to done */}
-          {recommendedTasks.filter(t => (t.pct ?? 0) >= 0.6).length > 0 && (
-            <View style={[styles.startPlanRegion, todayLog.length > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, marginTop: 8, paddingTop: 8 }]}>
+          {filteredRecommendedTasks.filter(t => (t.pct ?? 0) >= 0.6).length > 0 && (
+            <View style={[styles.startPlanRegion, todayOnlyLog.length > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, marginTop: 8, paddingTop: 8 }]}>
               <Text style={[styles.startPlanRegionLabel, { color: colors.mxOrange }]}>CLOSE TO DONE</Text>
-              {recommendedTasks.filter(t => (t.pct ?? 0) >= 0.6).slice(0, 4).map((task, idx) => (
+              {filteredRecommendedTasks.filter(t => (t.pct ?? 0) >= 0.6).slice(0, 4).map((task, idx) => (
                 <View key={`near_${idx}`} style={[styles.startPlanRow, { borderBottomColor: colors.border }]}>
                   <Text style={[styles.startPlanCollector, { color: colors.textPrimary }]} numberOfLines={1}>
                     {task.taskName}
@@ -803,14 +852,16 @@ export default function StatsScreen() {
         </>
       )}
 
-      {recommendedTasks.length > 0 && (
+      {filteredRecommendedTasks.length > 0 && (
         <View style={[styles.recommendCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
           <View style={styles.recommendHeader}>
             <Target size={12} color={colors.mxOrange} />
             <Text style={[styles.recommendTitle, { color: colors.mxOrange }]}>Recommended Tasks</Text>
           </View>
-          {recommendedTasks.map((task, idx) => {
+          {filteredRecommendedTasks.map((task, idx) => {
             const pctVal = Math.round((task.pct ?? 0) * 100);
+            const projectMeta = extractTaskProject(task.taskName, task.taskId);
+            const projectTag = projectMeta.taskCode || (projectMeta.project === "OTHER" ? "OTHER" : projectMeta.project);
             const labelColor = task.isActive
               ? colors.complete
               : task.isMine
@@ -828,14 +879,19 @@ export default function StatsScreen() {
             return (
               <View
                 key={`rec_${idx}`}
-                style={[styles.recommendRow, { borderBottomColor: colors.border }, idx === recommendedTasks.length - 1 && styles.recommendLast]}
+                style={[styles.recommendRow, { borderBottomColor: colors.border }, idx === filteredRecommendedTasks.length - 1 && styles.recommendLast]}
               >
                 <View style={styles.recommendRowLeft}>
-                  {tag && (
-                    <Text style={[styles.recommendTag, { color: labelColor, borderColor: labelColor + "40" }]}>
-                      {tag}
+                  <View style={styles.recommendTagRow}>
+                    {tag && (
+                      <Text style={[styles.recommendTag, { color: labelColor, borderColor: labelColor + "40" }]}>
+                        {tag}
+                      </Text>
+                    )}
+                    <Text style={[styles.projectTag, { color: colors.accent, borderColor: colors.accent + "30" }]}>
+                      {projectTag}
                     </Text>
-                  )}
+                  </View>
                   <Text style={[styles.recommendName, { color: colors.textPrimary }]} numberOfLines={1}>
                     {task.taskName}
                   </Text>
@@ -1039,15 +1095,20 @@ export default function StatsScreen() {
             </Text>
           </View>
 
-          {stats.topTasks && stats.topTasks.length > 0 && (
+          {filteredProfileTopTasks.length > 0 && (
             <View style={[styles.topTasksCard, { backgroundColor: colors.bgCard, ...cardShadow }]}>
               <Text style={[styles.topTasksTitle, { color: colors.textMuted }]}>Recent Tasks</Text>
-              {stats.topTasks.slice(0, 8).map((task, idx) => {
+              {filteredProfileTopTasks.slice(0, 8).map((task, idx) => {
+                const projectMeta = extractTaskProject(task.name);
+                const projectTag = projectMeta.taskCode || (projectMeta.project === "OTHER" ? "OTHER" : projectMeta.project);
                 const dotColor = task.status === "Completed" ? colors.statusActive : task.status === "Canceled" ? colors.statusCancelled : colors.accent;
                 return (
-                  <View key={`task_${idx}`} style={[styles.topTaskRow, { borderBottomColor: colors.border }, idx === Math.min(stats.topTasks.length - 1, 7) && styles.topTaskLast]}>
+                  <View key={`task_${idx}`} style={[styles.topTaskRow, { borderBottomColor: colors.border }, idx === Math.min(filteredProfileTopTasks.length - 1, 7) && styles.topTaskLast]}>
                     <View style={[styles.topTaskDot, { backgroundColor: dotColor }]} />
-                    <Text style={[styles.topTaskName, { color: colors.textSecondary }]} numberOfLines={1}>{task.name}</Text>
+                    <View style={styles.topTaskNameWrap}>
+                      <Text style={[styles.projectTag, { color: colors.accent, borderColor: colors.accent + "30" }]}>{projectTag}</Text>
+                      <Text style={[styles.topTaskName, { color: colors.textSecondary }]} numberOfLines={1}>{task.name}</Text>
+                    </View>
                     <Text style={[styles.topTaskHours, { color: dotColor }]}>{Number(task.hours).toFixed(2)}h</Text>
                   </View>
                 );
@@ -1130,6 +1191,17 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
     marginTop: 3,
     marginLeft: 38,
+  },
+  projectFilterCard: {
+    borderRadius: DesignTokens.radius.xl,
+    padding: DesignTokens.spacing.md,
+    ...DesignTokens.shadow.float,
+  },
+  projectFilterTitle: {
+    fontSize: DesignTokens.fontSize.caption1,
+    fontWeight: "600" as const,
+    marginBottom: 8,
+    letterSpacing: 0.3,
   },
   rigBadge: {
     fontSize: DesignTokens.fontSize.caption1,
@@ -1425,6 +1497,7 @@ const styles = StyleSheet.create({
   },
   recommendLast: { borderBottomWidth: 0 },
   recommendRowLeft: { flex: 1, gap: 2 },
+  recommendTagRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   recommendTag: {
     alignSelf: "flex-start",
     fontSize: DesignTokens.fontSize.caption2,
@@ -1433,6 +1506,16 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     paddingHorizontal: 5,
     paddingVertical: 1,
+  },
+  projectTag: {
+    alignSelf: "flex-start",
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "700" as const,
+    borderWidth: 1,
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    letterSpacing: 0.2,
   },
   recommendName: {
     fontSize: DesignTokens.fontSize.footnote,
@@ -1522,6 +1605,7 @@ const styles = StyleSheet.create({
   },
   topTaskLast: { borderBottomWidth: 0 },
   topTaskDot: { width: 6, height: 6, borderRadius: 3 },
+  topTaskNameWrap: { flex: 1, flexDirection: "row", alignItems: "center", gap: 6 },
   topTaskName: { flex: 1, fontSize: DesignTokens.fontSize.caption1 },
   topTaskHours: { fontSize: DesignTokens.fontSize.caption1, fontWeight: "600" as const },
   empty: { flex: 1, alignItems: "center", justifyContent: "center", padding: 40, gap: 10 },
