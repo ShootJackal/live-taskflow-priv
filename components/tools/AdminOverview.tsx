@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from "rea
 import { Check, Activity, AlertTriangle, FileText, Shield, Users, Star } from "lucide-react-native";
 import { useCollection } from "@/providers/CollectionProvider";
 import { useQuery } from "@tanstack/react-query";
+import SelectPicker from "@/components/SelectPicker";
 import {
   normalizeTaskStatus,
   COMPLETED_TASK_STATUSES,
@@ -13,6 +14,12 @@ import { fetchAdminDashboardData, fetchTaskActualsData } from "@/services/google
 import type { AdminDashboardData, TaskActualRow, CollectorSummary } from "@/types";
 import type { ThemeColors } from "@/constants/colors";
 import { DesignTokens } from "@/constants/colors";
+import {
+  extractTaskProject,
+  getProjectFilterOptions,
+  matchesProjectFilter,
+  type ProjectFilter,
+} from "@/utils/taskProject";
 
 export function AdminOverview({
   colors,
@@ -23,7 +30,12 @@ export function AdminOverview({
 }) {
   const { configured } = useCollection();
   const [showAllCollectors, setShowAllCollectors] = useState(false);
+  const [projectFilter, setProjectFilter] = useState<ProjectFilter>("overall");
   const COLLECTOR_PREVIEW = 3;
+  const projectOptions = useMemo(
+    () => getProjectFilterOptions().map((option) => ({ value: option.value, label: option.label })),
+    []
+  );
 
   // Admin dashboard data: admin-only (collector summary, task requirements, recollections).
   const adminQuery = useQuery<AdminDashboardData>({
@@ -48,12 +60,15 @@ export function AdminOverview({
 
   const derivedCounts = useMemo(() => {
     if (taskActuals.length === 0) return null;
+    const filtered = taskActuals.filter((task) =>
+      matchesProjectFilter(projectFilter, extractTaskProject(task.taskName, task.taskId).project)
+    );
     let totalTasks = 0;
     let completedTasks = 0;
     let recollectTasks = 0;
     let inProgressTasks = 0;
 
-    for (const task of taskActuals) {
+    for (const task of filtered) {
       totalTasks += 1;
       const status = normalizeTaskStatus(task.status);
       const remainingHours = Number(task.remainingHours) || 0;
@@ -72,7 +87,7 @@ export function AdminOverview({
     }
 
     return { totalTasks, completedTasks, recollectTasks, inProgressTasks };
-  }, [taskActuals]);
+  }, [taskActuals, projectFilter]);
 
   const isLoading = taskActualsQuery.isLoading || (isAdmin && adminQuery.isLoading);
   if (isLoading) {
@@ -101,6 +116,20 @@ export function AdminOverview({
   ];
 
   const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  const filteredRecollections = useMemo(
+    () =>
+      (data?.recollections ?? []).filter((taskName) =>
+        matchesProjectFilter(projectFilter, extractTaskProject(taskName).project)
+      ),
+    [data?.recollections, projectFilter]
+  );
+  const filteredTaskRequirements = useMemo(
+    () =>
+      (data?.taskRequirements ?? []).filter((req) =>
+        matchesProjectFilter(projectFilter, extractTaskProject(req.taskName).project)
+      ),
+    [data?.taskRequirements, projectFilter]
+  );
 
   return (
     <View style={[adminStyles.card, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
@@ -113,6 +142,16 @@ export function AdminOverview({
         </View>
         <Text style={[adminStyles.rateText, { color: colors.complete }]}>{completionRate}%</Text>
       </View>
+      <View style={adminStyles.filterRow}>
+        <SelectPicker
+          label=""
+          options={projectOptions}
+          selectedValue={projectFilter}
+          onValueChange={(value) => setProjectFilter(value as ProjectFilter)}
+          placeholder="Overall (All Projects)"
+          testID="system-overview-project-filter"
+        />
+      </View>
 
       <View style={adminStyles.grid}>
         {items.map((item, idx) => (
@@ -124,19 +163,19 @@ export function AdminOverview({
         ))}
       </View>
 
-      {data?.recollections && data.recollections.length > 0 && (
+      {filteredRecollections.length > 0 && (
         <View style={[adminStyles.recollectSection, { borderTopColor: colors.border }]}>
           <Text style={[adminStyles.recollectTitle, { color: colors.cancel }]}>
-            Pending Recollections ({data.recollections.length})
+            Pending Recollections ({filteredRecollections.length})
           </Text>
-          {data.recollections.slice(0, 5).map((item, idx) => (
+          {filteredRecollections.slice(0, 5).map((item, idx) => (
             <Text key={idx} style={[adminStyles.recollectItem, { color: colors.textSecondary }]} numberOfLines={1}>
               {item}
             </Text>
           ))}
-          {data.recollections.length > 5 && (
+          {filteredRecollections.length > 5 && (
             <Text style={[adminStyles.recollectMore, { color: colors.textMuted }]}>
-              + {data.recollections.length - 5} more
+              + {filteredRecollections.length - 5} more
             </Text>
           )}
         </View>
@@ -193,20 +232,20 @@ export function AdminOverview({
         </View>
       )}
 
-      {isAdmin && data?.taskRequirements && data.taskRequirements.length > 0 && (
+      {isAdmin && filteredTaskRequirements.length > 0 && (
         <View style={[adminStyles.reqSection, { borderTopColor: colors.border }]}>
           <Text style={[adminStyles.reqTitle, { color: colors.mxOrange }]}>
-            Task Requirements ({data.taskRequirements.length})
+            Task Requirements ({filteredTaskRequirements.length})
           </Text>
-          {data.taskRequirements.slice(0, 10).map((req, idx) => (
+          {filteredTaskRequirements.slice(0, 10).map((req, idx) => (
             <View key={idx} style={[adminStyles.reqRow, { borderBottomColor: colors.border }]}>
               <Text style={[adminStyles.reqName, { color: colors.textSecondary }]} numberOfLines={1}>{req.taskName}</Text>
               <Text style={[adminStyles.reqHours, { color: colors.mxOrange }]}>{Number(req.requiredGoodHours).toFixed(2)}h req</Text>
             </View>
           ))}
-          {data.taskRequirements.length > 10 && (
+          {filteredTaskRequirements.length > 10 && (
             <Text style={[adminStyles.recollectMore, { color: colors.textMuted }]}>
-              + {data.taskRequirements.length - 10} more tasks
+              + {filteredTaskRequirements.length - 10} more tasks
             </Text>
           )}
         </View>
@@ -230,6 +269,7 @@ const adminStyles = StyleSheet.create({
     textTransform: "uppercase",
   },
   rateText: { fontSize: DesignTokens.fontSize.callout, fontWeight: "700" as const },
+  filterRow: { marginBottom: 10 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
   gridItem: {
     flex: 1,

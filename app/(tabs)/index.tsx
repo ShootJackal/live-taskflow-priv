@@ -40,6 +40,13 @@ import { respondRigSwitch } from "@/services/googleSheets";
 import { useQueryClient } from "@tanstack/react-query";
 import type { LogEntry, RigSwitchRequest } from "@/types";
 import type { ThemeColors } from "@/constants/colors";
+import {
+  buildTaskProjectLabel,
+  extractTaskProject,
+  getProjectFilterOptions,
+  matchesProjectFilter,
+  type ProjectFilter,
+} from "@/utils/taskProject";
 // ─── Log entry row ───────────────────────────────────────────────────────────
 
 const LogEntryRow = React.memo(function LogEntryRow({
@@ -53,6 +60,8 @@ const LogEntryRow = React.memo(function LogEntryRow({
   colors: ThemeColors;
   isLast: boolean;
 }) {
+  const projectMeta = extractTaskProject(entry.taskName, entry.taskId);
+  const projectTag = projectMeta.taskCode || (projectMeta.project === "OTHER" ? "" : projectMeta.project);
   const isClosed = entry.status === "Completed" || entry.status === "Canceled";
   const hasTaskProgress =
     typeof entry.taskGoodHours === "number" ||
@@ -98,6 +107,21 @@ const LogEntryRow = React.memo(function LogEntryRow({
                 {entry.status}
               </Text>
             </View>
+            {projectTag !== "" && (
+              <View
+                style={[
+                  logStyles.projectBadge,
+                  {
+                    backgroundColor: colors.accentSoft,
+                    borderColor: colors.accentDim,
+                  },
+                ]}
+              >
+                <Text style={[logStyles.projectBadgeText, { color: colors.accent }]}>
+                  {projectTag}
+                </Text>
+              </View>
+            )}
             {Number(entry.loggedHours) > 0 && (
               <Text style={[logStyles.hours, { color: colors.textMuted }]}>
                 {Number(entry.loggedHours).toFixed(2)}h logged
@@ -168,6 +192,17 @@ const logStyles = StyleSheet.create({
   statusText: {
     fontSize: DesignTokens.fontSize.caption1,
     fontWeight: "600" as const,
+  },
+  projectBadge: {
+    borderRadius: DesignTokens.radius.xs,
+    borderWidth: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  projectBadgeText: {
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "700" as const,
+    letterSpacing: 0.2,
   },
   hours: { fontSize: DesignTokens.fontSize.caption1 },
   taskSnapshot: {
@@ -292,12 +327,15 @@ interface CollectFormCardProps {
   isLoadingCollectors: boolean;
   isLoadingTasks: boolean;
   collectorOptions: { value: string; label: string }[];
+  projectOptions: { value: string; label: string }[];
+  selectedProjectFilter: string;
   taskOptions: { value: string; label: string }[];
   selectedTaskName: string;
   showTaskSearch: boolean;
   taskSearch: string;
   searchAnim: Animated.Value;
   selectCollector: (name: string) => void;
+  onSelectProjectFilter: (value: string) => void;
   setSelectedTaskName: (name: string) => void;
   toggleTaskSearch: () => void;
   setTaskSearch: (q: string) => void;
@@ -314,9 +352,9 @@ const CollectFormCard = React.memo(function CollectFormCard({
   latestOpenTask, isSyncing, submitError, canSubmit, adminViewMode, hasCarryover, carryoverCount,
   hasPendingReview, pendingReviewCount, colors, cardShadow, hoursToLog, notes,
   selectedCollectorName, isLoadingCollectors, isLoadingTasks,
-  collectorOptions, taskOptions, selectedTaskName,
+  collectorOptions, projectOptions, selectedProjectFilter, taskOptions, selectedTaskName,
   showTaskSearch, taskSearch, searchAnim,
-  selectCollector, setSelectedTaskName, toggleTaskSearch, setTaskSearch,
+  selectCollector, onSelectProjectFilter, setSelectedTaskName, toggleTaskSearch, setTaskSearch,
   onAssign, onComplete, onCancel, onAddNote, setHoursToLog, setNotes, onShowReview,
 }: CollectFormCardProps) {
   // On web: use refs + minimal state to avoid controlled-input focus loss.
@@ -389,6 +427,23 @@ const CollectFormCard = React.memo(function CollectFormCard({
             <View style={[styles.insetSeparator, { backgroundColor: colors.border }]} />
           </>
         )}
+
+        {/* Project field */}
+        <View style={styles.formRow}>
+          <View style={styles.formRowContent}>
+            <Text style={[styles.formRowLabel, { color: colors.textSecondary, marginBottom: 4 }]}>Project</Text>
+            <SelectPicker
+              label=""
+              options={projectOptions}
+              selectedValue={selectedProjectFilter}
+              onValueChange={onSelectProjectFilter}
+              placeholder="Overall (All Projects)"
+              testID="project-picker"
+            />
+          </View>
+        </View>
+
+        <View style={[styles.insetSeparator, { backgroundColor: colors.border }]} />
 
         {/* Task field */}
         <View style={styles.formRow}>
@@ -587,6 +642,7 @@ export default function DashboardScreen() {
   // which was causing keyboard/focus loss on React Native Web.
 
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedProjectFilter, setSelectedProjectFilter] = useState<ProjectFilter>("overall");
   const [taskSearch, setTaskSearch] = useState("");
   const [showTaskSearch, setShowTaskSearch] = useState(false);
   const [logVisibleCount, setLogVisibleCount] = useState(5);
@@ -628,16 +684,34 @@ export default function DashboardScreen() {
     [collectors]
   );
 
+  const projectOptions = useMemo(
+    () => getProjectFilterOptions().map((opt) => ({ value: opt.value, label: opt.label })),
+    []
+  );
+
   const taskOptions = useMemo(() => {
-    const allTasks = tasks.map((t) => ({ value: t.name, label: t.label }));
+    const filteredByProject = tasks.filter((task) => {
+      const meta = extractTaskProject(task.name, task.taskId);
+      return matchesProjectFilter(selectedProjectFilter, meta.project);
+    });
+    const allTasks = filteredByProject.map((t) => ({
+      value: t.name,
+      label: buildTaskProjectLabel(t.label || t.name, t.taskId),
+    }));
     if (!taskSearch.trim()) return allTasks;
     const q = taskSearch.toLowerCase();
     return allTasks.filter((t) => t.label.toLowerCase().includes(q));
-  }, [tasks, taskSearch]);
+  }, [tasks, taskSearch, selectedProjectFilter]);
 
   // Assign only needs collector + task. Hours are managed inside CollectFormCard.
   const canSubmit = !!selectedCollectorName && !!selectedTaskName;
   const latestOpenTask = openTasks.length > 0 ? openTasks[0] : null;
+  const latestOpenTaskProjectTag = latestOpenTask
+    ? (() => {
+        const meta = extractTaskProject(latestOpenTask.taskName, latestOpenTask.taskId);
+        return meta.taskCode || (meta.project === "OTHER" ? "" : meta.project);
+      })()
+    : "";
 
   const toggleTaskSearch = useCallback(() => {
     const next = !showTaskSearch;
@@ -736,6 +810,13 @@ export default function DashboardScreen() {
   useEffect(() => {
     setLogVisibleCount(5);
   }, [selectedCollectorName]);
+
+  useEffect(() => {
+    if (!selectedTaskName) return;
+    if (!taskOptions.some((opt) => opt.value === selectedTaskName)) {
+      setSelectedTaskName("");
+    }
+  }, [selectedTaskName, taskOptions, setSelectedTaskName]);
 
   useEffect(() => {
     setLogVisibleCount((prev) => {
@@ -884,6 +965,13 @@ export default function DashboardScreen() {
                     ]}
                   />
                   <View style={styles.openTaskInfo}>
+                    {latestOpenTaskProjectTag !== "" && (
+                      <View style={[styles.openTaskProjectBadge, { backgroundColor: colors.accent + "22" }]}>
+                        <Text style={[styles.openTaskProjectText, { color: colors.accent }]}>
+                          {latestOpenTaskProjectTag}
+                        </Text>
+                      </View>
+                    )}
                     <Text
                       style={[
                         styles.openTaskLabel,
@@ -962,12 +1050,15 @@ export default function DashboardScreen() {
                 isLoadingCollectors={isLoadingCollectors}
                 isLoadingTasks={isLoadingTasks}
                 collectorOptions={collectorOptions}
+                projectOptions={projectOptions}
+                selectedProjectFilter={selectedProjectFilter}
                 taskOptions={taskOptions}
                 selectedTaskName={selectedTaskName}
                 showTaskSearch={showTaskSearch}
                 taskSearch={taskSearch}
                 searchAnim={searchAnim}
                 selectCollector={selectCollector}
+                onSelectProjectFilter={(value) => setSelectedProjectFilter(value as ProjectFilter)}
                 setSelectedTaskName={setSelectedTaskName}
                 toggleTaskSearch={toggleTaskSearch}
                 setTaskSearch={setTaskSearch}
@@ -1230,6 +1321,18 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   openTaskInfo: { flex: 1 },
+  openTaskProjectBadge: {
+    alignSelf: "flex-start",
+    borderRadius: DesignTokens.radius.xs,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    marginBottom: 4,
+  },
+  openTaskProjectText: {
+    fontSize: DesignTokens.fontSize.caption2,
+    fontWeight: "700" as const,
+    letterSpacing: 0.2,
+  },
   openTaskLabel: {
     fontSize: DesignTokens.fontSize.footnote,
     fontWeight: "600" as const,
