@@ -43,6 +43,8 @@ export interface Task {
   id: string;
   name: string;
   label: string;
+  taskId?: string;
+  project?: "NP" | "OTS" | "OTHER";
 }
 
 export type ActionType = "ASSIGN" | "COMPLETE" | "CANCEL" | "NOTE_ONLY";
@@ -138,6 +140,7 @@ export interface TaskActualRow {
 
 export interface FullLogEntry {
   collector: string;
+  taskId?: string;
   taskName: string;
   status: string;
   loggedHours: number;

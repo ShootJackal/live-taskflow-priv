@@ -52,6 +52,13 @@ import {
 } from "@/services/googleSheets";
 import type { RigStatus } from "@/types";
 import SelectPicker from "@/components/SelectPicker";
+import {
+  buildTaskProjectLabel,
+  extractTaskProject,
+  getProjectFilterOptions,
+  matchesProjectFilter,
+  type ProjectFilter,
+} from "@/utils/taskProject";
 
 const atStyles = StyleSheet.create({
   container: { gap: DesignTokens.spacing.sm },
@@ -174,6 +181,17 @@ const atStyles = StyleSheet.create({
   taskMeta: { flexDirection: "row", alignItems: "center", gap: DesignTokens.spacing.sm },
   taskHours: { fontSize: 12, fontWeight: "600" as const },
   taskGood: { fontSize: 12, fontWeight: "500" as const },
+  projectTag: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderRadius: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    fontSize: 11,
+    fontWeight: "700" as const,
+    letterSpacing: 0.2,
+  },
+  taskLabelRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
   activityRow: { flexDirection: "row", alignItems: "center", borderTopWidth: 1, paddingTop: DesignTokens.spacing.sm, marginTop: DesignTokens.spacing.sm, gap: DesignTokens.spacing.sm },
   activityDot: { width: 6, height: 6, borderRadius: 3 },
   activityContent: { flex: 1 },
@@ -204,6 +222,7 @@ export function AdminToolsPanel({
   const [controlCollector, setControlCollector] = useState("");
   const [controlTask, setControlTask] = useState("");
   const [controlTaskSearch, setControlTaskSearch] = useState("");
+  const [taskProjectFilter, setTaskProjectFilter] = useState<ProjectFilter>("overall");
   const [controlHours, setControlHours] = useState("0.50");
   const [controlNotes, setControlNotes] = useState("");
   const [isRunningTaskAction, setIsRunningTaskAction] = useState(false);
@@ -217,10 +236,15 @@ export function AdminToolsPanel({
     () => collectors.map((c) => ({ value: c.name, label: c.name })),
     [collectors]
   );
-  const taskOptions = useMemo(
-    () => tasks.map((t) => ({ value: t.name, label: t.label || t.name })),
-    [tasks]
+  const projectOptions = useMemo(
+    () => getProjectFilterOptions().map((option) => ({ value: option.value, label: option.label })),
+    []
   );
+  const taskOptions = useMemo(() => {
+    return tasks
+      .filter((task) => matchesProjectFilter(taskProjectFilter, extractTaskProject(task.name, task.taskId).project))
+      .map((t) => ({ value: t.name, label: buildTaskProjectLabel(t.label || t.name, t.taskId) }));
+  }, [tasks, taskProjectFilter]);
   const awardOptions = useMemo(
     () => AWARD_OPTIONS.map((name) => ({ value: name, label: name })),
     []
@@ -230,6 +254,13 @@ export function AdminToolsPanel({
     if (!controlCollector && collectors.length > 0) setControlCollector(collectors[0].name);
     if (!awardCollector && collectors.length > 0) setAwardCollector(collectors[0].name);
   }, [collectors, controlCollector, awardCollector]);
+
+  useEffect(() => {
+    if (!controlTask) return;
+    if (!taskOptions.some((option) => option.value === controlTask)) {
+      setControlTask("");
+    }
+  }, [controlTask, taskOptions]);
 
   const fullLogQuery = useQuery<FullLogEntry[]>({
     queryKey: ["adminFullLog"],
@@ -268,19 +299,26 @@ export function AdminToolsPanel({
 
   const recentActivity = useMemo(() => {
     const entries = fullLogQuery.data ?? [];
-    return entries.slice(0, 15);
-  }, [fullLogQuery.data]);
+    return entries
+      .filter((entry) =>
+        matchesProjectFilter(taskProjectFilter, extractTaskProject(entry.taskName, entry.taskId).project)
+      )
+      .slice(0, 15);
+  }, [fullLogQuery.data, taskProjectFilter]);
 
   const taskProgress = useMemo(() => {
     const tasks = taskActualsQuery.data ?? [];
     return tasks
+      .filter((t) =>
+        matchesProjectFilter(taskProjectFilter, extractTaskProject(t.taskName, t.taskId).project)
+      )
       .filter(t => {
         const st = normalizeTaskStatus(t.status);
         return !COMPLETED_TASK_STATUSES.has(st);
       })
       .sort((a, b) => (Number(b.remainingHours) || 0) - (Number(a.remainingHours) || 0))
       .slice(0, 12);
-  }, [taskActualsQuery.data]);
+  }, [taskActualsQuery.data, taskProjectFilter]);
 
   const teamPerformance = useMemo(() => {
     const entries = leaderboardQuery.data ?? [];
@@ -440,7 +478,10 @@ export function AdminToolsPanel({
       Alert.alert("Search task", "Type part of a task name first.");
       return;
     }
-    const match = tasks.find((task) => {
+    const filteredTasks = tasks.filter((task) =>
+      matchesProjectFilter(taskProjectFilter, extractTaskProject(task.name, task.taskId).project)
+    );
+    const match = filteredTasks.find((task) => {
       const name = String(task.name ?? "").toLowerCase();
       const label = String(task.label ?? task.name ?? "").toLowerCase();
       return name.includes(term) || label.includes(term);
@@ -452,7 +493,7 @@ export function AdminToolsPanel({
     }
     setControlTask(match.name);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, [controlTaskSearch, tasks]);
+  }, [controlTaskSearch, tasks, taskProjectFilter]);
 
   const handleGrantAward = useCallback(async () => {
     const collector = awardCollector.trim();
@@ -511,6 +552,15 @@ export function AdminToolsPanel({
           onValueChange={setControlCollector}
           placeholder="Select collector..."
           testID="admin-control-collector"
+        />
+        <View style={atStyles.controlSpacer} />
+        <SelectPicker
+          label="Project"
+          options={projectOptions}
+          selectedValue={taskProjectFilter}
+          onValueChange={(value) => setTaskProjectFilter(value as ProjectFilter)}
+          placeholder="Overall (All Projects)"
+          testID="admin-control-project"
         />
         <View style={atStyles.controlSpacer} />
         <SelectPicker
@@ -762,8 +812,15 @@ export function AdminToolsPanel({
           const total = collected + remaining;
           const pct = total > 0 ? Math.min(collected / total, 1) : 0;
           const isRecollect = normalizeTaskStatus(task.status) === "RECOLLECT";
+          const projectMeta = extractTaskProject(task.taskName, task.taskId);
+          const projectTag = projectMeta.taskCode || (projectMeta.project === "OTHER" ? "OTHER" : projectMeta.project);
           return (
             <View key={`tp_${idx}`} style={[atStyles.taskRow, { borderTopColor: colors.border }]}>
+              <View style={atStyles.taskLabelRow}>
+                <Text style={[atStyles.projectTag, { color: colors.accent, borderColor: colors.accent + "40" }]}>
+                  {projectTag}
+                </Text>
+              </View>
               <View style={atStyles.taskInfo}>
                 {getStatusIcon(task.status)}
                 <Text style={[atStyles.taskName, { color: colors.textPrimary }]} numberOfLines={1}>{task.taskName}</Text>
@@ -807,12 +864,19 @@ export function AdminToolsPanel({
           const statusColor = entry.status === "Completed" ? colors.complete
             : entry.status === "Canceled" ? colors.cancel
             : colors.accent;
+          const projectMeta = extractTaskProject(entry.taskName, entry.taskId);
+          const projectTag = projectMeta.taskCode || (projectMeta.project === "OTHER" ? "OTHER" : projectMeta.project);
           return (
             <View key={`ra_${idx}`} style={[atStyles.activityRow, { borderTopColor: colors.border }]}>
               <View style={[atStyles.activityDot, { backgroundColor: statusColor }]} />
               <View style={atStyles.activityContent}>
                 <Text style={[atStyles.activityCollector, { color: colors.textPrimary }]} numberOfLines={1}>{entry.collector}</Text>
-                <Text style={[atStyles.activityTask, { color: colors.textSecondary }]} numberOfLines={1}>{entry.taskName}</Text>
+                <View style={atStyles.taskLabelRow}>
+                  <Text style={[atStyles.projectTag, { color: colors.accent, borderColor: colors.accent + "40" }]}>
+                    {projectTag}
+                  </Text>
+                  <Text style={[atStyles.activityTask, { color: colors.textSecondary, flex: 1 }]} numberOfLines={1}>{entry.taskName}</Text>
+                </View>
               </View>
               <View style={atStyles.activityRight}>
                 <Text style={[atStyles.activityHours, { color: statusColor }]}>{Number(entry.loggedHours).toFixed(2)}h</Text>
