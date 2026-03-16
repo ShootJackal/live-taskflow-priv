@@ -6,7 +6,11 @@ export interface TaskProjectMeta {
   taskCode: string;
 }
 
-const PROJECT_CODE_RE = /^((NP|OTS)[\s_-]*[A-Z0-9]*)\b/i;
+// Matches a full task-ID token: prefix + optional separator + digits (e.g. NP-001, OTS045, OTS 12)
+// [A-Z0-9]* was intentionally narrowed to \d+ so free-text names like "NP Nexus Pilot Build"
+// don't get captured as bogus codes like "NPNEXUS".
+const PROJECT_CODE_RE = /^((NP|OTS)[-_\s]*\d+)/i;
+// Fallback: name/id just starts with the prefix keyword
 const PROJECT_ONLY_RE = /^(NP|OTS)\b/i;
 
 function normalizeTaskCode(raw: string): string {

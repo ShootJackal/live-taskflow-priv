@@ -813,14 +813,16 @@ export function AdminToolsPanel({
           const pct = total > 0 ? Math.min(collected / total, 1) : 0;
           const isRecollect = normalizeTaskStatus(task.status) === "RECOLLECT";
           const projectMeta = extractTaskProject(task.taskName, task.taskId);
-          const projectTag = projectMeta.taskCode || (projectMeta.project === "OTHER" ? "OTHER" : projectMeta.project);
+          const projectTag = projectMeta.taskCode || (projectMeta.project === "OTHER" ? "" : projectMeta.project);
           return (
             <View key={`tp_${idx}`} style={[atStyles.taskRow, { borderTopColor: colors.border }]}>
-              <View style={atStyles.taskLabelRow}>
-                <Text style={[atStyles.projectTag, { color: colors.accent, borderColor: colors.accent + "40" }]}>
-                  {projectTag}
-                </Text>
-              </View>
+              {projectTag !== "" && (
+                <View style={atStyles.taskLabelRow}>
+                  <Text style={[atStyles.projectTag, { color: colors.accent, borderColor: colors.accent + "40" }]}>
+                    {projectTag}
+                  </Text>
+                </View>
+              )}
               <View style={atStyles.taskInfo}>
                 {getStatusIcon(task.status)}
                 <Text style={[atStyles.taskName, { color: colors.textPrimary }]} numberOfLines={1}>{task.taskName}</Text>
@@ -865,16 +867,18 @@ export function AdminToolsPanel({
             : entry.status === "Canceled" ? colors.cancel
             : colors.accent;
           const projectMeta = extractTaskProject(entry.taskName, entry.taskId);
-          const projectTag = projectMeta.taskCode || (projectMeta.project === "OTHER" ? "OTHER" : projectMeta.project);
+          const projectTag = projectMeta.taskCode || (projectMeta.project === "OTHER" ? "" : projectMeta.project);
           return (
             <View key={`ra_${idx}`} style={[atStyles.activityRow, { borderTopColor: colors.border }]}>
               <View style={[atStyles.activityDot, { backgroundColor: statusColor }]} />
               <View style={atStyles.activityContent}>
                 <Text style={[atStyles.activityCollector, { color: colors.textPrimary }]} numberOfLines={1}>{entry.collector}</Text>
                 <View style={atStyles.taskLabelRow}>
-                  <Text style={[atStyles.projectTag, { color: colors.accent, borderColor: colors.accent + "40" }]}>
-                    {projectTag}
-                  </Text>
+                  {projectTag !== "" && (
+                    <Text style={[atStyles.projectTag, { color: colors.accent, borderColor: colors.accent + "40" }]}>
+                      {projectTag}
+                    </Text>
+                  )}
                   <Text style={[atStyles.activityTask, { color: colors.textSecondary, flex: 1 }]} numberOfLines={1}>{entry.taskName}</Text>
                 </View>
               </View>
