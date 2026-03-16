@@ -1524,11 +1524,25 @@ function handleGetCollectors() {
 
 function handleGetTasks() {
   var data = getSheetData(TASKFLOW_SHEETS.TASK_LIST);
+
+  var taskIdMap = {};
+  try {
+    var taRows = getTaskActualRows();
+    for (var t = 0; t < taRows.length; t++) {
+      var tName = safeStr(taRows[t].taskName).replace(/^[\u2705]\s*/, '').trim();
+      var tId   = safeStr(taRows[t].taskId).trim();
+      if (tName && tId) taskIdMap[tName.toLowerCase()] = tId;
+    }
+  } catch (e) { /* best-effort */ }
+
   var results = [];
   for (var i = 1; i < data.length; i++) {
     var name = safeStr(data[i][0]).replace(/^[\u2705]\s*/, '').trim();
     if (!name) continue;
-    results.push({ name: name });
+    var entry = { name: name };
+    var taskId = taskIdMap[name.toLowerCase()] || '';
+    if (taskId) entry.taskId = taskId;
+    results.push(entry);
   }
   writeCache('tasks', results);
   return results;
