@@ -89,6 +89,22 @@ export function AdminOverview({
     return { totalTasks, completedTasks, recollectTasks, inProgressTasks };
   }, [taskActuals, projectFilter]);
 
+  // All hooks must be called before any conditional return.
+  const filteredRecollections = useMemo(
+    () =>
+      (data?.recollections ?? []).filter((taskName) =>
+        matchesProjectFilter(projectFilter, extractTaskProject(taskName).project)
+      ),
+    [data?.recollections, projectFilter]
+  );
+  const filteredTaskRequirements = useMemo(
+    () =>
+      (data?.taskRequirements ?? []).filter((req) =>
+        matchesProjectFilter(projectFilter, extractTaskProject(req.taskName).project)
+      ),
+    [data?.taskRequirements, projectFilter]
+  );
+
   const isLoading = taskActualsQuery.isLoading || (isAdmin && adminQuery.isLoading);
   if (isLoading) {
     return (
@@ -116,20 +132,6 @@ export function AdminOverview({
   ];
 
   const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-  const filteredRecollections = useMemo(
-    () =>
-      (data?.recollections ?? []).filter((taskName) =>
-        matchesProjectFilter(projectFilter, extractTaskProject(taskName).project)
-      ),
-    [data?.recollections, projectFilter]
-  );
-  const filteredTaskRequirements = useMemo(
-    () =>
-      (data?.taskRequirements ?? []).filter((req) =>
-        matchesProjectFilter(projectFilter, extractTaskProject(req.taskName).project)
-      ),
-    [data?.taskRequirements, projectFilter]
-  );
 
   return (
     <View style={[adminStyles.card, { backgroundColor: colors.bgCard, shadowColor: colors.shadow }]}>
